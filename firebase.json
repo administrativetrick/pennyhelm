@@ -1,0 +1,37 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "node_modules/**",
+      "data/**",
+      "server.js",
+      "package.json",
+      "package-lock.json",
+      "firebase-service-account.json",
+      "firestore.rules",
+      "firestore.indexes.json",
+      ".firebaserc",
+      ".claude/**",
+      "*.md",
+      "*.db*"
+    ],
+    "rewrites": [
+      {
+        "source": "/app",
+        "destination": "/app.html"
+      },
+      {
+        "source": "/app/**",
+        "destination": "/app.html"
+      },
+      {
+        "source": "/login",
+        "destination": "/login.html"
+      }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

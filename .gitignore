@@ -1,0 +1,17 @@
+node_modules/
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Firebase
+firebase-service-account.json
+.firebase/
+.firebaserc
+
+# Claude
+.claude/
+
+# Temp files
+nul
+C*scratchpad*

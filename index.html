@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CashPilot - Take Control of Your Finances</title>
+    <meta name="description" content="Track bills, accounts, debts, and taxes in one place. Self-host for total privacy or use CashPilot Cloud for seamless access anywhere.">
+    <link rel="stylesheet" href="css/landing.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="landing-nav">
+        <div class="landing-nav-inner">
+            <div class="landing-logo">
+                <div class="logo-mark">CP</div>
+                <span class="logo-text">CashPilot</span>
+            </div>
+            <div class="landing-nav-links">
+                <a href="#features">Features</a>
+                <a href="#pricing">Pricing</a>
+                <a href="/login" class="nav-btn">Sign In</a>
+            </div>
+            <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content">
+            <h1>Your Finances.<br><span class="text-gradient">Your Rules.</span></h1>
+            <p class="hero-subtitle">
+                Track bills, accounts, debts, and cashflow in one powerful dashboard.
+                Self-host for total privacy or use CashPilot Cloud for seamless access anywhere.
+            </p>
+            <div class="hero-ctas">
+                <a href="/login" class="btn btn-primary btn-lg">
+                    <span>Start Free Trial</span>
+                    <span class="btn-sub">30 days free &middot; No card required</span>
+                </a>
+                <a href="#selfhost" class="btn btn-ghost btn-lg">
+                    <span>Self Host</span>
+                    <span class="btn-sub">Free &middot; Run on your machine</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="section-inner">
+            <h2 class="section-title">Everything you need to manage your money</h2>
+            <p class="section-subtitle">Powerful tools, zero complexity</p>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon blue">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                    </div>
+                    <h3>Dashboard</h3>
+                    <p>See your complete financial picture at a glance. Income, bills, net worth, and pay period breakdowns.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon green">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </div>
+                    <h3>Bill Tracking</h3>
+                    <p>Track every bill with due dates, autopay status, payment sources, and multi-frequency support.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon purple">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    </div>
+                    <h3>Cashflow Analysis</h3>
+                    <p>Waterfall charts, 6-month projections, and income vs. expense breakdowns by category.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon cyan">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/><path d="M6 16h4"/></svg>
+                    </div>
+                    <h3>Accounts</h3>
+                    <p>Checking, savings, credit cards, investments, and property all in one place with auto-linked debts.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon red">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    </div>
+                    <h3>Debt Payoff</h3>
+                    <p>Avalanche or snowball strategies with 12-month projections and payment scheduling.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon orange">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    </div>
+                    <h3>Tax Management</h3>
+                    <p>Track deductions, upload documents, and organize by tax year with built-in category totals.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing / Choose Your Path -->
+    <section class="pricing" id="pricing">
+        <div class="section-inner">
+            <h2 class="section-title">Choose Your Path</h2>
+            <p class="section-subtitle">Both options give you the full CashPilot experience</p>
+            <div class="path-cards">
+                <div class="path-card">
+                    <div class="path-header">
+                        <h3>Self Host</h3>
+                        <div class="path-price">Free<span> forever</span></div>
+                    </div>
+                    <ul class="path-features">
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Run on your own machine
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Complete data ownership
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            No accounts or tracking
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Full feature access
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Community support
+                        </li>
+                    </ul>
+                    <a href="#selfhost" class="btn btn-ghost btn-block">Get Started</a>
+                </div>
+                <div class="path-card featured">
+                    <div class="path-badge">Recommended</div>
+                    <div class="path-header">
+                        <h3>CashPilot Cloud</h3>
+                        <div class="path-price">$5<span>/month</span></div>
+                        <div class="path-trial">30-day free trial</div>
+                    </div>
+                    <ul class="path-features">
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Access from any device
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Automatic backups
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            No setup required
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Full feature access
+                        </li>
+                        <li>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            Priority support
+                        </li>
+                    </ul>
+                    <a href="/login" class="btn btn-primary btn-block">Start Free Trial</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Self Host Instructions -->
+    <section class="selfhost" id="selfhost">
+        <div class="section-inner">
+            <h2 class="section-title">Self-Host in 3 Steps</h2>
+            <p class="section-subtitle">Up and running in under a minute</p>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Clone</h4>
+                        <code>git clone https://github.com/administrativetrick/cashpilot.git</code>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Install</h4>
+                        <code>cd cashpilot && npm install</code>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Launch</h4>
+                        <code>npm start</code>
+                    </div>
+                </div>
+            </div>
+            <p class="steps-note">Open <strong>http://localhost:8081</strong> and you're ready to go. All data stays on your machine.</p>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="landing-footer">
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <div class="logo-mark">CP</div>
+                <span>CashPilot</span>
+            </div>
+            <div class="footer-links">
+                <a href="#">Privacy</a>
+                <a href="#">Terms</a>
+                <a href="https://github.com/administrativetrick/cashpilot">GitHub</a>
+            </div>
+            <div class="footer-copy">&copy; 2025 CashPilot. All rights reserved.</div>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile menu toggle
+        const menuBtn = document.getElementById('mobile-menu-btn');
+        const navLinks = document.querySelector('.landing-nav-links');
+        if (menuBtn) {
+            menuBtn.addEventListener('click', () => {
+                navLinks.classList.toggle('open');
+            });
+        }
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(a => {
+            a.addEventListener('click', e => {
+                const target = document.querySelector(a.getAttribute('href'));
+                if (target) {
+                    e.preventDefault();
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    navLinks.classList.remove('open');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

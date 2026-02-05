@@ -1,0 +1,13 @@
+{
+  "name": "cashpilot",
+  "version": "1.0.0",
+  "description": "CashPilot - Personal finance tracker with SQLite backend",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "better-sqlite3": "^11.7.0",
+    "firebase-admin": "^12.0.0"
+  }
+}
