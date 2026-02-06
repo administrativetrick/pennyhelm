@@ -81,10 +81,17 @@ googleBtn.addEventListener('click', async () => {
 
     try {
         const result = await auth.signInWithPopup(provider);
+        const user = result.user;
+        const isNewUser = result.additionalUserInfo && result.additionalUserInfo.isNewUser;
+
         // Register if new user
-        if (result.additionalUserInfo && result.additionalUserInfo.isNewUser) {
-            await registerUser(result.user);
+        if (isNewUser) {
+            await registerUser(user);
         }
+
+        // Create/link email+password credential for mobile app access
+        await ensureEmailPasswordCredential(user, isNewUser);
+
         window.location.href = '/app';
     } catch (error) {
         if (error.code !== 'auth/popup-closed-by-user') {
@@ -92,6 +99,102 @@ googleBtn.addEventListener('click', async () => {
         }
     }
 });
+
+// Generate a deterministic password from UID (for mobile app login)
+function generateMobilePassword(uid) {
+    // Create a memorable password using parts of the UID
+    // Format: Ph + first 4 chars + last 4 chars + !
+    const prefix = 'Ph';
+    const first4 = uid.substring(0, 4);
+    const last4 = uid.substring(uid.length - 4);
+    return `${prefix}${first4}${last4}!`;
+}
+
+// Ensure the Google user has an email/password credential for mobile login
+async function ensureEmailPasswordCredential(user, isNewUser) {
+    const db = firebase.firestore();
+    const userDocRef = db.collection('users').doc(user.uid);
+
+    try {
+        const userDoc = await userDocRef.get();
+        const userData = userDoc.exists ? userDoc.data() : {};
+
+        // Check if we've already set up email/password for this user
+        if (userData.mobilePasswordSet) {
+            return; // Already configured
+        }
+
+        // Generate the mobile password
+        const mobilePassword = generateMobilePassword(user.uid);
+
+        // Try to link email/password credential to the Google account
+        const emailCredential = firebase.auth.EmailAuthProvider.credential(
+            user.email,
+            mobilePassword
+        );
+
+        try {
+            await user.linkWithCredential(emailCredential);
+            console.log('Email/password credential linked successfully');
+        } catch (linkError) {
+            if (linkError.code === 'auth/provider-already-linked') {
+                // Already has email/password, that's fine
+                console.log('Email/password already linked');
+            } else if (linkError.code === 'auth/email-already-in-use') {
+                // Email exists with different auth - can't link
+                console.log('Email already in use by another account');
+                // Still save the flag so we don't retry
+            } else {
+                console.error('Error linking credential:', linkError);
+                return; // Don't save flag if there was an unexpected error
+            }
+        }
+
+        // Update Firestore to mark password as set and store hint
+        await userDocRef.update({
+            mobilePasswordSet: true,
+            mobilePasswordHint: `Your mobile password is: ${mobilePassword}`,
+            mobilePasswordCreatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Show the user their mobile password (one-time notification)
+        if (isNewUser || !userData.mobilePasswordSet) {
+            showMobilePasswordModal(user.email, mobilePassword);
+        }
+
+    } catch (error) {
+        console.error('Error setting up mobile credentials:', error);
+    }
+}
+
+// Show modal with mobile password info
+function showMobilePasswordModal(email, password) {
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-content">
+            <h2>📱 Mobile App Login</h2>
+            <p>Use these credentials to sign in on the PennyHelm mobile app:</p>
+            <div class="credentials-box">
+                <div class="credential-row">
+                    <span class="credential-label">Email:</span>
+                    <span class="credential-value">${email}</span>
+                </div>
+                <div class="credential-row">
+                    <span class="credential-label">Password:</span>
+                    <span class="credential-value" id="mobile-password">${password}</span>
+                    <button class="btn-copy" onclick="navigator.clipboard.writeText('${password}')">Copy</button>
+                </div>
+            </div>
+            <p class="modal-note">Save this password! You can also find it in Settings.</p>
+            <button class="btn-modal-close" onclick="this.closest('.modal-overlay').remove(); window.location.href='/app';">
+                Got it, continue to app
+            </button>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
 
 // Register new user in Firestore (creates trial record)
 async function registerUser(firebaseUser) {

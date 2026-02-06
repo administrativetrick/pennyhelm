@@ -1,5 +1,6 @@
 import { formatCurrency, escapeHtml, getScoreRating, estimateScoreImpact } from '../utils.js';
 import { openModal, closeModal, refreshPage, updateDependentNav } from '../app.js';
+import { auth } from '../auth.js';
 
 export function renderSettings(container, store) {
     const userName = store.getUserName();
@@ -29,6 +30,24 @@ export function renderSettings(container, store) {
                 </div>
             </div>
         </div>
+
+        ${auth.isCloud() ? `
+        <div class="card mb-24">
+            <div class="settings-section">
+                <h3>📱 Mobile App</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                    Use these credentials to sign in on the PennyHelm mobile app.
+                </p>
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label">Mobile App Login</div>
+                        <div class="setting-desc" id="mobile-credentials-status">Loading...</div>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="show-mobile-password">Show Password</button>
+                </div>
+            </div>
+        </div>
+        ` : ''}
 
         <div class="card mb-24">
             <div class="settings-section">
@@ -258,6 +277,94 @@ export function renderSettings(container, store) {
             }
         });
     });
+
+    // Mobile app credentials (cloud mode only)
+    if (auth.isCloud()) {
+        const showMobilePasswordBtn = container.querySelector('#show-mobile-password');
+        const credentialsStatus = container.querySelector('#mobile-credentials-status');
+
+        // Load mobile credentials from Firestore
+        const loadMobileCredentials = async () => {
+            try {
+                const user = auth.getUser();
+                if (!user) return;
+
+                const db = firebase.firestore();
+                const userDoc = await db.collection('users').doc(user.uid).get();
+
+                if (userDoc.exists && userDoc.data().mobilePasswordSet) {
+                    const data = userDoc.data();
+                    credentialsStatus.innerHTML = `Email: <strong>${escapeHtml(user.email)}</strong>`;
+                } else {
+                    credentialsStatus.innerHTML = 'Not set up yet. Sign in with Google to generate mobile credentials.';
+                    showMobilePasswordBtn.style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Error loading mobile credentials:', e);
+                credentialsStatus.textContent = 'Error loading credentials';
+            }
+        };
+
+        loadMobileCredentials();
+
+        if (showMobilePasswordBtn) {
+            showMobilePasswordBtn.addEventListener('click', async () => {
+                try {
+                    const user = auth.getUser();
+                    if (!user) return;
+
+                    const db = firebase.firestore();
+                    const userDoc = await db.collection('users').doc(user.uid).get();
+
+                    if (userDoc.exists && userDoc.data().mobilePasswordHint) {
+                        const hint = userDoc.data().mobilePasswordHint;
+                        openModal('📱 Mobile App Login', `
+                            <div style="padding:8px 0 16px;font-size:14px;">
+                                <p style="margin-bottom:16px;color:var(--text-secondary);">Use these credentials in the PennyHelm mobile app:</p>
+                                <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
+                                    <div style="margin-bottom:12px;">
+                                        <span style="font-size:12px;color:var(--text-muted);">Email:</span><br>
+                                        <span style="font-family:monospace;color:var(--accent);">${escapeHtml(user.email)}</span>
+                                    </div>
+                                    <div>
+                                        <span style="font-size:12px;color:var(--text-muted);">Password:</span><br>
+                                        <span style="font-family:monospace;color:var(--accent);" id="mobile-pw-value">${escapeHtml(hint.replace('Your mobile password is: ', ''))}</span>
+                                        <button class="btn btn-secondary btn-sm" id="copy-mobile-pw" style="margin-left:8px;padding:4px 8px;font-size:11px;">Copy</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-actions">
+                                <button class="btn btn-primary" id="modal-close">Close</button>
+                            </div>
+                        `);
+                        document.getElementById('modal-close').addEventListener('click', closeModal);
+                        document.getElementById('copy-mobile-pw').addEventListener('click', () => {
+                            const pw = document.getElementById('mobile-pw-value').textContent;
+                            navigator.clipboard.writeText(pw);
+                            document.getElementById('copy-mobile-pw').textContent = 'Copied!';
+                            setTimeout(() => {
+                                document.getElementById('copy-mobile-pw').textContent = 'Copy';
+                            }, 2000);
+                        });
+                    } else {
+                        openModal('Mobile Credentials Not Found', `
+                            <div style="padding:8px 0 16px;font-size:14px;">
+                                <p>Mobile credentials haven't been set up yet.</p>
+                                <p style="margin-top:12px;color:var(--text-secondary);font-size:13px;">Sign out and sign in again with Google to generate your mobile app password.</p>
+                            </div>
+                            <div class="modal-actions">
+                                <button class="btn btn-primary" id="modal-close">Close</button>
+                            </div>
+                        `);
+                        document.getElementById('modal-close').addEventListener('click', closeModal);
+                    }
+                } catch (e) {
+                    console.error('Error showing mobile password:', e);
+                    alert('Error loading credentials. Please try again.');
+                }
+            });
+        }
+    }
 
     // Credit score - user
     container.querySelector('#update-user-score').addEventListener('click', () => {
