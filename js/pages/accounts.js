@@ -1,8 +1,12 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
+import { auth } from '../auth.js';
+import { connectBank, refreshPlaidBalances, hasPlaidConnections } from '../plaid.js';
 
 export function renderAccounts(container, store) {
     const accounts = store.getAccounts();
+    const isCloud = auth.isCloud();
+    const hasPlaid = hasPlaidConnections(store);
 
     // Calculate totals
     const cashTotal = accounts.filter(a => a.type === 'checking' || a.type === 'savings').reduce((s, a) => s + a.balance, 0);
@@ -20,7 +24,8 @@ export function renderAccounts(container, store) {
                 <h2>Accounts & Investments</h2>
                 <div class="subtitle">${accounts.length} account${accounts.length !== 1 ? 's' : ''} &middot; Net: ${formatCurrency(netTotal)}</div>
             </div>
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                ${isCloud ? '<button class="btn btn-secondary" id="connect-bank-btn" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
                 <button class="btn btn-secondary" id="scan-statement-btn">Scan Statement</button>
                 <button class="btn btn-primary" id="add-account-btn">+ Add Account</button>
             </div>
@@ -63,7 +68,16 @@ export function renderAccounts(container, store) {
             </div>
         </div>
 
-        <div class="card" style="margin-top:24px;">
+        ${hasPlaid ? `
+        <div style="margin-top:16px;display:flex;justify-content:flex-end;">
+            <button class="btn btn-secondary btn-sm" id="refresh-plaid-btn" style="display:flex;align-items:center;gap:6px;font-size:12px;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Refresh Plaid Balances
+            </button>
+        </div>
+        ` : ''}
+
+        <div class="card" style="margin-top:${hasPlaid ? '12' : '24'}px;">
             <h3 style="margin-bottom:16px;">All Accounts</h3>
             <div id="accounts-list">
                 ${accounts.map(a => {
@@ -71,6 +85,7 @@ export function renderAccounts(container, store) {
                     const typeLabel = typeLabels[a.type] || 'Checking';
                     const balanceClass = a.type === 'credit' ? 'text-red' : 'text-green';
                     const isLinked = !!a.linkedDebtId;
+                    const isPlaid = !!a.plaidAccountId;
                     const linkedDebt = isLinked ? store.getDebts().find(d => d.id === a.linkedDebtId) : null;
                     const balanceHtml = a.type === 'property' ? (() => {
                         const owed = a.amountOwed || 0;
@@ -86,6 +101,7 @@ export function renderAccounts(container, store) {
                         <div style="flex:1;min-width:150px;">
                             <div class="setting-label">
                                 ${escapeHtml(a.name)}
+                                ${isPlaid ? `<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:rgba(16,185,129,0.1);color:#10b981;border:1px solid rgba(16,185,129,0.3);border-radius:4px;vertical-align:middle;" title="${escapeHtml(a.plaidInstitution || 'Bank')} &middot; ****${a.plaidMask || ''}">&#127974; ${escapeHtml(a.plaidInstitution || 'Bank')}</span>` : ''}
                                 ${isLinked ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;border-radius:4px;vertical-align:middle;" title="Linked to debt">&#128279; Linked</span>' : ''}
                             </div>
                             <div class="setting-desc">${typeLabel} &middot; Updated ${updated}${linkedDebt ? ` &middot; ${linkedDebt.interestRate.toFixed(1)}% APR &middot; ${formatCurrency(linkedDebt.minimumPayment)} min` : ''}</div>
@@ -110,7 +126,10 @@ export function renderAccounts(container, store) {
             <div style="font-size:48px;margin-bottom:16px;">&#127974;</div>
             <h3 style="margin-bottom:8px;">No accounts tracked</h3>
             <p style="color:var(--text-muted);margin-bottom:24px;">Add your bank accounts, investments, and property to track your net worth.</p>
-            <button class="btn btn-primary" id="empty-add-account">+ Add Your First Account</button>
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                ${isCloud ? '<button class="btn btn-primary" id="empty-connect-bank" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
+                <button class="btn ${isCloud ? 'btn-secondary' : 'btn-primary'}" id="empty-add-account">+ Add Manually</button>
+            </div>
         </div>
         `}
 
@@ -125,6 +144,48 @@ export function renderAccounts(container, store) {
     const emptyAddBtn = container.querySelector('#empty-add-account');
     if (emptyAddBtn) {
         emptyAddBtn.addEventListener('click', () => showAccountForm(store));
+    }
+
+    const emptyConnectBtn = container.querySelector('#empty-connect-bank');
+    if (emptyConnectBtn) {
+        emptyConnectBtn.addEventListener('click', () => {
+            connectBank(store, () => refreshPage());
+        });
+    }
+
+    // Connect Bank button (cloud only)
+    const connectBankBtn = container.querySelector('#connect-bank-btn');
+    if (connectBankBtn) {
+        connectBankBtn.addEventListener('click', () => {
+            connectBank(store, () => refreshPage());
+        });
+    }
+
+    // Refresh Plaid Balances button
+    const refreshPlaidBtn = container.querySelector('#refresh-plaid-btn');
+    if (refreshPlaidBtn) {
+        refreshPlaidBtn.addEventListener('click', async () => {
+            refreshPlaidBtn.disabled = true;
+            refreshPlaidBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Refreshing...
+            `;
+            try {
+                const result = await refreshPlaidBalances(store);
+                if (result.errors > 0) {
+                    alert(`Refreshed ${result.updated} account(s), but ${result.errors} connection(s) had errors.`);
+                }
+                refreshPage();
+            } catch (err) {
+                console.error('Refresh error:', err);
+                alert('Failed to refresh balances. Please try again.');
+                refreshPlaidBtn.disabled = false;
+                refreshPlaidBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Refresh Plaid Balances
+                `;
+            }
+        });
     }
 
     container.querySelector('#scan-statement-btn').addEventListener('click', () => {

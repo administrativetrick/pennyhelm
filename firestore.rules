@@ -2,32 +2,111 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // User profiles — only the user can read/write their own doc
-    match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-
-      // Create: must be own doc, must start as trial, required fields present
-      allow create: if request.auth != null && request.auth.uid == userId
-                    && request.resource.data.subscriptionStatus == 'trial'
-                    && request.resource.data.keys().hasAll(['email', 'trialStartDate', 'subscriptionStatus', 'createdAt']);
-
-      // Update: cannot modify subscriptionStatus, trialStartDate, or createdAt
-      allow update: if request.auth != null && request.auth.uid == userId
-                    && (!request.resource.data.diff(resource.data).affectedKeys()
-                        .hasAny(['subscriptionStatus', 'trialStartDate', 'createdAt']));
+    // Admin check — reads custom claim from signed JWT (cannot be forged)
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
     }
 
-    // User finance data — only the user can access their own data
-    match /userData/{userId} {
-      // Read always allowed (for data export even when expired)
-      allow read: if request.auth != null && request.auth.uid == userId;
+    // User profiles
+    match /users/{userId} {
+      // Users read own doc; admin reads any
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
 
-      // Write blocked if subscription expired
-      allow write: if request.auth != null && request.auth.uid == userId
-                   && (
-                     !exists(/databases/$(database)/documents/users/$(userId))
-                     || get(/databases/$(database)/documents/users/$(userId)).data.subscriptionStatus != 'expired'
+      // Create: own doc with required fields, OR admin can create any (test users)
+      allow create: if isAdmin()
+                    || (request.auth != null && request.auth.uid == userId
+                        && request.resource.data.subscriptionStatus == 'trial'
+                        && request.resource.data.keys().hasAll(['email', 'trialStartDate', 'subscriptionStatus', 'createdAt']));
+
+      // Update: admin can change anything; user can change non-protected fields;
+      // user can change protected fields ONLY during trial code redemption
+      allow update: if request.auth != null && (
+                      isAdmin()
+                      || (request.auth.uid == userId
+                          && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny(['subscriptionStatus', 'trialStartDate', 'createdAt']))
+                      || (request.auth.uid == userId
+                          && request.resource.data.subscriptionStatus == 'trial'
+                          && 'trialCode' in request.resource.data
+                          && request.resource.data.trialCode is string
+                          && exists(/databases/$(database)/documents/trialCodeLookup/$(request.resource.data.trialCode))
+                          && get(/databases/$(database)/documents/trialCodeLookup/$(request.resource.data.trialCode)).data.active == true)
+                    );
+
+      // Delete: admin only (for test user cleanup)
+      allow delete: if isAdmin();
+    }
+
+    // User finance data
+    // Note: User data is stored as JSON string in the 'data' field, so we cannot
+    // check sharedWith in security rules. Shared access is checked by the Cloud Functions
+    // which have admin access and can read the JSON. For basic access, we verify via
+    // a separate sharedWithUids array stored at the document root level.
+    match /userData/{userId} {
+      // Check if current user has been granted access via sharedWithUids array
+      // (This array is maintained by Cloud Functions alongside the JSON sharedWith)
+      function hasSharedAccess() {
+        return request.auth != null
+               && exists(/databases/$(database)/documents/userData/$(userId))
+               && 'sharedWithUids' in get(/databases/$(database)/documents/userData/$(userId)).data
+               && request.auth.uid in get(/databases/$(database)/documents/userData/$(userId)).data.sharedWithUids;
+      }
+
+      // Check if user has edit permissions via sharedWithEdit array
+      function hasEditAccess() {
+        return request.auth != null
+               && exists(/databases/$(database)/documents/userData/$(userId))
+               && 'sharedWithEdit' in get(/databases/$(database)/documents/userData/$(userId)).data
+               && request.auth.uid in get(/databases/$(database)/documents/userData/$(userId)).data.sharedWithEdit;
+      }
+
+      // Users read own data; admin reads any; invited users with access can read
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin() || hasSharedAccess());
+
+      // Users write own data (if not expired); admin writes any; invited users with edit permission can write
+      allow write: if request.auth != null && (
+                     isAdmin()
+                     || (request.auth.uid == userId
+                         && (!exists(/databases/$(database)/documents/users/$(userId))
+                             || get(/databases/$(database)/documents/users/$(userId)).data.subscriptionStatus != 'expired'))
+                     || (hasSharedAccess() && hasEditAccess())
                    );
+    }
+
+    // Invites collection — stores pending invites indexed by email
+    match /invites/{inviteId} {
+      // Anyone can read an invite if they know the ID (sent via email link)
+      allow read: if request.auth != null;
+
+      // Only the owner (inviter) can create/update/delete invites
+      allow create: if request.auth != null && request.resource.data.inviterUid == request.auth.uid;
+      allow update, delete: if request.auth != null
+                            && resource.data.inviterUid == request.auth.uid;
+    }
+
+    // Invite lookup by email — allows users to find invites sent to them
+    match /invitesByEmail/{email} {
+      // Users can read their own invite list
+      allow read: if request.auth != null && request.auth.token.email == email;
+      // Only system (via cloud functions) or admin can write
+      allow write: if isAdmin();
+    }
+
+    // Trial codes management — admin only
+    match /trialCodes/{codeId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Trial code lookup — any authenticated user can read (code string is the secret),
+    // only admin can write
+    match /trialCodeLookup/{codeString} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Plaid items — access_tokens stored here, NEVER readable by client
+    match /plaidItems/{itemId} {
+      allow read, write: if false;
     }
 
     // Deny everything else

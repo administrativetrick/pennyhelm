@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CashPilot</title>
+    <title>PennyHelm</title>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
     <div class="app">
         <nav class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h1 class="logo">CP</h1>
-                <span class="logo-text">CashPilot</span>
+                <h1 class="logo">PH</h1>
+                <span class="logo-text">PennyHelm</span>
             </div>
             <ul class="nav-links">
                 <li><a href="#dashboard" class="nav-link active" data-page="dashboard">
@@ -29,14 +29,6 @@
                 <li><a href="#income" class="nav-link" data-page="income">
                     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                     <span>Income</span>
-                </a></li>
-                <li><a href="#cashflow" class="nav-link" data-page="cashflow">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                    <span>Cashflow</span>
-                </a></li>
-                <li><a href="#dependent" class="nav-link" data-page="dependent">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                    <span>Dependent's Bills</span>
                 </a></li>
                 <li><a href="#accounts" class="nav-link" data-page="accounts">
                     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/><path d="M6 16h4"/></svg>
@@ -77,6 +69,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
+    <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
     <script type="module" src="js/app.js"></script>
 </body>
 </html>

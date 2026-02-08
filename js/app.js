@@ -4,25 +4,23 @@ import { seedSampleData } from './seed.js';
 import { renderDashboard } from './pages/dashboard.js';
 import { renderBills } from './pages/bills.js';
 import { renderCalendar } from './pages/calendar.js';
-import { renderDependent } from './pages/dependent.js';
 import { renderSettings } from './pages/settings.js';
 import { renderAccounts } from './pages/accounts.js';
 import { renderTaxes } from './pages/taxes.js';
 import { renderDebts } from './pages/debts.js';
 import { renderIncome } from './pages/income.js';
-import { renderCashflow } from './pages/cashflow.js';
+import { renderAdmin } from './pages/admin.js';
 
 const pages = {
     dashboard: renderDashboard,
     bills: renderBills,
     calendar: renderCalendar,
-    dependent: renderDependent,
     income: renderIncome,
-    cashflow: renderCashflow,
     debts: renderDebts,
     accounts: renderAccounts,
     taxes: renderTaxes,
-    settings: renderSettings
+    settings: renderSettings,
+    admin: renderAdmin
 };
 
 let currentPage = 'dashboard';
@@ -30,15 +28,12 @@ let currentPage = 'dashboard';
 function navigate(page) {
     if (!pages[page]) page = 'dashboard';
 
-    // If dependent tracking is disabled, redirect away from dependent page
-    if (page === 'dependent' && !store.isDependentEnabled()) {
+    // Guard: admin page only accessible to admins in cloud mode
+    if (page === 'admin' && (!auth.isCloud() || !auth.isAdmin())) {
         page = 'dashboard';
     }
 
     currentPage = page;
-
-    // Update dependent nav visibility
-    updateDependentNav();
 
     // Update nav active states
     document.querySelectorAll('.nav-link').forEach(link => {
@@ -55,30 +50,6 @@ function navigate(page) {
 
     // Update hash
     window.location.hash = page;
-}
-
-function updateDependentNav() {
-    const enabled = store.isDependentEnabled();
-    const depName = store.getDependentName();
-
-    // Update desktop sidebar
-    const sidebarDepLink = document.querySelector('.nav-link[data-page="dependent"]');
-    if (sidebarDepLink) {
-        sidebarDepLink.closest('li').style.display = enabled ? '' : 'none';
-        const span = sidebarDepLink.querySelector('span');
-        if (span) span.textContent = depName + "'s Bills";
-    }
-
-    // Update mobile nav
-    const mobileDepLink = document.querySelector('.mobile-nav a[data-page="dependent"]');
-    if (mobileDepLink) {
-        mobileDepLink.style.display = enabled ? '' : 'none';
-        // Update the text node (after the SVG)
-        const textNodes = [...mobileDepLink.childNodes].filter(n => n.nodeType === 3);
-        if (textNodes.length > 0) {
-            textNodes[textNodes.length - 1].textContent = '\n            ' + depName + '\n        ';
-        }
-    }
 }
 
 // Modal helpers
@@ -99,7 +70,14 @@ export function refreshPage() {
     navigate(currentPage);
 }
 
-export { updateDependentNav };
+// Update dependent-related UI elements in navigation
+export function updateDependentNav() {
+    // Currently no dependent-specific nav items to update
+    // This function is called when dependent settings change
+    // to allow for future expansion of dependent-related nav elements
+}
+
+export { navigate };
 
 // Init
 function init() {
@@ -157,14 +135,6 @@ function createMobileNav() {
         <a href="#income" data-page="income">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             Income
-        </a>
-        <a href="#cashflow" data-page="cashflow">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            Cashflow
-        </a>
-        <a href="#dependent" data-page="dependent">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            Dependent
         </a>
         <a href="#accounts" data-page="accounts">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/><path d="M6 16h4"/></svg>
@@ -274,13 +244,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function checkTrialStatus() {
     try {
+        // Admin users bypass trial expiration
+        if (auth.isAdmin()) return true;
+
         const status = await auth.getUserStatus();
 
         if (status.status === 'expired') {
             showTrialExpiredScreen();
             return false;
         }
-        if (status.status === 'trial' && status.trialDaysRemaining <= 7) {
+        if (status.status === 'trial' && status.trialDaysRemaining <= 7 && !status.isUnlimited) {
             showTrialBanner(status.trialDaysRemaining);
         }
         return true;
@@ -308,13 +281,14 @@ function showTrialExpiredScreen() {
         main.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:center;min-height:80vh;">
                 <div style="max-width:480px;text-align:center;padding:40px;">
-                    <div style="width:64px;height:64px;background:linear-gradient(135deg,#4f8cff,#7c3aed);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;margin:0 auto 24px;">CP</div>
+                    <div style="width:64px;height:64px;background:linear-gradient(135deg,#4f8cff,#7c3aed);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;margin:0 auto 24px;">PH</div>
                     <h1 style="font-size:1.8rem;font-weight:800;margin-bottom:12px;">Your Trial Has Expired</h1>
-                    <p style="color:#9aa0b0;margin-bottom:8px;">Your 30-day free trial of CashPilot Cloud has ended.</p>
-                    <p style="color:#9aa0b0;margin-bottom:32px;">Subscribe to continue using CashPilot Cloud, or export your data and self-host.</p>
+                    <p style="color:#9aa0b0;margin-bottom:8px;">Your free trial of PennyHelm Cloud has ended.</p>
+                    <p style="color:#9aa0b0;margin-bottom:32px;">Subscribe to continue using PennyHelm Cloud, or redeem a trial code.</p>
                     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
                         <button style="padding:12px 28px;background:#4f8cff;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;" onclick="alert('Stripe integration coming soon!')">Subscribe Now</button>
-                        <button style="padding:12px 28px;background:transparent;color:#e8eaed;border:1px solid #2e3348;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;" id="trial-signout">Sign Out</button>
+                        <button style="padding:12px 28px;background:transparent;color:#e8eaed;border:1px solid #2e3348;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;" id="trial-redeem-code">Redeem Code</button>
+                        <button style="padding:12px 28px;background:transparent;color:#9aa0b0;border:1px solid #2e3348;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;" id="trial-signout">Sign Out</button>
                     </div>
                 </div>
             </div>
@@ -323,16 +297,133 @@ function showTrialExpiredScreen() {
         if (signOutBtn) {
             signOutBtn.addEventListener('click', () => auth.signOut());
         }
+        const redeemBtn = document.getElementById('trial-redeem-code');
+        if (redeemBtn) {
+            redeemBtn.addEventListener('click', () => showRedeemCodeModal());
+        }
     }
 }
 
-function addCloudUI() {
-    const sidebar = document.querySelector('.sidebar-header');
-    if (!sidebar) return;
+function showRedeemCodeModal() {
+    openModal('Redeem Trial Code', `
+        <div class="form-group">
+            <label>Enter your trial code</label>
+            <input type="text" class="form-input" id="redeem-code-input"
+                   placeholder="e.g., BETA2026" style="text-transform:uppercase;font-family:monospace;">
+        </div>
+        <div id="redeem-error" style="color:#f87171;font-size:13px;margin-top:8px;display:none;"></div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+            <button class="btn btn-primary" id="modal-redeem">Redeem</button>
+        </div>
+    `);
 
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+    document.getElementById('modal-redeem').addEventListener('click', async () => {
+        const code = document.getElementById('redeem-code-input').value.trim().toUpperCase();
+        const errorDiv = document.getElementById('redeem-error');
+
+        if (!code) {
+            errorDiv.textContent = 'Please enter a code.';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        const db = firebase.firestore();
+        try {
+            // Look up the code
+            const codeDoc = await db.collection('trialCodeLookup').doc(code).get();
+            if (!codeDoc.exists) {
+                errorDiv.textContent = 'Invalid code.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            const codeData = codeDoc.data();
+            if (!codeData.active) {
+                errorDiv.textContent = 'This code is no longer active.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            if (codeData.maxUses > 0 && codeData.currentUses >= codeData.maxUses) {
+                errorDiv.textContent = 'This code has reached its maximum uses.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // Update user's trial status
+            const uid = auth.getUserId();
+            await db.collection('users').doc(uid).update({
+                subscriptionStatus: 'trial',
+                trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
+                trialCode: code,
+                trialDays: codeData.trialDays
+            });
+
+            closeModal();
+            window.location.reload(); // Reload to re-check trial status
+        } catch (e) {
+            errorDiv.textContent = 'Failed to redeem code. Please try again.';
+            errorDiv.style.display = 'block';
+            console.error('Redemption error:', e);
+        }
+    });
+}
+
+function addCloudUI() {
     const user = auth.getUser();
     const displayName = user?.displayName || user?.email || 'User';
 
+    // Add admin nav link if user is admin
+    if (auth.isAdmin()) {
+        const navLinks = document.querySelector('.nav-links');
+        if (navLinks) {
+            const adminLi = document.createElement('li');
+            adminLi.innerHTML = `
+                <a href="#admin" class="nav-link" data-page="admin">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/>
+                    </svg>
+                    <span>Admin</span>
+                </a>
+            `;
+            // Insert before Settings
+            const settingsLi = navLinks.querySelector('[data-page="settings"]')?.closest('li');
+            if (settingsLi) {
+                navLinks.insertBefore(adminLi, settingsLi);
+            } else {
+                navLinks.appendChild(adminLi);
+            }
+
+            adminLi.querySelector('.nav-link').addEventListener('click', (e) => {
+                e.preventDefault();
+                navigate('admin');
+            });
+        }
+
+        // Also add to mobile nav if it exists
+        const mobileNav = document.querySelector('.mobile-nav');
+        if (mobileNav) {
+            const settingsMobileLink = mobileNav.querySelector('[data-page="settings"]');
+            if (settingsMobileLink) {
+                const adminMobileLink = document.createElement('a');
+                adminMobileLink.href = '#admin';
+                adminMobileLink.dataset.page = 'admin';
+                adminMobileLink.innerHTML = `
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/>
+                    </svg>
+                    Admin
+                `;
+                mobileNav.insertBefore(adminMobileLink, settingsMobileLink);
+                adminMobileLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigate('admin');
+                });
+            }
+        }
+    }
+
+    // Sign out UI at bottom of sidebar
     const signOutDiv = document.createElement('div');
     signOutDiv.style.cssText = 'padding:8px 18px 12px;border-top:1px solid var(--border);';
     signOutDiv.innerHTML = `

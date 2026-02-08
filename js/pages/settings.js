@@ -8,7 +8,8 @@ export function renderSettings(container, store) {
     const depEnabled = store.isDependentEnabled();
     const sources = store.getPaymentSources();
     const bills = store.getBills();
-    const dependentBills = store.getDependentBills();
+    // Dependent bills are now in the main bills array with owner: 'dependent'
+    const dependentBills = bills.filter(b => b.owner === 'dependent');
     const accounts = store.getAccounts();
     const creditScores = store.getCreditScores();
     const totalCreditLimit = accounts.filter(a => a.type === 'credit').reduce((s, a) => s + a.balance, 0);
@@ -214,6 +215,35 @@ export function renderSettings(container, store) {
             </div>
         </div>
 
+        ${auth.isCloud() ? `
+        <div class="card mb-24">
+            <div class="settings-section">
+                <h3>🤝 Sharing & Invites</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                    Invite others to view or collaborate on your finances. Perfect for partners, spouses, or financial professionals.
+                </p>
+
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label">Invite Someone</div>
+                        <div class="setting-desc">Share access with a partner, spouse, or financial professional</div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="invite-person-btn">+ Invite</button>
+                </div>
+
+                <div id="pending-invites-section" style="margin-top:16px;display:none;">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PENDING INVITES</div>
+                    <div id="pending-invites-list"></div>
+                </div>
+
+                <div id="shared-with-section" style="margin-top:16px;display:none;">
+                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PEOPLE WITH ACCESS</div>
+                    <div id="shared-with-list"></div>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
         <div class="card">
             <div class="settings-section">
                 <h3>Summary</h3>
@@ -374,6 +404,211 @@ export function renderSettings(container, store) {
                 });
             });
         }
+
+        // Sharing & Invites functionality
+        const inviteBtn = container.querySelector('#invite-person-btn');
+        if (inviteBtn) {
+            // Load and display existing invites/shares
+            const loadInvitesAndShares = () => {
+                const invites = store.getInvites();
+                const sharedWith = store.getSharedWith();
+
+                // Pending invites
+                const pendingSection = container.querySelector('#pending-invites-section');
+                const pendingList = container.querySelector('#pending-invites-list');
+                const pendingInvites = invites.filter(i => i.status === 'pending');
+
+                if (pendingInvites.length > 0) {
+                    pendingSection.style.display = 'block';
+                    pendingList.innerHTML = pendingInvites.map(invite => `
+                        <div class="settings-row" style="background:var(--bg-secondary);padding:10px 12px;border-radius:var(--radius-sm);margin-bottom:6px;">
+                            <div>
+                                <div class="setting-label" style="font-size:13px;">${escapeHtml(invite.email)}</div>
+                                <div class="setting-desc" style="font-size:11px;">
+                                    ${invite.type === 'partner' ? '👫 Partner' : invite.type === 'cpa' ? '📊 CPA' : '💼 Financial Planner'}
+                                    · ${invite.permissions === 'edit' ? 'Can edit' : 'View only'}
+                                    · Sent ${new Date(invite.invitedAt).toLocaleDateString()}
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:6px;">
+                                <button class="btn-icon resend-invite" data-id="${invite.id}" title="Resend">📧</button>
+                                <button class="btn-icon cancel-invite" data-id="${invite.id}" title="Cancel" style="color:var(--red);">✕</button>
+                            </div>
+                        </div>
+                    `).join('');
+
+                    // Cancel invite handlers
+                    pendingList.querySelectorAll('.cancel-invite').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const id = btn.dataset.id;
+                            if (confirm('Cancel this invite?')) {
+                                store.deleteInvite(id);
+                                loadInvitesAndShares();
+                            }
+                        });
+                    });
+                } else {
+                    pendingSection.style.display = 'none';
+                }
+
+                // People with access
+                const sharedSection = container.querySelector('#shared-with-section');
+                const sharedList = container.querySelector('#shared-with-list');
+
+                if (sharedWith.length > 0) {
+                    sharedSection.style.display = 'block';
+                    sharedList.innerHTML = sharedWith.map(person => `
+                        <div class="settings-row" style="background:var(--bg-secondary);padding:10px 12px;border-radius:var(--radius-sm);margin-bottom:6px;">
+                            <div>
+                                <div class="setting-label" style="font-size:13px;">${escapeHtml(person.email)}</div>
+                                <div class="setting-desc" style="font-size:11px;">
+                                    ${person.type === 'partner' ? '👫 Partner' : person.type === 'cpa' ? '📊 CPA' : '💼 Financial Planner'}
+                                    · ${person.permissions === 'edit' ? 'Can edit' : 'View only'}
+                                    · Shared ${new Date(person.sharedAt).toLocaleDateString()}
+                                </div>
+                            </div>
+                            <button class="btn btn-secondary btn-sm revoke-access" data-uid="${person.uid}" style="color:var(--red);">Revoke</button>
+                        </div>
+                    `).join('');
+
+                    // Revoke access handlers
+                    sharedList.querySelectorAll('.revoke-access').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const uid = btn.dataset.uid;
+                            if (confirm('Revoke access for this person? They will no longer be able to view your finances.')) {
+                                store.revokeAccess(uid);
+                                loadInvitesAndShares();
+                            }
+                        });
+                    });
+                } else {
+                    sharedSection.style.display = 'none';
+                }
+            };
+
+            loadInvitesAndShares();
+
+            // Invite button click
+            inviteBtn.addEventListener('click', () => {
+                openModal('Invite Someone', `
+                    <div class="form-group">
+                        <label>Email Address</label>
+                        <input type="email" class="form-input" id="invite-email" placeholder="name@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Relationship Type</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                            <label class="invite-type-option" style="flex:1;min-width:120px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;text-align:center;">
+                                <input type="radio" name="invite-type" value="partner" checked style="display:none;">
+                                <div style="font-size:24px;margin-bottom:4px;">👫</div>
+                                <div style="font-size:12px;font-weight:600;">Partner / Spouse</div>
+                                <div style="font-size:10px;color:var(--text-muted);">Someone you share finances with</div>
+                            </label>
+                            <label class="invite-type-option" style="flex:1;min-width:120px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;text-align:center;">
+                                <input type="radio" name="invite-type" value="financial-planner" style="display:none;">
+                                <div style="font-size:24px;margin-bottom:4px;">💼</div>
+                                <div style="font-size:12px;font-weight:600;">Financial Planner</div>
+                                <div style="font-size:10px;color:var(--text-muted);">Professional advisor</div>
+                            </label>
+                            <label class="invite-type-option" style="flex:1;min-width:120px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;text-align:center;">
+                                <input type="radio" name="invite-type" value="cpa" style="display:none;">
+                                <div style="font-size:24px;margin-bottom:4px;">📊</div>
+                                <div style="font-size:12px;font-weight:600;">CPA / Accountant</div>
+                                <div style="font-size:10px;color:var(--text-muted);">Tax professional</div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Permissions</label>
+                        <select class="form-select" id="invite-permissions">
+                            <option value="view">View only — can see but not change anything</option>
+                            <option value="edit">Can edit — can make changes to bills, accounts, etc.</option>
+                        </select>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                        <button class="btn btn-primary" id="modal-send-invite">Send Invite</button>
+                    </div>
+                    <style>
+                        .invite-type-option:has(input:checked) {
+                            border-color: var(--accent);
+                            background: rgba(79, 140, 255, 0.1);
+                        }
+                    </style>
+                `);
+
+                document.getElementById('modal-cancel').addEventListener('click', closeModal);
+                document.getElementById('modal-send-invite').addEventListener('click', async () => {
+                    const email = document.getElementById('invite-email').value.trim().toLowerCase();
+                    const type = document.querySelector('input[name="invite-type"]:checked').value;
+                    const permissions = document.getElementById('invite-permissions').value;
+
+                    if (!email || !email.includes('@')) {
+                        alert('Please enter a valid email address');
+                        return;
+                    }
+
+                    // Check if already invited
+                    const existingInvites = store.getInvites();
+                    if (existingInvites.find(i => i.email === email && i.status === 'pending')) {
+                        alert('This email has already been invited');
+                        return;
+                    }
+
+                    // Check if already has access
+                    const sharedWith = store.getSharedWith();
+                    if (sharedWith.find(s => s.email === email)) {
+                        alert('This person already has access');
+                        return;
+                    }
+
+                    const sendBtn = document.getElementById('modal-send-invite');
+                    sendBtn.disabled = true;
+                    sendBtn.textContent = 'Sending...';
+
+                    try {
+                        // Call Cloud Function to send invite email
+                        const functions = firebase.functions();
+                        const sendInviteFn = functions.httpsCallable('sendInvite');
+                        const result = await sendInviteFn({ email, type, permissions });
+
+                        if (result.data.success) {
+                            // Also create invite in local store for UI display
+                            store.addInvite({
+                                id: result.data.inviteId,
+                                email,
+                                type,
+                                permissions
+                            });
+
+                            closeModal();
+                            openModal('Invite Sent', `
+                                <div style="padding:8px 0 16px;font-size:14px;text-align:center;">
+                                    <div style="font-size:48px;margin-bottom:12px;">✉️</div>
+                                    <p style="color:var(--green);font-weight:600;">Invite sent to ${escapeHtml(email)}!</p>
+                                    <p style="margin-top:12px;color:var(--text-secondary);font-size:13px;">
+                                        They'll receive an email with instructions to access your finances.
+                                        ${type === 'partner' ? 'Once they accept, they can view and collaborate on your shared finances.' :
+                                          type === 'cpa' ? 'Once they accept, they can review your finances for tax preparation.' :
+                                          'Once they accept, they can review your finances to provide planning advice.'}
+                                    </p>
+                                </div>
+                                <div class="modal-actions">
+                                    <button class="btn btn-primary" id="modal-close">Done</button>
+                                </div>
+                            `);
+                            document.getElementById('modal-close').addEventListener('click', closeModal);
+                            loadInvitesAndShares();
+                        }
+                    } catch (err) {
+                        console.error('Error sending invite:', err);
+                        sendBtn.disabled = false;
+                        sendBtn.textContent = 'Send Invite';
+                        alert('Failed to send invite. Please try again.');
+                    }
+                });
+            });
+        }
     }
 
     // Credit score - user
@@ -473,10 +708,13 @@ export function renderSettings(container, store) {
     // Dependent enabled toggle
     container.querySelector('#dep-enabled-toggle').addEventListener('change', (e) => {
         store.setDependentEnabled(e.target.checked);
-        // When enabling, auto-cover all dependent bills
+        // When enabling, auto-cover all dependent bills (now using owner field in main bills array)
         if (e.target.checked) {
-            store.getDependentBills().forEach(b => {
-                if (!b.userCovering) store.toggleDependentCovering(b.id);
+            const allBills = store.getBills();
+            allBills.filter(b => b.owner === 'dependent').forEach(b => {
+                if (!b.userCovering) {
+                    store.updateBill(b.id, { ...b, userCovering: true });
+                }
             });
         }
         updateDependentNav();

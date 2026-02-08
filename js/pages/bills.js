@@ -3,18 +3,28 @@ import { openModal, closeModal, refreshPage } from '../app.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-let billsViewMode = 'paycheck'; // 'paycheck' or 'month'
+let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
+let cfPeriodOffset = 0; // For cashflow view pay period navigation
 let billsSortCol = 'dueDay';
 let billsSortDir = 'asc';
 let selectedBillIds = new Set();
+let selectionMode = false; // Mobile multi-select mode
+let billsOwnerFilter = 'all'; // 'all', 'user', or 'dependent'
 
 export function renderBills(container, store) {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
     const userName = store.getUserName();
-    const allBills = store.getBills();
+    const depName = store.getDependentName();
+    const depEnabled = store.isDependentEnabled();
+    const rawBills = store.getBills();
     const sources = store.getPaymentSources();
+
+    // Filter bills by owner
+    const allBills = billsOwnerFilter === 'all'
+        ? rawBills
+        : rawBills.filter(b => (b.owner || 'user') === billsOwnerFilter);
 
     // Determine current pay period for paycheck view
     const payDates = store.getPayDates();
@@ -88,6 +98,16 @@ export function renderBills(container, store) {
                 return true;
             }
 
+            // Weekly bills: always show (they occur every week)
+            if (b.frequency === 'weekly') {
+                return true;
+            }
+
+            // Biweekly bills: always show (they occur every other week, roughly aligns with paychecks)
+            if (b.frequency === 'biweekly') {
+                return true;
+            }
+
             const dueThisMonth = new Date(periodStart.getFullYear(), periodStart.getMonth(), b.dueDay);
             const dueNextMonth = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, b.dueDay);
             return (dueThisMonth >= periodStart && dueThisMonth <= periodEnd) ||
@@ -108,19 +128,39 @@ export function renderBills(container, store) {
         ? `Current Paycheck (${periodLabel})`
         : 'Full Month';
 
+    // Render Cashflow view if selected
+    if (billsViewMode === 'cashflow') {
+        renderCashflowView(container, store, allBills, sources, categories, year, month, payDates);
+        return;
+    }
+
+    // Build page title based on owner filter
+    const pageTitle = billsOwnerFilter === 'dependent' ? `${escapeHtml(depName)}'s Bills`
+        : billsOwnerFilter === 'user' ? `${escapeHtml(userName)}'s Bills`
+        : 'All Bills';
+
     container.innerHTML = `
         <div class="page-header">
             <div>
-                <h2>${escapeHtml(userName)}'s Bills</h2>
+                <h2>${pageTitle}</h2>
                 <div class="subtitle">${billsViewMode === 'paycheck' ? `${bills.length} bills this period${periodicBills.length > 0 ? ` + ${periodicBills.length} annual/semi-annual` : ''}` : `${allRegularBills.length} bills + ${allPeriodicBills.length} annual/semi-annual &middot; ${allBills.filter(b => b.frozen).length} frozen`}</div>
             </div>
             <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
         </div>
 
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+            ${depEnabled ? `
+            <select class="form-select" id="owner-filter" style="font-size:12px;padding:4px 8px;min-width:140px;">
+                <option value="all" ${billsOwnerFilter === 'all' ? 'selected' : ''}>All Bills</option>
+                <option value="user" ${billsOwnerFilter === 'user' ? 'selected' : ''}>${escapeHtml(userName)}'s Bills</option>
+                <option value="dependent" ${billsOwnerFilter === 'dependent' ? 'selected' : ''}>${escapeHtml(depName)}'s Bills</option>
+            </select>
+            <span style="border-left:1px solid var(--border);height:20px;margin:0 4px;"></span>
+            ` : ''}
             <span style="font-size:12px;color:var(--text-secondary);">View:</span>
-            <button class="btn btn-sm ${billsViewMode === 'paycheck' ? 'btn-primary' : 'btn-secondary'}" id="view-paycheck">Current Paycheck</button>
-            <button class="btn btn-sm ${billsViewMode === 'month' ? 'btn-primary' : 'btn-secondary'}" id="view-month">Full Month</button>
+            <button class="btn btn-sm ${billsViewMode === 'paycheck' ? 'btn-primary' : 'btn-secondary'}" id="view-paycheck">Paycheck</button>
+            <button class="btn btn-sm ${billsViewMode === 'month' ? 'btn-primary' : 'btn-secondary'}" id="view-month">Month</button>
+            <button class="btn btn-sm ${billsViewMode === 'cashflow' ? 'btn-primary' : 'btn-secondary'}" id="view-cashflow">Cashflow</button>
             ${billsViewMode === 'paycheck' && periodLabel ? `<span style="font-size:12px;color:var(--text-muted);margin-left:4px;">${periodLabel}</span>` : ''}
         </div>
 
@@ -146,7 +186,7 @@ export function renderBills(container, store) {
                     </tr>
                 </thead>
                 <tbody id="bills-tbody">
-                    ${renderBillRows(sortBills(bills, store, year, month), store, year, month)}
+                    ${renderBillRows(sortBills(bills, store, year, month), store, year, month, depEnabled, userName, depName)}
                 </tbody>
             </table>
         </div>
@@ -173,7 +213,7 @@ export function renderBills(container, store) {
                         </tr>
                     </thead>
                     <tbody id="periodic-bills-tbody">
-                        ${renderBillRows(sortBills(periodicBills, store, year, month), store, year, month)}
+                        ${renderBillRows(sortBills(periodicBills, store, year, month), store, year, month, depEnabled, userName, depName)}
                     </tbody>
                 </table>
             </div>
@@ -182,7 +222,11 @@ export function renderBills(container, store) {
 
         ${(() => {
             const regularTotal = bills.filter(b => !b.frozen && !b.excludeFromTotal).reduce((s, b) => {
-                if (billsViewMode === 'month' && b.frequency === 'per-paycheck') return s + b.amount * 2;
+                if (billsViewMode === 'month') {
+                    if (b.frequency === 'per-paycheck') return s + b.amount * 2;
+                    if (b.frequency === 'weekly') return s + b.amount * 4;
+                    if (b.frequency === 'biweekly') return s + b.amount * 2;
+                }
                 return s + b.amount;
             }, 0);
             const periodicDueTotal = (() => {
@@ -214,7 +258,7 @@ export function renderBills(container, store) {
         })()}
 
         ${(() => {
-            if (selectedBillIds.size === 0) return '<div id="selection-bar" style="display:none;"></div>';
+            if (!selectionMode && selectedBillIds.size === 0) return '<div id="selection-bar" style="display:none;"></div>';
             const selectedBills = [...selectedBillIds].map(id => allBills.find(b => b.id === id)).filter(Boolean);
             const bySource = {};
             selectedBills.forEach(b => {
@@ -224,18 +268,30 @@ export function renderBills(container, store) {
             });
             const sourceEntries = Object.entries(bySource).sort((a, b) => a[0].localeCompare(b[0]));
             const grandTotal = selectedBills.reduce((s, b) => s + b.amount, 0);
-            return `<div id="selection-bar" style="display:flex;position:fixed;bottom:0;left:170px;right:0;background:var(--bg-card);border-top:2px solid var(--accent);padding:12px 24px;align-items:center;justify-content:space-between;z-index:100;box-shadow:0 -2px 12px rgba(0,0,0,0.3);">
-                <div style="display:flex;align-items:center;gap:12px;">
-                    <span style="font-size:13px;color:var(--text-secondary);">${selectedBillIds.size} bill${selectedBillIds.size !== 1 ? 's' : ''} selected</span>
-                    <button class="btn btn-sm btn-secondary" id="clear-selection">Clear</button>
+            const visibleBillIds = [...bills, ...periodicBills].map(b => b.id);
+            const allSelected = visibleBillIds.length > 0 && visibleBillIds.every(id => selectedBillIds.has(id));
+            return `<div id="selection-bar" class="selection-bar">
+                <div class="selection-bar-actions">
+                    <span class="selection-count">${selectedBillIds.size} selected</span>
+                    <button class="btn btn-sm btn-secondary" id="select-all-btn">${allSelected ? 'Deselect All' : 'Select All'}</button>
+                    <button class="btn btn-sm btn-primary" id="clear-selection">Done</button>
                 </div>
-                <div style="display:flex;align-items:center;gap:20px;">
-                    ${sourceEntries.map(([src, total]) => `<div style="text-align:right;"><div style="font-size:10px;color:var(--text-muted);margin-bottom:1px;">${escapeHtml(src)}</div><div style="font-size:14px;font-weight:600;color:var(--text-primary);">${formatCurrency(total)}</div></div>`).join('')}
-                    ${sourceEntries.length > 1 ? `<div style="border-left:1px solid var(--border);padding-left:20px;text-align:right;"><div style="font-size:10px;color:var(--text-muted);margin-bottom:1px;">Total</div><div style="font-size:16px;font-weight:700;color:var(--accent);">${formatCurrency(grandTotal)}</div></div>` : ''}
+                <div class="selection-bar-totals">
+                    ${sourceEntries.map(([src, total]) => `<div class="selection-source"><span class="source-name">${escapeHtml(src)}</span><span class="source-total">${formatCurrency(total)}</span></div>`).join('')}
+                    ${selectedBillIds.size > 0 ? `<div class="selection-grand-total"><span class="total-label">Total</span><span class="total-amount">${formatCurrency(grandTotal)}</span></div>` : ''}
                 </div>
             </div>`;
         })()}
     `;
+
+    // Owner filter dropdown
+    const ownerFilter = container.querySelector('#owner-filter');
+    if (ownerFilter) {
+        ownerFilter.addEventListener('change', () => {
+            billsOwnerFilter = ownerFilter.value;
+            renderBills(container, store);
+        });
+    }
 
     // View toggle events
     container.querySelector('#view-paycheck').addEventListener('click', () => {
@@ -246,10 +302,15 @@ export function renderBills(container, store) {
         billsViewMode = 'month';
         renderBills(container, store);
     });
+    container.querySelector('#view-cashflow').addEventListener('click', () => {
+        billsViewMode = 'cashflow';
+        cfPeriodOffset = 0;
+        renderBills(container, store);
+    });
 
     // Event: Add bill
     container.querySelector('#add-bill-btn').addEventListener('click', () => {
-        showBillForm(store, sources, categories);
+        showBillForm(store, sources, categories, null, depEnabled, userName, depName);
     });
 
     // Event: Filter chips
@@ -259,14 +320,14 @@ export function renderBills(container, store) {
             chip.classList.add('active');
             const filter = chip.dataset.filter;
             const tbody = container.querySelector('#bills-tbody');
-            tbody.innerHTML = renderBillRows(sortBills(filterBills(bills, filter), store, year, month), store, year, month);
-            attachRowEvents(tbody, store, allBills, sources, categories, year, month);
+            tbody.innerHTML = renderBillRows(sortBills(filterBills(bills, filter), store, year, month), store, year, month, depEnabled, userName, depName);
+            attachRowEvents(tbody, store, allBills, sources, categories, year, month, depEnabled, userName, depName);
             attachSelectionEvents(tbody);
             // Also filter periodic bills section
             const periodicTbody = container.querySelector('#periodic-bills-tbody');
             if (periodicTbody) {
-                periodicTbody.innerHTML = renderBillRows(sortBills(filterBills(periodicBills, filter), store, year, month), store, year, month);
-                attachRowEvents(periodicTbody, store, allBills, sources, categories, year, month);
+                periodicTbody.innerHTML = renderBillRows(sortBills(filterBills(periodicBills, filter), store, year, month), store, year, month, depEnabled, userName, depName);
+                attachRowEvents(periodicTbody, store, allBills, sources, categories, year, month, depEnabled, userName, depName);
                 attachSelectionEvents(periodicTbody);
             }
         });
@@ -286,16 +347,81 @@ export function renderBills(container, store) {
         });
     });
 
-    // Multi-select: Ctrl/Cmd+click or Shift+click on rows
+    // Multi-select: Ctrl/Cmd+click, Shift+click, or long-press (mobile) on rows
     function attachSelectionEvents(tbody) {
         tbody.querySelectorAll('tr[data-bill-id]').forEach(tr => {
+            let longPressTimer = null;
+            let touchStartX = 0;
+            let touchStartY = 0;
+
+            // Long press for mobile
+            tr.addEventListener('touchstart', (e) => {
+                if (e.target.closest('button, input, label, a, .toggle')) return;
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                longPressTimer = setTimeout(() => {
+                    // Vibrate if supported
+                    if (navigator.vibrate) navigator.vibrate(50);
+                    selectionMode = true;
+                    const billId = tr.dataset.billId;
+                    if (selectedBillIds.has(billId)) {
+                        selectedBillIds.delete(billId);
+                    } else {
+                        selectedBillIds.add(billId);
+                    }
+                    renderBills(container, store);
+                }, 500);
+            }, { passive: true });
+
+            tr.addEventListener('touchmove', (e) => {
+                // Cancel long press if finger moves too much
+                if (longPressTimer) {
+                    const moveX = Math.abs(e.touches[0].clientX - touchStartX);
+                    const moveY = Math.abs(e.touches[0].clientY - touchStartY);
+                    if (moveX > 10 || moveY > 10) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
+                }
+            }, { passive: true });
+
+            tr.addEventListener('touchend', () => {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            });
+
+            tr.addEventListener('touchcancel', () => {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            });
+
+            // Tap to select when in selection mode (mobile)
             tr.addEventListener('click', (e) => {
                 // Don't select when clicking on interactive elements
                 if (e.target.closest('button, input, label, a, .toggle')) return;
+
+                const billId = tr.dataset.billId;
+
+                // If in selection mode, toggle on tap
+                if (selectionMode) {
+                    e.preventDefault();
+                    if (selectedBillIds.has(billId)) {
+                        selectedBillIds.delete(billId);
+                    } else {
+                        selectedBillIds.add(billId);
+                    }
+                    renderBills(container, store);
+                    return;
+                }
+
+                // Desktop: Ctrl/Cmd+click or Shift+click
                 if (!e.ctrlKey && !e.metaKey && !e.shiftKey) return;
 
                 e.preventDefault();
-                const billId = tr.dataset.billId;
 
                 if (e.shiftKey && selectedBillIds.size > 0) {
                     // Shift+click: select range from last selected to this row
@@ -310,6 +436,7 @@ export function renderBills(container, store) {
                             selectedBillIds.add(allIds[i]);
                         }
                     }
+                    selectionMode = true;
                 } else {
                     // Ctrl/Cmd+click: toggle individual
                     if (selectedBillIds.has(billId)) {
@@ -317,6 +444,7 @@ export function renderBills(container, store) {
                     } else {
                         selectedBillIds.add(billId);
                     }
+                    selectionMode = true;
                 }
                 renderBills(container, store);
             });
@@ -326,20 +454,36 @@ export function renderBills(container, store) {
     const periodicTbodyForSelect = container.querySelector('#periodic-bills-tbody');
     if (periodicTbodyForSelect) attachSelectionEvents(periodicTbodyForSelect);
 
-    // Clear selection button
+    // Select All button
+    const selectAllBtn = container.querySelector('#select-all-btn');
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+            const visibleBillIds = [...bills, ...periodicBills].map(b => b.id);
+            const allSelected = visibleBillIds.every(id => selectedBillIds.has(id));
+            if (allSelected) {
+                visibleBillIds.forEach(id => selectedBillIds.delete(id));
+            } else {
+                visibleBillIds.forEach(id => selectedBillIds.add(id));
+            }
+            renderBills(container, store);
+        });
+    }
+
+    // Clear/Done selection button
     const clearBtn = container.querySelector('#clear-selection');
     if (clearBtn) {
         clearBtn.addEventListener('click', () => {
             selectedBillIds.clear();
+            selectionMode = false;
             renderBills(container, store);
         });
     }
 
     // Attach row events
-    attachRowEvents(container.querySelector('#bills-tbody'), store, allBills, sources, categories, year, month);
+    attachRowEvents(container.querySelector('#bills-tbody'), store, rawBills, sources, categories, year, month, depEnabled, userName, depName);
     const periodicTbody = container.querySelector('#periodic-bills-tbody');
     if (periodicTbody) {
-        attachRowEvents(periodicTbody, store, allBills, sources, categories, year, month);
+        attachRowEvents(periodicTbody, store, rawBills, sources, categories, year, month, depEnabled, userName, depName);
     }
 }
 
@@ -367,8 +511,8 @@ function sortBills(bills, store, year, month) {
                 cmp = (a.category || '').toLowerCase().localeCompare((b.category || '').toLowerCase());
                 break;
             case 'dueDay': {
-                const dayA = a.frequency === 'per-paycheck' ? 99 : (a.dueDay || 0);
-                const dayB = b.frequency === 'per-paycheck' ? 99 : (b.dueDay || 0);
+                const dayA = (a.frequency === 'per-paycheck' || a.frequency === 'weekly' || a.frequency === 'biweekly') ? 99 : (a.dueDay || 0);
+                const dayB = (b.frequency === 'per-paycheck' || b.frequency === 'weekly' || b.frequency === 'biweekly') ? 99 : (b.dueDay || 0);
                 cmp = dayA - dayB;
                 break;
             }
@@ -388,12 +532,14 @@ function sortBills(bills, store, year, month) {
     return sorted;
 }
 
-function renderBillRows(bills, store, year, month) {
+function renderBillRows(bills, store, year, month, depEnabled = false, userName = 'User', depName = 'Dependent') {
     return bills.map(bill => {
         const isPaid = store.isBillPaid(bill.id, year, month);
         const statusClass = bill.frozen ? 'status-frozen' : isPaid ? 'status-paid' : 'status-unpaid';
         const statusText = bill.frozen ? 'FROZEN' : isPaid ? 'Paid' : 'Unpaid';
         const isLinked = !!bill.linkedDebtId;
+        const isDepBill = bill.owner === 'dependent';
+        const isCovering = isDepBill && bill.userCovering;
 
         return `
             <tr data-bill-id="${bill.id}" style="${isPaid ? 'opacity:0.6;' : ''}${bill.frozen ? 'opacity:0.5;' : ''}" class="${selectedBillIds.has(bill.id) ? 'bill-selected' : ''}">
@@ -406,14 +552,16 @@ function renderBillRows(bills, store, year, month) {
                 <td>
                     <div style="font-weight:600;">
                         ${escapeHtml(bill.name)}
+                        ${depEnabled && isDepBill ? `<span style="display:inline-block;margin-left:6px;font-size:9px;padding:1px 5px;background:var(--purple)15;color:var(--purple);border:1px solid var(--purple)40;border-radius:3px;vertical-align:middle;font-weight:600;" title="${escapeHtml(depName)}'s bill">${escapeHtml(depName)}</span>` : ''}
+                        ${isCovering ? `<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:var(--orange)15;color:var(--orange);border:1px solid var(--orange)40;border-radius:3px;vertical-align:middle;font-weight:600;" title="${escapeHtml(userName)} covering">Covering</span>` : ''}
                         ${isLinked ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;border-radius:4px;vertical-align:middle;" title="Linked to debt">&#128279; Linked</span>' : ''}
                         ${bill.excludeFromTotal ? '<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:rgba(251,191,36,0.1);color:var(--yellow);border:1px solid rgba(251,191,36,0.3);border-radius:3px;vertical-align:middle;font-weight:600;letter-spacing:0.3px;" title="Excluded from bill totals">EXCL</span>' : ''}
                     </div>
                     ${bill.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(bill.notes)}</div>` : ''}
                 </td>
-                <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">per check</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : ''}</td>
+                <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">per check</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : ''}</td>
                 <td><span class="badge ${getCategoryBadgeClass(bill.category)}">${escapeHtml(bill.category)}</span></td>
-                <td>${bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Per check</span>' : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
+                <td>${bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Per check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
                 <td style="font-size:12px;">
                     ${escapeHtml(bill.paymentSource || '-')}
                     ${bill.autoPay ? '<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:var(--green)18;color:var(--green);border:1px solid var(--green)40;border-radius:3px;vertical-align:middle;font-weight:600;letter-spacing:0.3px;">AUTO</span>' : ''}
@@ -434,7 +582,7 @@ function renderBillRows(bills, store, year, month) {
     }).join('');
 }
 
-function attachRowEvents(tbody, store, bills, sources, categories, year, month) {
+function attachRowEvents(tbody, store, bills, sources, categories, year, month, depEnabled, userName, depName) {
     // Paid toggles
     tbody.querySelectorAll('.paid-toggle').forEach(toggle => {
         toggle.addEventListener('change', () => {
@@ -447,7 +595,7 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month) 
     tbody.querySelectorAll('.edit-bill').forEach(btn => {
         btn.addEventListener('click', () => {
             const bill = bills.find(b => b.id === btn.dataset.billId);
-            if (bill) showBillForm(store, sources, categories, bill);
+            if (bill) showBillForm(store, sources, categories, bill, depEnabled, userName, depName);
         });
     });
 
@@ -467,15 +615,36 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month) 
     });
 }
 
-function showBillForm(store, sources, categories, existingBill = null) {
+function showBillForm(store, sources, categories, existingBill = null, depEnabled = false, userName = 'User', depName = 'Dependent') {
     const isEdit = !!existingBill;
     const bill = existingBill || {
         name: '', amount: 0, category: '', dueDay: 1,
         frequency: 'monthly', paymentSource: '', frozen: false,
-        autoPay: false, excludeFromTotal: false, notes: ''
+        autoPay: false, excludeFromTotal: false, notes: '',
+        owner: billsOwnerFilter === 'dependent' ? 'dependent' : 'user',
+        userCovering: false
     };
+    const billOwner = bill.owner || 'user';
+    const isDepBill = billOwner === 'dependent';
 
     const formHtml = `
+        ${depEnabled ? `
+        <div class="form-row">
+            <div class="form-group">
+                <label>Bill Owner</label>
+                <select class="form-select" id="bill-owner">
+                    <option value="user" ${billOwner === 'user' ? 'selected' : ''}>${escapeHtml(userName)}</option>
+                    <option value="dependent" ${billOwner === 'dependent' ? 'selected' : ''}>${escapeHtml(depName)}</option>
+                </select>
+            </div>
+            <div class="form-group" id="bill-covering-group" style="${isDepBill ? '' : 'display:none;'}">
+                <label>&nbsp;</label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 0;" title="${escapeHtml(userName)} is covering this bill for ${escapeHtml(depName)}">
+                    <input type="checkbox" id="bill-covering" ${bill.userCovering ? 'checked' : ''}> ${escapeHtml(userName)} covering
+                </label>
+            </div>
+        </div>
+        ` : ''}
         <div class="form-group">
             <label>Bill Name</label>
             <input type="text" class="form-input" id="bill-name" value="${escapeHtml(bill.name)}">
@@ -485,9 +654,21 @@ function showBillForm(store, sources, categories, existingBill = null) {
                 <label>Amount</label>
                 <input type="number" class="form-input" id="bill-amount" step="0.01" value="${bill.amount}">
             </div>
-            <div class="form-group">
+            <div class="form-group" id="bill-due-group" style="${bill.frequency === 'weekly' || bill.frequency === 'biweekly' ? 'display:none;' : ''}">
                 <label>Due Day of Month</label>
                 <input type="number" class="form-input" id="bill-due" min="1" max="31" value="${bill.dueDay}">
+            </div>
+            <div class="form-group" id="bill-dayofweek-group" style="${bill.frequency === 'weekly' || bill.frequency === 'biweekly' ? '' : 'display:none;'}">
+                <label>Day of Week</label>
+                <select class="form-select" id="bill-dayofweek">
+                    <option value="0" ${bill.dueDay === 0 ? 'selected' : ''}>Sunday</option>
+                    <option value="1" ${bill.dueDay === 1 || (!bill.dueDay && bill.frequency !== 'weekly' && bill.frequency !== 'biweekly') ? 'selected' : ''}>Monday</option>
+                    <option value="2" ${bill.dueDay === 2 ? 'selected' : ''}>Tuesday</option>
+                    <option value="3" ${bill.dueDay === 3 ? 'selected' : ''}>Wednesday</option>
+                    <option value="4" ${bill.dueDay === 4 ? 'selected' : ''}>Thursday</option>
+                    <option value="5" ${bill.dueDay === 5 ? 'selected' : ''}>Friday</option>
+                    <option value="6" ${bill.dueDay === 6 ? 'selected' : ''}>Saturday</option>
+                </select>
             </div>
         </div>
         <div class="form-group" id="bill-duemonth-group" style="${bill.frequency === 'yearly' || bill.frequency === 'semi-annual' ? '' : 'display:none;'}">
@@ -558,24 +739,45 @@ function showBillForm(store, sources, categories, existingBill = null) {
 
     openModal(isEdit ? 'Edit Bill' : 'Add New Bill', formHtml);
 
-    // Show/hide due month based on frequency
+    // Show/hide covering checkbox based on owner
+    const ownerSelect = document.getElementById('bill-owner');
+    const coveringGroup = document.getElementById('bill-covering-group');
+    if (ownerSelect && coveringGroup) {
+        ownerSelect.addEventListener('change', () => {
+            coveringGroup.style.display = ownerSelect.value === 'dependent' ? '' : 'none';
+        });
+    }
+
+    // Show/hide fields based on frequency
     const freqSelect = document.getElementById('bill-frequency');
     const dueMonthGroup = document.getElementById('bill-duemonth-group');
     const dueMonthLabel = document.getElementById('bill-duemonth-label');
+    const dueDayGroup = document.getElementById('bill-due-group');
+    const dayOfWeekGroup = document.getElementById('bill-dayofweek-group');
     freqSelect.addEventListener('change', () => {
         const freq = freqSelect.value;
         const showMonth = freq === 'yearly' || freq === 'semi-annual';
+        const showDayOfWeek = freq === 'weekly' || freq === 'biweekly';
         dueMonthGroup.style.display = showMonth ? '' : 'none';
         dueMonthLabel.textContent = freq === 'semi-annual' ? 'First Due Month (repeats 6 months later)' : 'Due Month';
+        dueDayGroup.style.display = showDayOfWeek ? 'none' : '';
+        dayOfWeekGroup.style.display = showDayOfWeek ? '' : 'none';
     });
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
     document.getElementById('modal-save').addEventListener('click', () => {
         const freq = document.getElementById('bill-frequency').value;
+        const isWeeklyType = freq === 'weekly' || freq === 'biweekly';
+        const ownerEl = document.getElementById('bill-owner');
+        const coveringEl = document.getElementById('bill-covering');
+        const owner = ownerEl ? ownerEl.value : 'user';
+
         const data = {
             name: document.getElementById('bill-name').value.trim(),
             amount: parseFloat(document.getElementById('bill-amount').value) || 0,
-            dueDay: parseInt(document.getElementById('bill-due').value) || 1,
+            dueDay: isWeeklyType
+                ? parseInt(document.getElementById('bill-dayofweek').value) || 1
+                : parseInt(document.getElementById('bill-due').value) || 1,
             category: document.getElementById('bill-category').value.trim(),
             paymentSource: document.getElementById('bill-source').value,
             frequency: freq,
@@ -583,7 +785,9 @@ function showBillForm(store, sources, categories, existingBill = null) {
             frozen: document.getElementById('bill-frozen').checked,
             autoPay: document.getElementById('bill-autopay').checked,
             excludeFromTotal: document.getElementById('bill-exclude').checked,
-            notes: document.getElementById('bill-notes').value.trim()
+            notes: document.getElementById('bill-notes').value.trim(),
+            owner: owner,
+            userCovering: owner === 'dependent' && coveringEl ? coveringEl.checked : false
         };
 
         if (!data.name) { alert('Please enter a bill name'); return; }
@@ -603,4 +807,566 @@ function getOrdinal(n) {
     const s = ['th', 'st', 'nd', 'rd'];
     const v = n % 100;
     return s[(v - 20) % 10] || s[v] || s[0];
+}
+
+// =============== CASHFLOW VIEW ===============
+
+function renderCashflowView(container, store, allBills, sources, categories, year, month, payDates) {
+    const now = new Date();
+    const userName = store.getUserName();
+    const income = store.getIncome();
+    const bills = store.getBills();
+    const depEnabled = store.isDependentEnabled();
+    const paySchedule = store.getPaySchedule();
+    const otherIncome = store.getOtherIncome();
+    const combineDepIncome = income.combineDependentIncome !== false;
+    const accounts = store.getAccounts();
+
+    // Monthly income calculation
+    const monthlyMult = getMonthlyMultiplier(paySchedule.frequency);
+    const userPayMonthly = income.user.payAmount * monthlyMult;
+    const otherIncomeMonthly = otherIncome.reduce((s, src) => s + getOtherIncomeMonthly(src), 0);
+    const depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    const totalMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
+
+    // Find dependent bills the user is covering (now using owner field instead of separate array)
+    const depCoveredBills = depEnabled ? bills.filter(b => b.owner === 'dependent' && b.userCovering) : [];
+    const depCoverageTotal = depCoveredBills.reduce((sum, b) => sum + b.amount, 0);
+
+    const monthlyOutflow = bills.reduce((sum, b) => {
+        if (b.frozen || b.excludeFromTotal) return sum;
+        return sum + getBillMonthlyAmount(b, month);
+    }, 0) + depCoverageTotal;
+
+    const netCashflow = totalMonthlyIncome - monthlyOutflow;
+    const savingsRate = totalMonthlyIncome > 0 ? (netCashflow / totalMonthlyIncome * 100) : 0;
+
+    // Category breakdown for waterfall (annualized monthly)
+    const categoryTotals = {};
+    bills.filter(b => !b.frozen && !b.excludeFromTotal).forEach(bill => {
+        const cat = bill.category || 'Uncategorized';
+        if (!categoryTotals[cat]) categoryTotals[cat] = 0;
+        categoryTotals[cat] += getBillAnnualizedMonthly(bill);
+    });
+    if (depCoverageTotal > 0) {
+        categoryTotals['Dependent Coverage'] = depCoverageTotal;
+    }
+    const sortedCategories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
+    const annualizedOutflow = sortedCategories.reduce((s, [, v]) => s + v, 0);
+    const waterfallNet = totalMonthlyIncome - annualizedOutflow;
+
+    // 6-month projection
+    const projection = [];
+    for (let i = 0; i < 6; i++) {
+        const projMonth = (month + i) % 12;
+        const monthExpenses = bills.reduce((sum, b) => {
+            if (b.frozen || b.excludeFromTotal) return sum;
+            return sum + getBillMonthlyAmount(b, projMonth);
+        }, 0) + depCoverageTotal;
+        projection.push({
+            month: projMonth,
+            label: new Date(year, month + i, 1).toLocaleDateString('en-US', { month: 'short' }),
+            income: totalMonthlyIncome,
+            expenses: monthExpenses,
+            net: totalMonthlyIncome - monthExpenses
+        });
+    }
+    const projMax = Math.max(...projection.map(p => Math.max(p.income, p.expenses)));
+
+    // Income sources breakdown
+    const incomeSources = [];
+    if (userPayMonthly > 0) incomeSources.push({ name: store.getUserName() + "'s Pay", amount: userPayMonthly });
+    if (depMonthlyPay > 0) incomeSources.push({ name: store.getDependentName() + "'s Pay", amount: depMonthlyPay });
+    otherIncome.forEach(src => {
+        const amt = getOtherIncomeMonthly(src);
+        if (amt > 0) incomeSources.push({ name: src.name, amount: amt });
+    });
+    const incomeMax = incomeSources.length > 0 ? Math.max(...incomeSources.map(s => s.amount)) : 0;
+    const expenseMax = sortedCategories.length > 0 ? sortedCategories[0][1] : 0;
+
+    // Pay periods
+    const payPeriods = buildPayPeriods(payDates, bills, store, income, year, month, depCoveredBills, otherIncome);
+    const startingBalance = accounts.filter(a => a.type === 'checking' || a.type === 'savings').reduce((s, a) => s + a.balance, 0);
+
+    // Waterfall chart max value
+    const waterfallMax = Math.max(totalMonthlyIncome, annualizedOutflow);
+
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    container.innerHTML = `
+        <div class="page-header">
+            <div>
+                <h2>${escapeHtml(userName)}'s Bills</h2>
+                <div class="subtitle">${monthNames[month]} ${year} Cashflow</div>
+            </div>
+            <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+            <span style="font-size:12px;color:var(--text-secondary);">View:</span>
+            <button class="btn btn-sm btn-secondary" id="view-paycheck">Paycheck</button>
+            <button class="btn btn-sm btn-secondary" id="view-month">Month</button>
+            <button class="btn btn-sm btn-primary" id="view-cashflow">Cashflow</button>
+        </div>
+
+        <!-- Summary Stat Cards -->
+        <div class="card-grid">
+            <div class="stat-card green">
+                <div class="label">Monthly Income</div>
+                <div class="value">${formatCurrency(totalMonthlyIncome)}</div>
+                <div class="sub">${formatCurrency(userPayMonthly)} pay${otherIncomeMonthly > 0 ? ` + ${formatCurrency(otherIncomeMonthly)} other` : ''}${depMonthlyPay > 0 ? ` + ${formatCurrency(depMonthlyPay)} dep` : ''}</div>
+            </div>
+            <div class="stat-card red">
+                <div class="label">Monthly Outflow</div>
+                <div class="value">${formatCurrency(monthlyOutflow)}</div>
+                <div class="sub">${bills.filter(b => !b.frozen && !b.excludeFromTotal).length} bills${depCoverageTotal > 0 ? ` + ${formatCurrency(depCoverageTotal)} dep coverage` : ''}</div>
+            </div>
+            <div class="stat-card ${netCashflow >= 0 ? 'green' : 'red'}">
+                <div class="label">Net Cashflow</div>
+                <div class="value">${netCashflow >= 0 ? '+' : ''}${formatCurrency(netCashflow)}</div>
+                <div class="sub">${totalMonthlyIncome > 0 ? `${Math.abs(netCashflow / totalMonthlyIncome * 100).toFixed(1)}% of income` : 'Income minus outflow'}</div>
+            </div>
+            <div class="stat-card ${savingsRate >= 20 ? 'green' : savingsRate >= 0 ? 'blue' : 'red'}">
+                <div class="label">Savings Rate</div>
+                <div class="value">${savingsRate.toFixed(1)}%</div>
+                <div class="sub">${savingsRate >= 20 ? 'Healthy' : savingsRate >= 10 ? 'Moderate' : savingsRate >= 0 ? 'Low' : 'Negative'}</div>
+            </div>
+        </div>
+
+        <!-- Cashflow Waterfall -->
+        <div class="card mb-24">
+            <h3 class="mb-16">Cashflow Waterfall</h3>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Annualized monthly view — how income flows through expense categories to net cashflow</p>
+            ${waterfallMax > 0 ? `
+            <div class="waterfall-chart">
+                <div class="waterfall-bar-wrapper">
+                    <div class="waterfall-bar-value text-green">${formatCurrency(totalMonthlyIncome)}</div>
+                    <div class="waterfall-bar positive" style="height:${(totalMonthlyIncome / waterfallMax * 100).toFixed(1)}%;"></div>
+                    <div class="waterfall-bar-label">Income</div>
+                </div>
+                ${sortedCategories.map(([cat, amount]) => {
+                    const pct = (amount / waterfallMax * 100).toFixed(1);
+                    return `
+                <div class="waterfall-bar-wrapper">
+                    <div class="waterfall-bar-value text-red">${formatCurrency(amount)}</div>
+                    <div class="waterfall-bar negative" style="height:${pct}%;"></div>
+                    <div class="waterfall-bar-label">${escapeHtml(cat)}</div>
+                </div>`;
+                }).join('')}
+                <div class="waterfall-bar-wrapper">
+                    <div class="waterfall-bar-value" style="color:${waterfallNet >= 0 ? 'var(--green)' : 'var(--orange)'};">${waterfallNet >= 0 ? '+' : ''}${formatCurrency(waterfallNet)}</div>
+                    <div class="waterfall-bar ${waterfallNet >= 0 ? 'net-positive' : 'net-negative'}" style="height:${(Math.abs(waterfallNet) / waterfallMax * 100).toFixed(1)}%;"></div>
+                    <div class="waterfall-bar-label">Net</div>
+                </div>
+            </div>
+            ` : '<div style="font-size:13px;color:var(--text-muted);padding:24px;text-align:center;">No income or bills data to display</div>'}
+        </div>
+
+        <!-- 6-Month Projection -->
+        <div class="card mb-24">
+            <div class="flex-between mb-16">
+                <h3>6-Month Projection</h3>
+                <div style="display:flex;align-items:center;gap:16px;font-size:11px;">
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Income</span>
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--red);border-radius:2px;display:inline-block;"></span> Expenses</span>
+                </div>
+            </div>
+            ${projMax > 0 ? `
+            <div class="timeline-chart">
+                ${projection.map(p => {
+                    const incH = (p.income / projMax * 100).toFixed(1);
+                    const expH = (p.expenses / projMax * 100).toFixed(1);
+                    return `
+                <div class="timeline-month">
+                    <div class="timeline-net" style="color:${p.net >= 0 ? 'var(--green)' : 'var(--red)'};">${p.net >= 0 ? '+' : ''}${formatCurrency(p.net)}</div>
+                    <div class="timeline-bar-group">
+                        <div class="timeline-bar income" style="height:${incH}%;"></div>
+                        <div class="timeline-bar expense" style="height:${expH}%;"></div>
+                    </div>
+                    <div class="timeline-label">${p.label}</div>
+                </div>`;
+                }).join('')}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:8px;text-align:center;">
+                ${projection.map(p => `
+                <div style="font-size:10px;">
+                    <div style="color:var(--text-muted);">Exp: ${formatCurrency(p.expenses)}</div>
+                </div>`).join('')}
+            </div>
+            ` : '<div style="font-size:13px;color:var(--text-muted);padding:24px;text-align:center;">No data to project</div>'}
+        </div>
+
+        <!-- Income vs Expenses Breakdown -->
+        <div class="card mb-24">
+            <h3 class="mb-16">Income vs. Expenses Breakdown</h3>
+            <div class="breakdown-grid">
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:12px;">Income Sources</div>
+                    ${incomeSources.length > 0 ? incomeSources.map(src => {
+                        const pct = totalMonthlyIncome > 0 ? (src.amount / totalMonthlyIncome * 100) : 0;
+                        const barPct = incomeMax > 0 ? (src.amount / incomeMax * 100) : 0;
+                        return `
+                    <div class="breakdown-item">
+                        <div class="flex-between" style="margin-bottom:4px;">
+                            <span style="font-size:13px;font-weight:500;">${escapeHtml(src.name)}</span>
+                            <span style="font-size:13px;font-weight:700;">${formatCurrency(src.amount)} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">(${pct.toFixed(1)}%)</span></span>
+                        </div>
+                        <div class="breakdown-bar"><div class="breakdown-bar-fill green" style="width:${barPct.toFixed(1)}%;"></div></div>
+                    </div>`;
+                    }).join('') : '<div style="font-size:13px;color:var(--text-muted);">No income configured</div>'}
+                    <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:8px;">
+                        <div class="flex-between" style="font-size:13px;font-weight:700;">
+                            <span>Total Income</span>
+                            <span class="text-green">${formatCurrency(totalMonthlyIncome)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:12px;">Expense Categories</div>
+                    ${sortedCategories.length > 0 ? sortedCategories.map(([cat, amount]) => {
+                        const pct = totalMonthlyIncome > 0 ? (amount / totalMonthlyIncome * 100) : 0;
+                        const barPct = expenseMax > 0 ? (amount / expenseMax * 100) : 0;
+                        return `
+                    <div class="breakdown-item">
+                        <div class="flex-between" style="margin-bottom:4px;">
+                            <span style="font-size:13px;font-weight:500;">${escapeHtml(cat)}</span>
+                            <span style="font-size:13px;font-weight:700;">${formatCurrency(amount)} <span style="font-size:11px;color:var(--text-muted);font-weight:400;">(${pct.toFixed(1)}%)</span></span>
+                        </div>
+                        <div class="breakdown-bar"><div class="breakdown-bar-fill red" style="width:${barPct.toFixed(1)}%;"></div></div>
+                    </div>`;
+                    }).join('') : '<div style="font-size:13px;color:var(--text-muted);">No bills configured</div>'}
+                    <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:8px;">
+                        <div class="flex-between" style="font-size:13px;font-weight:700;">
+                            <span>Total Expenses</span>
+                            <span class="text-red">${formatCurrency(annualizedOutflow)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pay Period Cashflow Detail -->
+        ${payPeriods.length > 0 ? (() => {
+            let currentIdx = payPeriods.findIndex(p => p.isCurrent);
+            if (currentIdx === -1) currentIdx = 0;
+            const startIdx = Math.max(0, Math.min(currentIdx + cfPeriodOffset, payPeriods.length - 1));
+            const visiblePeriods = payPeriods.slice(startIdx, startIdx + 3);
+            const canGoPrev = startIdx > 0;
+            const canGoNext = startIdx + 3 < payPeriods.length;
+            const showingCurrent = cfPeriodOffset === 0;
+
+            // Running balance
+            let runningBalance = startingBalance;
+            for (let i = 0; i < startIdx; i++) {
+                runningBalance += payPeriods[i].available;
+            }
+
+            return `
+        <div class="card mb-24">
+            <div class="flex-between mb-16">
+                <div>
+                    <h3>Pay Period Cashflow</h3>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Starting balance: ${formatCurrency(startingBalance)} (checking + savings)</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button class="btn-icon" id="cf-period-prev" ${!canGoPrev ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                    ${!showingCurrent ? '<button class="btn btn-secondary btn-sm" id="cf-period-today" style="font-size:11px;padding:2px 8px;">Current</button>' : ''}
+                    <button class="btn-icon" id="cf-period-next" ${!canGoNext ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                ${visiblePeriods.map(period => {
+                    const periodStart = runningBalance;
+                    const periodEnd = runningBalance + period.available;
+                    runningBalance = periodEnd;
+                    const progressPct = periodStart > 0 ? Math.max(0, Math.min(100, (periodEnd / periodStart) * 100)) : 50;
+                    const isCurrent = period.isCurrent;
+                    const borderStyle = isCurrent ? 'border-color:var(--accent);background:rgba(79,140,255,0.04);' : '';
+                    return `
+                    <div class="card" style="padding:16px;${borderStyle}">
+                        <div class="flex-between mb-16">
+                            <div>
+                                <div style="font-size:14px;font-weight:700;">
+                                    ${isCurrent ? '<span style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:50%;margin-right:6px;"></span>' : ''}
+                                    ${period.label}
+                                </div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">
+                                    ${period.startLabel} &rarr; ${period.endLabel}
+                                </div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-size:12px;color:var(--text-secondary);">${formatCurrency(periodStart)} &rarr;</div>
+                                <div style="font-size:20px;font-weight:700;color:${periodEnd >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCurrency(periodEnd)}</div>
+                            </div>
+                        </div>
+                        <div style="background:var(--bg-input);border-radius:8px;height:8px;overflow:hidden;margin-bottom:12px;">
+                            <div style="height:100%;width:${progressPct}%;background:${periodEnd >= periodStart ? 'var(--green)' : 'var(--red)'};border-radius:8px;"></div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+                            <div style="background:var(--bg-secondary);padding:8px;border-radius:var(--radius-sm);">
+                                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">Income</div>
+                                <div style="font-size:14px;font-weight:700;color:var(--green);">${formatCurrency(income.user.payAmount + period.otherIncomeTotal)}</div>
+                            </div>
+                            <div style="background:var(--bg-secondary);padding:8px;border-radius:var(--radius-sm);">
+                                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">Bills</div>
+                                <div style="font-size:14px;font-weight:700;color:var(--red);">${formatCurrency(period.billsTotal)}</div>
+                            </div>
+                            <div style="background:var(--bg-secondary);padding:8px;border-radius:var(--radius-sm);">
+                                <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">Net</div>
+                                <div style="font-size:14px;font-weight:700;color:${period.available >= 0 ? 'var(--green)' : 'var(--red)'};">${period.available >= 0 ? '+' : ''}${formatCurrency(period.available)}</div>
+                            </div>
+                        </div>
+                        ${period.bills.length > 0 ? `
+                        <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:12px;">
+                            ${period.bills.map(bill => {
+                                const isExcluded = bill.excludeFromTotal;
+                                const isVirtual = bill._virtual;
+                                return `
+                                <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;${isVirtual ? 'color:var(--purple);' : ''}${isExcluded ? 'opacity:0.45;' : ''}">
+                                    <span>${escapeHtml(bill.name)} <span class="text-muted">(${bill.dueDay}${getOrdinal(bill.dueDay)})</span>${isExcluded ? ' <span style="font-size:9px;color:var(--yellow);">EXCL</span>' : ''}</span>
+                                    <span class="font-bold">${formatCurrency(bill.amount)}</span>
+                                </div>`;
+                            }).join('')}
+                        </div>` : ''}
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+        })() : `
+        <div class="card mb-24" style="border-color:var(--yellow);">
+            <div class="flex-between">
+                <div>
+                    <h3 class="text-yellow">Set Up Pay Dates</h3>
+                    <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
+                        Go to <strong>Settings</strong> and add your pay dates to see pay period cashflow details.
+                    </p>
+                </div>
+            </div>
+        </div>`}
+    `;
+
+    // Event handlers
+    container.querySelector('#view-paycheck').addEventListener('click', () => {
+        billsViewMode = 'paycheck';
+        renderBills(container, store);
+    });
+    container.querySelector('#view-month').addEventListener('click', () => {
+        billsViewMode = 'month';
+        renderBills(container, store);
+    });
+    container.querySelector('#view-cashflow').addEventListener('click', () => {
+        billsViewMode = 'cashflow';
+        cfPeriodOffset = 0;
+        renderBills(container, store);
+    });
+
+    // Add bill button
+    container.querySelector('#add-bill-btn').addEventListener('click', () => {
+        showBillForm(store, sources, categories);
+    });
+
+    // Period navigation
+    const prevBtn = container.querySelector('#cf-period-prev');
+    const nextBtn = container.querySelector('#cf-period-next');
+    const todayBtn = container.querySelector('#cf-period-today');
+
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+            cfPeriodOffset--;
+            renderCashflowView(container, store, allBills, sources, categories, year, month, payDates);
+        });
+    }
+    if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+            cfPeriodOffset++;
+            renderCashflowView(container, store, allBills, sources, categories, year, month, payDates);
+        });
+    }
+    if (todayBtn) {
+        todayBtn.addEventListener('click', () => {
+            cfPeriodOffset = 0;
+            renderCashflowView(container, store, allBills, sources, categories, year, month, payDates);
+        });
+    }
+}
+
+// Helper: frequency to monthly multiplier
+function getMonthlyMultiplier(freq) {
+    switch (freq) {
+        case 'weekly': return 52 / 12;
+        case 'biweekly': return 26 / 12;
+        case 'semimonthly': return 2;
+        default: return 1;
+    }
+}
+
+// Helper: other income source to monthly amount
+function getOtherIncomeMonthly(src) {
+    const amt = src.amount || 0;
+    switch (src.frequency) {
+        case 'weekly': return amt * 52 / 12;
+        case 'biweekly': return amt * 26 / 12;
+        case 'monthly': return amt;
+        case 'quarterly': return amt / 3;
+        case 'yearly': return amt / 12;
+        default: return 0;
+    }
+}
+
+// Helper: bill amount for a specific month (respects frequency)
+function getBillMonthlyAmount(bill, targetMonth) {
+    if (bill.frozen || bill.excludeFromTotal) return 0;
+    if (bill.frequency === 'per-paycheck') return bill.amount * 2;
+    if (bill.frequency === 'yearly') {
+        return bill.dueMonth === targetMonth ? bill.amount : 0;
+    }
+    if (bill.frequency === 'semi-annual') {
+        const secondMonth = (bill.dueMonth + 6) % 12;
+        return (bill.dueMonth === targetMonth || secondMonth === targetMonth) ? bill.amount : 0;
+    }
+    return bill.amount;
+}
+
+// Helper: annualized monthly amount for waterfall
+function getBillAnnualizedMonthly(bill) {
+    if (bill.frozen || bill.excludeFromTotal) return 0;
+    if (bill.frequency === 'per-paycheck') return bill.amount * 2;
+    if (bill.frequency === 'yearly') return bill.amount / 12;
+    if (bill.frequency === 'semi-annual') return bill.amount / 6;
+    return bill.amount;
+}
+
+// Build pay periods for cashflow view
+function buildPayPeriods(payDates, bills, store, income, year, month, coveredDepBills = [], otherIncomeSources = []) {
+    if (!payDates || payDates.length === 0) return [];
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const activeBills = bills.filter(b => !b.frozen && b.amount > 0);
+    const regularBills = activeBills.filter(b => b.frequency !== 'per-paycheck');
+    const perPaycheckBills = activeBills.filter(b => b.frequency === 'per-paycheck');
+
+    const sorted = [...payDates].sort((a, b) => a - b);
+
+    const paychecksPerMonth = {};
+    sorted.forEach(d => {
+        const key = `${d.getFullYear()}-${d.getMonth()}`;
+        if (!paychecksPerMonth[key]) paychecksPerMonth[key] = [];
+        paychecksPerMonth[key].push(d.getTime());
+    });
+
+    const periods = [];
+
+    for (let i = 0; i < sorted.length; i++) {
+        const periodStart = sorted[i];
+        const periodEnd = sorted[i + 1]
+            ? new Date(sorted[i + 1].getTime() - 24 * 60 * 60 * 1000)
+            : new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000);
+
+        const periodBills = [];
+        const startMonth = periodStart.getMonth();
+        const startYear = periodStart.getFullYear();
+
+        regularBills.forEach(bill => {
+            if (bill.frequency === 'yearly' && bill.dueMonth != null) {
+                const dueDate = new Date(startYear, bill.dueMonth, bill.dueDay);
+                const dueDateNextYear = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
+                if ((dueDate >= periodStart && dueDate <= periodEnd) ||
+                    (dueDateNextYear >= periodStart && dueDateNextYear <= periodEnd)) {
+                    periodBills.push(bill);
+                }
+                return;
+            }
+            if (bill.frequency === 'semi-annual' && bill.dueMonth != null) {
+                const secondMonth = (bill.dueMonth + 6) % 12;
+                const dueDate1 = new Date(startYear, bill.dueMonth, bill.dueDay);
+                const dueDate2 = new Date(startYear, secondMonth, bill.dueDay);
+                const dueDate1Next = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
+                const dueDate2Next = new Date(startYear + 1, secondMonth, bill.dueDay);
+                if ((dueDate1 >= periodStart && dueDate1 <= periodEnd) ||
+                    (dueDate2 >= periodStart && dueDate2 <= periodEnd) ||
+                    (dueDate1Next >= periodStart && dueDate1Next <= periodEnd) ||
+                    (dueDate2Next >= periodStart && dueDate2Next <= periodEnd)) {
+                    periodBills.push(bill);
+                }
+                return;
+            }
+
+            const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
+            const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
+
+            if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
+                periodBills.push(bill);
+            } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
+                periodBills.push(bill);
+            }
+        });
+
+        perPaycheckBills.forEach(bill => {
+            const monthKey = `${periodStart.getFullYear()}-${periodStart.getMonth()}`;
+            const monthPaychecks = paychecksPerMonth[monthKey] || [];
+            if (monthPaychecks.length >= 3) {
+                const first = Math.min(...monthPaychecks);
+                const last = Math.max(...monthPaychecks);
+                if (periodStart.getTime() === first || periodStart.getTime() === last) {
+                    periodBills.push(bill);
+                }
+            } else {
+                periodBills.push(bill);
+            }
+        });
+
+        coveredDepBills.forEach(depBill => {
+            if (!depBill.amount || depBill.amount <= 0) return;
+            const dueDayThisMonth = new Date(startYear, startMonth, depBill.dueDay || 1);
+            const dueDayNextMonth = new Date(startYear, startMonth + 1, depBill.dueDay || 1);
+            if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
+                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
+            } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
+                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
+            }
+        });
+
+        const periodIncome = [];
+        const recurringOtherIncome = otherIncomeSources.filter(s => s.payDay && s.frequency !== 'one-time' && s.amount > 0);
+        recurringOtherIncome.forEach(src => {
+            const payDayThisMonth = new Date(startYear, startMonth, src.payDay);
+            const payDayNextMonth = new Date(startYear, startMonth + 1, src.payDay);
+            if (payDayThisMonth >= periodStart && payDayThisMonth <= periodEnd) {
+                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
+            } else if (payDayNextMonth >= periodStart && payDayNextMonth <= periodEnd) {
+                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
+            }
+        });
+
+        periodBills.sort((a, b) => (a.dueDay || 0) - (b.dueDay || 0));
+        periodIncome.sort((a, b) => (a.payDay || 0) - (b.payDay || 0));
+
+        const billsTotal = periodBills.reduce((s, b) => s + (b.excludeFromTotal ? 0 : b.amount), 0);
+        const otherIncomeTotal = periodIncome.reduce((s, i) => s + i.amount, 0);
+        const available = income.user.payAmount + otherIncomeTotal - billsTotal;
+
+        const isCurrent = today >= periodStart && today <= periodEnd;
+
+        const dateOpts = { month: 'short', day: 'numeric' };
+        periods.push({
+            label: `Pay Period ${i + 1}`,
+            startLabel: periodStart.toLocaleDateString('en-US', dateOpts),
+            endLabel: periodEnd.toLocaleDateString('en-US', dateOpts),
+            start: periodStart,
+            end: periodEnd,
+            bills: periodBills,
+            billsTotal,
+            income: periodIncome,
+            otherIncomeTotal,
+            available,
+            isCurrent
+        });
+    }
+
+    return periods;
 }

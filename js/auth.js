@@ -8,6 +8,7 @@ class AuthManager {
         this._ready = false;
         this._mode = 'selfhost';
         this._refreshInterval = null;
+        this._isAdmin = false;
     }
 
     async init() {
@@ -36,6 +37,15 @@ class AuthManager {
                     this._user = user;
                     this._idToken = await user.getIdToken();
 
+                    // Check custom claims for admin status
+                    try {
+                        const tokenResult = await user.getIdTokenResult();
+                        this._isAdmin = tokenResult.claims.admin === true;
+                    } catch (e) {
+                        console.warn('Failed to read token claims:', e);
+                        this._isAdmin = false;
+                    }
+
                     // Refresh token every 10 minutes
                     if (this._refreshInterval) clearInterval(this._refreshInterval);
                     this._refreshInterval = setInterval(async () => {
@@ -59,6 +69,10 @@ class AuthManager {
 
     isCloud() {
         return this._mode === 'cloud';
+    }
+
+    isAdmin() {
+        return this._isAdmin;
     }
 
     getUser() {
@@ -94,14 +108,15 @@ class AuthManager {
         const data = userDoc.data();
         const trialStart = data.trialStartDate.toDate();
         const daysSinceStart = (Date.now() - trialStart.getTime()) / (1000 * 60 * 60 * 24);
-        const trialDaysRemaining = Math.max(0, 30 - Math.floor(daysSinceStart));
+
+        // Support custom trial length; 0 = unlimited
+        const trialLength = data.trialDays || 30;
+        const isUnlimited = trialLength === 0;
+
+        const trialDaysRemaining = isUnlimited ? Infinity : Math.max(0, trialLength - Math.floor(daysSinceStart));
 
         let status = data.subscriptionStatus;
-        if (status === 'trial' && daysSinceStart > 30) {
-            // Mark as expired in Firestore (one-time transition)
-            // This will only succeed if security rules allow it — since rules block
-            // subscriptionStatus changes, we rely on the rules themselves to enforce expiry.
-            // The client just reports expired status based on the date.
+        if (status === 'trial' && !isUnlimited && daysSinceStart > trialLength) {
             status = 'expired';
         }
 
@@ -109,6 +124,8 @@ class AuthManager {
             mode: 'cloud',
             status,
             trialDaysRemaining,
+            trialLength,
+            isUnlimited,
             email: data.email,
             displayName: data.displayName
         };
