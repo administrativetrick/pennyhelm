@@ -12,6 +12,10 @@ firebase-service-account.json
 # Claude
 .claude/
 
+# Cloud Functions
+functions/node_modules/
+functions/.env
+
 # Temp files
 nul
 C*scratchpad*

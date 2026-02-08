@@ -1,4 +1,15 @@
 import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating } from '../utils.js';
+import { openModal, closeModal, refreshPage } from '../app.js';
+
+const GOAL_CATEGORIES = [
+    { value: 'emergency', label: 'Emergency Fund', icon: '🛡️' },
+    { value: 'vacation', label: 'Vacation', icon: '✈️' },
+    { value: 'car', label: 'Vehicle', icon: '🚗' },
+    { value: 'home', label: 'Home', icon: '🏠' },
+    { value: 'education', label: 'Education', icon: '📚' },
+    { value: 'retirement', label: 'Retirement', icon: '🏖️' },
+    { value: 'other', label: 'Other', icon: '🎯' },
+];
 
 let periodOffset = 0; // 0 = starts at current period
 
@@ -12,7 +23,8 @@ export function renderDashboard(container, store) {
     const depEnabled = store.isDependentEnabled();
     const income = store.getIncome();
     const bills = store.getBills();
-    const dependentBills = store.getDependentBills();
+    // Dependent bills are now in the main bills array with owner: 'dependent'
+    const dependentBills = bills.filter(b => b.owner === 'dependent');
     const payDates = store.getPayDates(); // Returns Date objects now
 
     // Calculate totals
@@ -38,6 +50,10 @@ export function renderDashboard(container, store) {
         if (b.frozen || b.excludeFromTotal) return sum;
         // Per-paycheck bills are paid twice per month (standard months)
         if (b.frequency === 'per-paycheck') return sum + b.amount * 2;
+        // Weekly bills are paid ~4 times per month
+        if (b.frequency === 'weekly') return sum + b.amount * 4;
+        // Biweekly bills are paid ~2 times per month
+        if (b.frequency === 'biweekly') return sum + b.amount * 2;
         // Yearly/semi-annual only count at full amount when due this month
         if (b.frequency === 'yearly') {
             return sum + (b.dueMonth === month ? b.amount : 0);
@@ -51,6 +67,8 @@ export function renderDashboard(container, store) {
     const paidBills = bills.filter(b => store.isBillPaid(b.id, year, month) && !b.frozen && !b.excludeFromTotal);
     const paidTotal = paidBills.reduce((sum, b) => {
         if (b.frequency === 'per-paycheck') return sum + b.amount * 2;
+        if (b.frequency === 'weekly') return sum + b.amount * 4;
+        if (b.frequency === 'biweekly') return sum + b.amount * 2;
         if (b.frequency === 'yearly') return sum + (b.dueMonth === month ? b.amount : 0);
         if (b.frequency === 'semi-annual') {
             const secondMonth = (b.dueMonth + 6) % 12;
@@ -316,6 +334,8 @@ export function renderDashboard(container, store) {
                 if (!categoryTotals[cat]) categoryTotals[cat] = { total: 0, count: 0, paid: 0 };
                 let amt = bill.amount;
                 if (bill.frequency === 'per-paycheck') amt = bill.amount * 2;
+                else if (bill.frequency === 'weekly') amt = bill.amount * 4;
+                else if (bill.frequency === 'biweekly') amt = bill.amount * 2;
                 else if (bill.frequency === 'yearly') amt = bill.dueMonth === month ? bill.amount : 0;
                 else if (bill.frequency === 'semi-annual') {
                     const secondMonth = (bill.dueMonth + 6) % 12;
@@ -396,12 +416,17 @@ export function renderDashboard(container, store) {
                 ${getPaymentSourceBreakdown(bills, store, year, month)}
             </div>
         </div>
+
+        ${renderSavingsGoals(store)}
     `;
 
     // Pay period navigation
     const prevBtn = container.querySelector('#period-prev');
     const nextBtn = container.querySelector('#period-next');
     const todayBtn = container.querySelector('#period-today');
+
+    // Savings Goals event handlers
+    setupSavingsGoalHandlers(container, store);
 
     if (prevBtn) {
         prevBtn.addEventListener('click', () => {
@@ -429,8 +454,12 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const activeBills = bills.filter(b => !b.frozen && b.amount > 0);
-    const regularBills = activeBills.filter(b => b.frequency !== 'per-paycheck');
+    const regularBills = activeBills.filter(b =>
+        b.frequency !== 'per-paycheck' && b.frequency !== 'weekly' && b.frequency !== 'biweekly'
+    );
     const perPaycheckBills = activeBills.filter(b => b.frequency === 'per-paycheck');
+    const weeklyBills = activeBills.filter(b => b.frequency === 'weekly');
+    const biweeklyBills = activeBills.filter(b => b.frequency === 'biweekly');
 
     // payDates are already Date objects from store.getPayDates()
     const sorted = [...payDates].sort((a, b) => a - b);
@@ -510,6 +539,18 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
                 // 2 or fewer checks this month — include on all
                 periodBills.push(bill);
             }
+        });
+
+        // Add weekly bills - they occur every week, so always show in every pay period
+        // For a ~2 week pay period, show the bill once (represents ~2 occurrences)
+        weeklyBills.forEach(bill => {
+            periodBills.push(bill);
+        });
+
+        // Add biweekly bills - they occur every other week
+        // Show in every pay period (roughly aligns with biweekly paychecks)
+        biweeklyBills.forEach(bill => {
+            periodBills.push(bill);
         });
 
         // Add covered dependent bills as virtual line items by their individual due dates
@@ -592,4 +633,240 @@ function getPaymentSourceBreakdown(bills, store, year, month) {
             <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${data.count} bills &middot; ${formatCurrency(data.paid)} paid</div>
         </div>
     `).join('');
+}
+
+// ─────────────────────────────────────────────
+// SAVINGS GOALS
+// ─────────────────────────────────────────────
+
+function getGoalCategoryInfo(category) {
+    const found = GOAL_CATEGORIES.find(c => c.value === category);
+    return found || GOAL_CATEGORIES[6]; // Default to 'other'
+}
+
+function renderSavingsGoals(store) {
+    const goals = store.getSavingsGoals();
+
+    if (goals.length === 0) {
+        return `
+        <div class="card mt-16">
+            <div class="flex-between mb-16">
+                <h3>Savings Goals</h3>
+                <button class="btn btn-primary btn-sm" id="add-goal-btn">+ Add Goal</button>
+            </div>
+            <div style="text-align:center;padding:32px 16px;">
+                <div style="font-size:48px;margin-bottom:12px;">🎯</div>
+                <div style="font-size:14px;color:var(--text-secondary);margin-bottom:8px;">No savings goals yet</div>
+                <div style="font-size:12px;color:var(--text-muted);max-width:300px;margin:0 auto;">
+                    Set goals to track your progress toward financial milestones like an emergency fund, vacation, or home purchase.
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // Calculate totals
+    const totalTarget = goals.reduce((s, g) => s + (g.targetAmount || 0), 0);
+    const totalCurrent = goals.reduce((s, g) => s + (g.currentAmount || 0), 0);
+    const overallProgress = totalTarget > 0 ? (totalCurrent / totalTarget * 100) : 0;
+
+    return `
+    <div class="card mt-16">
+        <div class="flex-between mb-16">
+            <h3>Savings Goals</h3>
+            <button class="btn btn-primary btn-sm" id="add-goal-btn">+ Add Goal</button>
+        </div>
+
+        <!-- Summary bar -->
+        <div style="background:var(--bg-secondary);padding:12px 16px;border-radius:var(--radius-sm);margin-bottom:16px;">
+            <div class="flex-between" style="margin-bottom:8px;">
+                <span style="font-size:12px;color:var(--text-muted);">Overall Progress</span>
+                <span style="font-size:13px;font-weight:600;">${formatCurrency(totalCurrent)} of ${formatCurrency(totalTarget)}</span>
+            </div>
+            <div style="background:var(--bg-input);border-radius:8px;height:8px;overflow:hidden;">
+                <div style="height:100%;width:${Math.min(100, overallProgress)}%;background:${overallProgress >= 100 ? 'var(--green)' : 'var(--accent)'};border-radius:8px;transition:width 0.3s;"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${overallProgress.toFixed(1)}% complete</div>
+        </div>
+
+        <!-- Individual goals -->
+        <div style="display:flex;flex-direction:column;gap:12px;">
+            ${goals.map(goal => {
+                const progress = goal.targetAmount > 0 ? Math.min(100, (goal.currentAmount / goal.targetAmount) * 100) : 0;
+                const remaining = Math.max(0, goal.targetAmount - goal.currentAmount);
+                const categoryInfo = getGoalCategoryInfo(goal.category);
+                const isComplete = progress >= 100;
+
+                return `
+                <div class="goal-card" data-goal-id="${goal.id}" style="background:var(--bg-secondary);padding:16px;border-radius:var(--radius-sm);border:1px solid var(--border);cursor:pointer;transition:border-color 0.2s;">
+                    <div class="flex-between" style="margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="font-size:24px;">${categoryInfo.icon}</div>
+                            <div>
+                                <div style="font-size:14px;font-weight:600;">${escapeHtml(goal.name)}</div>
+                                <div style="font-size:11px;color:var(--text-muted);">${categoryInfo.label}</div>
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:16px;font-weight:700;${isComplete ? 'color:var(--green);' : ''}">${formatCurrency(goal.currentAmount)}</div>
+                            <div style="font-size:11px;color:var(--text-muted);">of ${formatCurrency(goal.targetAmount)}</div>
+                        </div>
+                    </div>
+                    <div style="background:var(--bg-input);border-radius:6px;height:8px;overflow:hidden;margin-bottom:8px;">
+                        <div style="height:100%;width:${progress}%;background:${isComplete ? 'var(--green)' : 'var(--accent)'};border-radius:6px;transition:width 0.3s;"></div>
+                    </div>
+                    <div class="flex-between" style="font-size:11px;">
+                        <span style="color:var(--text-muted);">${progress.toFixed(0)}% complete</span>
+                        ${isComplete
+                            ? '<span style="color:var(--green);font-weight:600;">Goal reached! 🎉</span>'
+                            : `<span style="color:var(--text-secondary);">${formatCurrency(remaining)} to go</span>`
+                        }
+                    </div>
+                    ${goal.targetDate ? `
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">
+                        Target: ${new Date(goal.targetDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                    </div>` : ''}
+                </div>`;
+            }).join('')}
+        </div>
+
+        <div style="font-size:11px;color:var(--text-muted);margin-top:12px;text-align:center;">
+            Click a goal to edit or delete
+        </div>
+    </div>`;
+}
+
+function setupSavingsGoalHandlers(container, store) {
+    // Add goal button
+    const addBtn = container.querySelector('#add-goal-btn');
+    if (addBtn) {
+        addBtn.addEventListener('click', () => openGoalModal(store, null));
+    }
+
+    // Click on goal cards to edit
+    container.querySelectorAll('.goal-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const goalId = card.dataset.goalId;
+            const goals = store.getSavingsGoals();
+            const goal = goals.find(g => g.id === goalId);
+            if (goal) {
+                openGoalModal(store, goal);
+            }
+        });
+    });
+}
+
+function openGoalModal(store, existingGoal) {
+    const isEdit = !!existingGoal;
+    const title = isEdit ? 'Edit Savings Goal' : 'Add Savings Goal';
+
+    openModal(title, `
+        <div class="form-group">
+            <label>Goal Name</label>
+            <input type="text" class="form-input" id="goal-name" placeholder="e.g., Emergency Fund" value="${isEdit ? escapeHtml(existingGoal.name) : ''}">
+        </div>
+        <div class="form-group">
+            <label>Category</label>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;">
+                ${GOAL_CATEGORIES.map(cat => `
+                    <label style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;text-align:center;${isEdit && existingGoal.category === cat.value ? 'border-color:var(--accent);background:rgba(79,140,255,0.1);' : ''}">
+                        <input type="radio" name="goal-category" value="${cat.value}" ${(!isEdit && cat.value === 'other') || (isEdit && existingGoal.category === cat.value) ? 'checked' : ''} style="display:none;">
+                        <span style="font-size:20px;margin-bottom:4px;">${cat.icon}</span>
+                        <span style="font-size:10px;color:var(--text-secondary);">${cat.label}</span>
+                    </label>
+                `).join('')}
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="form-group">
+                <label>Target Amount</label>
+                <input type="number" class="form-input" id="goal-target" placeholder="10000" min="0" step="0.01" value="${isEdit ? existingGoal.targetAmount : ''}">
+            </div>
+            <div class="form-group">
+                <label>Current Amount</label>
+                <input type="number" class="form-input" id="goal-current" placeholder="0" min="0" step="0.01" value="${isEdit ? existingGoal.currentAmount : ''}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Target Date (optional)</label>
+            <input type="month" class="form-input" id="goal-date" value="${isEdit && existingGoal.targetDate ? existingGoal.targetDate.slice(0, 7) : ''}">
+        </div>
+        <div class="modal-actions">
+            ${isEdit ? '<button class="btn btn-danger" id="modal-delete" style="margin-right:auto;">Delete</button>' : ''}
+            <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+            <button class="btn btn-primary" id="modal-save">${isEdit ? 'Save Changes' : 'Add Goal'}</button>
+        </div>
+        <style>
+            .form-group label:has(input[type="radio"]:checked) {
+                border-color: var(--accent) !important;
+                background: rgba(79, 140, 255, 0.1);
+            }
+        </style>
+    `);
+
+    // Category selection styling
+    document.querySelectorAll('input[name="goal-category"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            document.querySelectorAll('input[name="goal-category"]').forEach(r => {
+                r.parentElement.style.borderColor = 'var(--border)';
+                r.parentElement.style.background = 'transparent';
+            });
+            if (radio.checked) {
+                radio.parentElement.style.borderColor = 'var(--accent)';
+                radio.parentElement.style.background = 'rgba(79, 140, 255, 0.1)';
+            }
+        });
+    });
+
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+
+    document.getElementById('modal-save').addEventListener('click', () => {
+        const name = document.getElementById('goal-name').value.trim();
+        const category = document.querySelector('input[name="goal-category"]:checked')?.value || 'other';
+        const targetAmount = parseFloat(document.getElementById('goal-target').value) || 0;
+        const currentAmount = parseFloat(document.getElementById('goal-current').value) || 0;
+        const targetDateInput = document.getElementById('goal-date').value;
+        const targetDate = targetDateInput ? targetDateInput + '-01' : null;
+
+        if (!name) {
+            alert('Please enter a goal name');
+            return;
+        }
+        if (targetAmount <= 0) {
+            alert('Please enter a target amount greater than 0');
+            return;
+        }
+
+        if (isEdit) {
+            store.updateSavingsGoal(existingGoal.id, {
+                name,
+                category,
+                targetAmount,
+                currentAmount,
+                targetDate
+            });
+        } else {
+            store.addSavingsGoal({
+                name,
+                category,
+                targetAmount,
+                currentAmount,
+                targetDate
+            });
+        }
+
+        closeModal();
+        refreshPage();
+    });
+
+    // Delete handler
+    const deleteBtn = document.getElementById('modal-delete');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => {
+            if (confirm(`Delete "${existingGoal.name}"? This cannot be undone.`)) {
+                store.deleteSavingsGoal(existingGoal.id);
+                closeModal();
+                refreshPage();
+            }
+        });
+    }
 }

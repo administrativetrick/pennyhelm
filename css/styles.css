@@ -37,7 +37,12 @@
     box-sizing: border-box;
 }
 
-html { font-size: 15px; }
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -45,12 +50,19 @@ body {
     color: var(--text-primary);
     line-height: 1.5;
     overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 /* ===== App Layout ===== */
 .app {
     display: flex;
     min-height: 100vh;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
 }
 
 /* ===== Sidebar ===== */
@@ -269,6 +281,186 @@ tr.bill-selected td:first-child {
 }
 tr.bill-selected {
     opacity: 1 !important;
+}
+
+/* Selection bar for multi-select */
+.selection-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 170px;
+    right: 0;
+    background: var(--bg-card);
+    border-top: 2px solid var(--accent);
+    padding: 12px 24px;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 100;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.selection-bar > div {
+    display: flex;
+    align-items: center;
+}
+
+@media (max-width: 768px) {
+    .selection-bar {
+        left: 0;
+        bottom: 56px; /* Above mobile nav */
+        padding: 10px 12px;
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+    .selection-bar > div {
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .selection-bar > div:first-child {
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border);
+    }
+}
+
+@media (max-width: 400px) {
+    .selection-bar {
+        bottom: 52px;
+        padding: 8px 10px;
+        gap: 8px;
+    }
+    .selection-bar > div {
+        gap: 6px;
+        font-size: 12px;
+    }
+    .selection-bar .btn-sm {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+}
+
+/* Selection bar inner elements */
+.selection-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.selection-count {
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.selection-bar-totals {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.selection-source {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+}
+
+.source-name {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+}
+
+.source-total {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.selection-grand-total {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+    border-left: 1px solid var(--border);
+    padding-left: 12px;
+}
+
+.total-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+}
+
+.total-amount {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+@media (max-width: 768px) {
+    .selection-bar-actions {
+        justify-content: center;
+        width: 100%;
+    }
+
+    .selection-bar-totals {
+        justify-content: center;
+        width: 100%;
+    }
+
+    .selection-source {
+        flex-direction: row;
+        gap: 6px;
+        align-items: center;
+    }
+
+    .selection-grand-total {
+        flex-direction: row;
+        gap: 8px;
+        align-items: center;
+        border-left: none;
+        padding-left: 0;
+        border-top: 1px solid var(--border);
+        padding-top: 8px;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .total-amount {
+        font-size: 18px;
+    }
+}
+
+@media (max-width: 400px) {
+    .selection-count {
+        font-size: 12px;
+    }
+
+    .source-name {
+        font-size: 9px;
+    }
+
+    .source-total {
+        font-size: 12px;
+    }
+
+    .total-label {
+        font-size: 9px;
+    }
+
+    .total-amount {
+        font-size: 16px;
+    }
+
+    .selection-grand-total {
+        padding-top: 6px;
+    }
 }
 
 tbody td {
@@ -793,6 +985,8 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
+    html { font-size: 16px; } /* Keep full size on mobile for readability */
+
     .sidebar {
         transform: translateX(-100%);
         width: 100%;
@@ -803,8 +997,11 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
     .main-content {
         margin-left: 0;
-        padding: 16px;
+        padding: 12px;
         padding-bottom: 80px;
+        width: 100%;
+        max-width: 100vw;
+        overflow-x: hidden;
     }
 
     /* Bottom tab bar for mobile */
@@ -818,10 +1015,13 @@ tbody tr:hover { background: var(--bg-card-hover); }
         border-top: 1px solid var(--border);
         z-index: 100;
         padding: 4px 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .mobile-nav a {
         flex: 1;
+        min-width: 60px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -841,7 +1041,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
         gap: 10px;
     }
 
-    .stat-card .value { font-size: 20px; }
+    .stat-card { padding: 14px; }
+    .stat-card .value { font-size: 22px; }
+    .stat-card .label { font-size: 12px; }
+    .stat-card .sub { font-size: 11px; }
 
     .calendar-day { min-height: 60px; padding: 4px; }
     .calendar-day .day-number { font-size: 11px; }
@@ -849,10 +1052,196 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
     .form-row { grid-template-columns: 1fr; }
 
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .page-header h2 { font-size: 20px; }
+    .page-header .btn { width: 100%; justify-content: center; }
+
+    .filters {
+        gap: 6px;
+        flex-wrap: wrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 4px;
+    }
+    .filter-chip {
+        padding: 4px 10px;
+        font-size: 11px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* Table responsive */
+    .table-wrapper {
+        margin: 0 -12px;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        width: calc(100% + 24px);
+        max-width: calc(100vw);
+    }
+
+    table {
+        font-size: 14px;
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    thead th {
+        padding: 10px 8px;
+        font-size: 11px;
+    }
+
+    tbody td {
+        padding: 12px 8px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+
+    /* Column widths for mobile */
+    th:nth-child(1), td:nth-child(1) { width: 50px; } /* Paid */
+    th:nth-child(2), td:nth-child(2) { width: auto; } /* Name */
+    th:nth-child(3), td:nth-child(3) { width: 80px; } /* Amount */
+    th:nth-child(4), td:nth-child(4) { width: 80px; } /* Category */
+
+    /* Hide less important columns on mobile */
+    th:nth-child(5), td:nth-child(5), /* Due Day */
+    th:nth-child(6), td:nth-child(6), /* Payment Source */
+    th:nth-child(7), td:nth-child(7), /* Status */
+    th:nth-child(8), td:nth-child(8)  /* Actions */ {
+        display: none;
+    }
+
+    /* Cards */
+    .card {
+        padding: 14px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* Settings rows */
+    .settings-row {
+        padding: 12px 0;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .settings-row > div:last-child {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    /* Modal */
+    .modal-overlay .modal {
+        margin: 10px;
+        max-height: calc(100vh - 20px);
+        width: calc(100% - 20px);
+        max-width: none;
+    }
+
+    .modal-actions {
+        flex-direction: column-reverse;
+        gap: 8px;
+    }
+
+    .modal-actions .btn {
+        width: 100%;
+    }
+
+    /* Subtitle */
+    .subtitle {
+        font-size: 12px;
+    }
+
+    /* Buttons */
+    .btn {
+        padding: 12px 18px;
+        font-size: 15px;
+    }
+
+    .btn-sm {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    /* Form elements */
+    .form-input, .form-select {
+        padding: 12px 14px;
+        font-size: 16px; /* 16px prevents iOS zoom on focus */
+    }
+
+    .form-group label {
+        font-size: 13px;
+    }
+
+    /* Mobile nav */
+    .mobile-nav a {
+        font-size: 11px;
+    }
+
+    /* Filter chips */
+    .filter-chip {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+
+    /* Badges */
+    .badge {
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 400px) {
+    html { font-size: 15px; } /* Slightly smaller but still readable on small screens */
+
+    .main-content {
+        padding: 8px;
+        padding-bottom: 70px;
+    }
+
+    .card-grid {
+        grid-template-columns: 1fr;
+    }
+
     .page-header h2 { font-size: 18px; }
 
-    .filters { gap: 6px; }
-    .filter-chip { padding: 4px 10px; font-size: 11px; }
+    .stat-card .value { font-size: 20px; }
+
+    table { font-size: 13px; }
+
+    thead th { padding: 8px 6px; font-size: 10px; }
+    tbody td { padding: 10px 6px; }
+
+    /* Column widths for extra small */
+    th:nth-child(1), td:nth-child(1) { width: 45px; } /* Paid */
+    th:nth-child(3), td:nth-child(3) { width: 75px; } /* Amount */
+
+    .mobile-nav a {
+        min-width: 50px;
+        font-size: 10px;
+        padding: 6px 2px;
+    }
+
+    .mobile-nav a svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Buttons on extra small */
+    .btn {
+        padding: 10px 14px;
+        font-size: 14px;
+    }
+
+    .btn-sm {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
 }
 
 @media (min-width: 769px) {
@@ -889,6 +1278,10 @@ tbody tr:hover { background: var(--bg-card-hover); }
 }
 
 @keyframes ocr-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes spin {
     to { transform: rotate(360deg); }
 }
 

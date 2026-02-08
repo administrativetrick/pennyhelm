@@ -5,7 +5,7 @@ const Database = require('better-sqlite3');
 
 const app = express();
 const PORT = process.env.PORT || 8081;
-const MODE = process.env.CASHPILOT_MODE || 'selfhost'; // 'selfhost' or 'cloud'
+const MODE = process.env.PENNYHELM_MODE || 'selfhost'; // 'selfhost' or 'cloud'
 
 // Ensure data directory exists
 const dataDir = path.join(__dirname, 'data');
@@ -151,7 +151,7 @@ app.use(express.json({ limit: '50mb' }));
 
 // Config endpoint (public — tells the client what mode we're in)
 app.get('/api/config', (req, res) => {
-    res.json({ mode: MODE, appName: 'CashPilot' });
+    res.json({ mode: MODE, appName: 'PennyHelm' });
 });
 
 // ===== Auth Routes =====
@@ -271,6 +271,6 @@ process.on('SIGTERM', () => {
 });
 
 app.listen(PORT, () => {
-    console.log(`CashPilot (${MODE} mode) running at http://localhost:${PORT}`);
+    console.log(`PennyHelm (${MODE} mode) running at http://localhost:${PORT}`);
     console.log(`Database: ${dbPath}`);
 });

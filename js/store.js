@@ -39,6 +39,9 @@ const defaultData = {
     debtBudget: { totalMonthlyBudget: 0, strategy: 'avalanche' },
     taxDeductions: [], // { id, taxYear, category, description, amount, date, vendor, receiptDocId, notes }
     otherIncome: [], // { id, name, amount, frequency, category, notes } — category: rental|dividend|freelance|side-hustle|gift|other
+    savingsGoals: [], // { id, name, targetAmount, currentAmount, targetDate, category, linkedAccountId, notes, createdDate }
+    invites: [], // { id, email, type: 'partner'|'financial-planner'|'cpa', status: 'pending'|'accepted'|'declined', permissions: 'view'|'edit', invitedAt, acceptedAt?, inviteeUid? }
+    sharedWith: [], // { uid, email, type, permissions, sharedAt } — people who have access to this account
     setupComplete: false // set to true after first-run welcome screen
 };
 
@@ -53,6 +56,8 @@ class Store {
         this._mode = 'selfhost'; // 'selfhost' or 'cloud'
         this._db = null; // Firestore instance (cloud mode)
         this._dataDocRef = null; // Firestore doc ref for userData/{uid}
+        this._impersonatingUid = null; // UID being impersonated (admin only)
+        this._realUid = null; // Admin's real UID (saved during impersonation)
     }
 
     // Set mode (called by app.js after auth.init())
@@ -69,6 +74,34 @@ class Store {
     // Set auth provider (called by app.js for selfhost mode)
     setAuthProvider(fn) {
         this._authProvider = fn;
+    }
+
+    // Start impersonating a user (admin only — Firestore rules enforce access)
+    startImpersonation(targetUid) {
+        if (!this._realUid) {
+            this._realUid = this._dataDocRef.id;
+        }
+        this._impersonatingUid = targetUid;
+        this._dataDocRef = this._db.collection('userData').doc(targetUid);
+    }
+
+    // Stop impersonating and restore admin's own data reference
+    stopImpersonation() {
+        if (this._realUid) {
+            this._impersonatingUid = null;
+            this._dataDocRef = this._db.collection('userData').doc(this._realUid);
+            this._realUid = null;
+        }
+    }
+
+    // Check if currently impersonating another user
+    isImpersonating() {
+        return this._impersonatingUid !== null;
+    }
+
+    // Get the UID being impersonated
+    getImpersonatedUid() {
+        return this._impersonatingUid;
     }
 
     _getAuthHeaders() {
@@ -108,18 +141,25 @@ class Store {
     // Load data from Firestore (cloud mode)
     async _initFromFirestore() {
         try {
+            console.log('[Store] Loading from Firestore, docRef:', this._dataDocRef?.path);
             const docSnap = await this._dataDocRef.get();
+            console.log('[Store] Doc exists:', docSnap.exists);
             if (docSnap.exists) {
                 const raw = docSnap.data().data;
+                console.log('[Store] Raw data type:', typeof raw, 'length:', raw?.length || 'N/A');
                 const serverData = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                console.log('[Store] Parsed data has bills:', 'bills' in serverData, 'bills count:', serverData?.bills?.length);
                 if (serverData && typeof serverData === 'object' && 'bills' in serverData) {
                     this._data = serverData;
                     this._serverAvailable = true;
+                    console.log('[Store] Data loaded successfully');
                 } else {
                     this._serverAvailable = true;
+                    console.warn('[Store] Data exists but failed validation');
                 }
             } else {
                 this._serverAvailable = true;
+                console.log('[Store] No document found in Firestore');
                 // Check localStorage for migration
                 try {
                     const raw = localStorage.getItem(STORAGE_KEY);
@@ -252,6 +292,30 @@ class Store {
                     changed = true;
                 }
             });
+        });
+
+        // Migrate dependent bills into main bills array with owner field
+        if (d.dependentBills && d.dependentBills.length > 0) {
+            d.dependentBills.forEach(depBill => {
+                // Add to main bills with owner: 'dependent'
+                d.bills.push({
+                    ...depBill,
+                    owner: 'dependent',
+                    category: depBill.category || 'Dependent Bill',
+                    frequency: depBill.frequency || 'monthly',
+                    paymentSource: depBill.paymentSource || ''
+                });
+            });
+            d.dependentBills = []; // Clear after migration
+            changed = true;
+        }
+
+        // Ensure all bills have an owner field
+        d.bills.forEach(bill => {
+            if (!bill.owner) {
+                bill.owner = 'user';
+                changed = true;
+            }
         });
 
         if (changed) {
@@ -1267,6 +1331,146 @@ class Store {
         if (!data.otherIncome) return;
         data.otherIncome = data.otherIncome.filter(s => s.id !== id);
         this._save();
+    }
+
+    // Savings Goals
+    getSavingsGoals() {
+        const data = this._load();
+        if (!data.savingsGoals) data.savingsGoals = [];
+        return data.savingsGoals;
+    }
+
+    addSavingsGoal(goal) {
+        const data = this._load();
+        if (!data.savingsGoals) data.savingsGoals = [];
+        goal.id = crypto.randomUUID();
+        goal.createdDate = new Date().toISOString();
+        data.savingsGoals.push(goal);
+        this._save();
+        return goal;
+    }
+
+    updateSavingsGoal(id, updates) {
+        const data = this._load();
+        if (!data.savingsGoals) return;
+        const idx = data.savingsGoals.findIndex(g => g.id === id);
+        if (idx !== -1) {
+            data.savingsGoals[idx] = { ...data.savingsGoals[idx], ...updates };
+            this._save();
+        }
+    }
+
+    deleteSavingsGoal(id) {
+        const data = this._load();
+        if (!data.savingsGoals) return;
+        data.savingsGoals = data.savingsGoals.filter(g => g.id !== id);
+        this._save();
+    }
+
+    // Invites & Sharing
+    getInvites() {
+        const data = this._load();
+        if (!data.invites) data.invites = [];
+        return data.invites;
+    }
+
+    getSharedWith() {
+        const data = this._load();
+        if (!data.sharedWith) data.sharedWith = [];
+        return data.sharedWith;
+    }
+
+    addInvite(invite) {
+        const data = this._load();
+        if (!data.invites) data.invites = [];
+        if (!invite.id) invite.id = crypto.randomUUID();
+        invite.status = invite.status || 'pending';
+        invite.invitedAt = invite.invitedAt || new Date().toISOString();
+        data.invites.push(invite);
+        this._save();
+        return invite;
+    }
+
+    updateInvite(id, updates) {
+        const data = this._load();
+        if (!data.invites) return;
+        const idx = data.invites.findIndex(i => i.id === id);
+        if (idx !== -1) {
+            data.invites[idx] = { ...data.invites[idx], ...updates };
+            this._save();
+        }
+    }
+
+    deleteInvite(id) {
+        const data = this._load();
+        if (!data.invites) return;
+        data.invites = data.invites.filter(i => i.id !== id);
+        this._save();
+    }
+
+    // Called when an invite is accepted — moves to sharedWith
+    acceptInvite(inviteId, inviteeUid, inviteeEmail) {
+        const data = this._load();
+        if (!data.invites) return null;
+        const invite = data.invites.find(i => i.id === inviteId);
+        if (!invite) return null;
+
+        // Update invite status
+        invite.status = 'accepted';
+        invite.acceptedAt = new Date().toISOString();
+        invite.inviteeUid = inviteeUid;
+
+        // Add to sharedWith
+        if (!data.sharedWith) data.sharedWith = [];
+        const existing = data.sharedWith.find(s => s.uid === inviteeUid);
+        if (!existing) {
+            data.sharedWith.push({
+                uid: inviteeUid,
+                email: inviteeEmail || invite.email,
+                type: invite.type,
+                permissions: invite.permissions,
+                sharedAt: new Date().toISOString()
+            });
+        }
+        this._save();
+        return invite;
+    }
+
+    // Remove someone's access
+    revokeAccess(uid) {
+        const data = this._load();
+        if (!data.sharedWith) return;
+        data.sharedWith = data.sharedWith.filter(s => s.uid !== uid);
+        // Also mark any related invites as revoked
+        if (data.invites) {
+            data.invites.forEach(i => {
+                if (i.inviteeUid === uid) {
+                    i.status = 'revoked';
+                }
+            });
+        }
+        this._save();
+    }
+
+    // Plaid helpers — get all unique Plaid item IDs from accounts
+    getPlaidItemIds() {
+        const accounts = this.getAccounts();
+        const ids = new Set();
+        accounts.forEach(a => {
+            if (a.plaidItemId) ids.add(a.plaidItemId);
+        });
+        // Also check debts for Plaid-linked items
+        const debts = this.getDebts();
+        debts.forEach(d => {
+            if (d.plaidItemId) ids.add(d.plaidItemId);
+        });
+        return [...ids];
+    }
+
+    // Get all accounts linked to a specific Plaid item
+    getAccountsByPlaidItem(itemId) {
+        const accounts = this.getAccounts();
+        return accounts.filter(a => a.plaidItemId === itemId);
     }
 
     // Reset

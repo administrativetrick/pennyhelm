@@ -1,6 +1,6 @@
-# CashPilot
+# PennyHelm
 
-A personal finance tracker built with vanilla HTML, CSS, and JavaScript. Self-host for total privacy or use CashPilot Cloud for seamless access anywhere.
+A personal finance tracker built with vanilla HTML, CSS, and JavaScript. Self-host for total privacy or use PennyHelm Cloud for seamless access anywhere.
 
 ## Features
 
@@ -19,8 +19,8 @@ A personal finance tracker built with vanilla HTML, CSS, and JavaScript. Self-ho
 
 ```bash
 # Clone the repository
-git clone https://github.com/administrativetrick/cashpilot.git
-cd cashpilot
+git clone https://github.com/administrativetrick/pennyhelm.git
+cd pennyhelm
 
 # Install dependencies
 npm install
@@ -33,9 +33,9 @@ Open [http://localhost:8081](http://localhost:8081) in your browser.
 
 On first launch you'll be prompted to either **load sample data** or **start fresh** with an empty setup.
 
-## CashPilot Cloud
+## PennyHelm Cloud
 
-CashPilot Cloud is a hosted version with Firebase Auth and Firestore — sign up, log in, and access your finances from any device. Try it at [cashpilot-c58d5.web.app](https://cashpilot-c58d5.web.app).
+PennyHelm Cloud is a hosted version with Firebase Auth and Firestore — sign up, log in, and access your finances from any device. Try it at [cashpilot-c58d5.web.app](https://cashpilot-c58d5.web.app).
 
 ## Configuration
 
@@ -76,7 +76,7 @@ You can also use the **Settings** page to export your data as a JSON file, and i
 ## Project Structure
 
 ```
-cashpilot/
+pennyhelm/
 ├── server.js           # Express server + SQLite API
 ├── package.json
 ├── app.html            # SPA shell

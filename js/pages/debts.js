@@ -28,7 +28,7 @@ function calculateWeightedAPR(debts) {
     return weighted / totalBalance;
 }
 
-function calculatePayoffStrategy(debts, monthlyBudget, strategy) {
+function calculatePayoffStrategy(debts, monthlyBudget, strategy, cascade = true) {
     if (debts.length === 0 || monthlyBudget <= 0) {
         return { monthsToPayoff: 0, totalInterestPaid: 0, timeline: [], payoffOrder: [] };
     }
@@ -61,9 +61,12 @@ function calculatePayoffStrategy(debts, monthlyBudget, strategy) {
     const payoffOrder = [];
     const maxMonths = 600; // 50 years cap
 
+    // Track current budget - decreases when cascade is OFF
+    let currentBudget = monthlyBudget;
+
     while (balances.some(d => d.balance > 0.01) && months < maxMonths) {
         months++;
-        let extraPayment = monthlyBudget;
+        let extraPayment = currentBudget;
         let monthInterest = 0;
 
         // Apply interest to all
@@ -82,6 +85,18 @@ function calculatePayoffStrategy(debts, monthlyBudget, strategy) {
                 const payment = Math.min(d.minPayment, d.balance);
                 d.balance -= payment;
                 extraPayment -= payment;
+
+                // Check if debt is paid off after minimum payment
+                if (d.balance <= 0.01) {
+                    d.balance = 0;
+                    if (!payoffOrder.includes(d.name)) {
+                        payoffOrder.push(d.name);
+                    }
+                    // If cascade is OFF, reduce budget by this debt's minimum
+                    if (!cascade) {
+                        currentBudget -= d.minPayment;
+                    }
+                }
             }
         });
 
@@ -93,7 +108,13 @@ function calculatePayoffStrategy(debts, monthlyBudget, strategy) {
                 extraPayment -= payment;
                 if (d.balance <= 0.01) {
                     d.balance = 0;
-                    payoffOrder.push(d.name);
+                    if (!payoffOrder.includes(d.name)) {
+                        payoffOrder.push(d.name);
+                    }
+                    // If cascade is OFF, reduce budget by this debt's minimum
+                    if (!cascade) {
+                        currentBudget -= d.minPayment;
+                    }
                 }
                 break;
             }
@@ -134,18 +155,71 @@ function getDebtFreeDate(months) {
     return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
+function calculateMonthlyPayment(principal, annualRate, termMonths) {
+    if (principal <= 0 || termMonths <= 0) return 0;
+    if (annualRate <= 0) return principal / termMonths;
+    const monthlyRate = annualRate / 100 / 12;
+    return (principal * monthlyRate * Math.pow(1 + monthlyRate, termMonths)) /
+           (Math.pow(1 + monthlyRate, termMonths) - 1);
+}
+
+function calculateTotalInterest(monthlyPayment, termMonths, principal) {
+    return (monthlyPayment * termMonths) - principal;
+}
+
+function calculateIndividualPayoffMonths(balance, rate, payment) {
+    if (balance <= 0) return 0;
+    if (payment <= 0) return Infinity;
+
+    const monthlyRate = rate / 100 / 12;
+    if (monthlyRate <= 0) {
+        return Math.ceil(balance / payment);
+    }
+
+    // Check if payment covers interest
+    const monthlyInterest = balance * monthlyRate;
+    if (payment <= monthlyInterest) return Infinity;
+
+    // n = -ln(1 - (r * PV / P)) / ln(1 + r)
+    const x = 1 - (monthlyRate * balance / payment);
+    if (x <= 0) return Infinity;
+
+    return Math.ceil(-Math.log(x) / Math.log(1 + monthlyRate));
+}
+
+function getIndividualDebtFreeDate(months) {
+    if (months === Infinity || months >= 600) return { text: 'Never', color: 'var(--red)' };
+    if (months === 0) return { text: 'Paid off!', color: 'var(--green)' };
+    const date = new Date();
+    date.setMonth(date.getMonth() + months);
+    return {
+        text: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        color: months <= 12 ? 'var(--green)' : months <= 36 ? 'var(--orange)' : 'var(--text-secondary)'
+    };
+}
+
 export function renderDebts(container, store) {
     const debts = store.getDebts();
     const bills = store.getBills();
     const budget = store.getDebtBudget();
+    const cascadeEnabled = budget.cascadeEnabled !== false; // Default to true
 
     const totalDebt = debts.reduce((sum, d) => sum + d.currentBalance, 0);
     const totalMinimum = debts.reduce((sum, d) => sum + d.minimumPayment, 0);
     const avgAPR = calculateWeightedAPR(debts);
 
-    const avalancheResult = calculatePayoffStrategy(debts, budget.totalMonthlyBudget, 'avalanche');
-    const snowballResult = calculatePayoffStrategy(debts, budget.totalMonthlyBudget, 'snowball');
-    const activeResult = budget.strategy === 'avalanche' ? avalancheResult : snowballResult;
+    // Calculate with cascade ON (default behavior)
+    const avalancheResult = calculatePayoffStrategy(debts, budget.totalMonthlyBudget, 'avalanche', true);
+    const snowballResult = calculatePayoffStrategy(debts, budget.totalMonthlyBudget, 'snowball', true);
+
+    // Calculate with cascade OFF (budget shrinks as debts are paid)
+    const avalancheNoCascade = calculatePayoffStrategy(debts, budget.totalMonthlyBudget, 'avalanche', false);
+    const snowballNoCascade = calculatePayoffStrategy(debts, budget.totalMonthlyBudget, 'snowball', false);
+
+    // Use the appropriate results based on cascade toggle
+    const activeAvalanche = cascadeEnabled ? avalancheResult : avalancheNoCascade;
+    const activeSnowball = cascadeEnabled ? snowballResult : snowballNoCascade;
+    const activeResult = budget.strategy === 'avalanche' ? activeAvalanche : activeSnowball;
 
     container.innerHTML = `
         <div class="page-header">
@@ -180,8 +254,42 @@ export function renderDebts(container, store) {
 
         ${debts.length > 0 && budget.totalMonthlyBudget > 0 ? `
             <div class="card" style="margin-top:24px;">
-                <h3 style="margin-bottom:16px;">Strategy Comparison</h3>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3 style="margin:0;">Strategy Comparison</h3>
+                    ${debts.length >= 2 ? `
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="When ON: freed payments roll to next debt. When OFF: budget shrinks as debts are paid.">
+                            <span style="font-size:12px;color:var(--text-muted);">Cascade Payments</span>
+                            <div style="position:relative;width:44px;height:24px;">
+                                <input type="checkbox" id="cascade-toggle" ${cascadeEnabled ? 'checked' : ''} style="opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:1;">
+                                <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${cascadeEnabled ? 'var(--green)' : 'var(--bg-secondary)'};border-radius:12px;transition:background 0.2s;border:1px solid ${cascadeEnabled ? 'var(--green)' : 'var(--border)'};"></div>
+                                <div style="position:absolute;top:2px;left:${cascadeEnabled ? '22px' : '2px'};width:18px;height:18px;background:white;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>
+                            </div>
+                        </label>
+                    ` : ''}
+                </div>
                 <div class="subtitle" style="margin-bottom:16px;">Monthly Budget: ${formatCurrency(budget.totalMonthlyBudget)}${budget.totalMonthlyBudget < totalMinimum ? ` <span class="text-red" style="font-size:12px;">(below ${formatCurrency(totalMinimum)} minimum — increase budget to see payoff timeline)</span>` : ''}</div>
+
+                ${debts.length >= 2 && cascadeEnabled ? `
+                    <div style="margin-bottom:16px;padding:12px;background:var(--accent)10;border-radius:8px;font-size:13px;border-left:3px solid var(--accent);">
+                        <strong>💸 Cascade ON:</strong> When a debt is paid off, its payment rolls to the next debt in line.
+                        ${(() => {
+                            const withCascade = budget.strategy === 'avalanche' ? avalancheResult : snowballResult;
+                            const noCascade = budget.strategy === 'avalanche' ? avalancheNoCascade : snowballNoCascade;
+                            const monthsSaved = noCascade.monthsToPayoff - withCascade.monthsToPayoff;
+                            const interestSaved = noCascade.totalInterestPaid - withCascade.totalInterestPaid;
+                            if (monthsSaved > 0 && monthsSaved < Infinity) {
+                                return `<br><span style="color:var(--green);">Saves ${formatMonths(monthsSaved)} and ${formatCurrency(interestSaved)} in interest vs. not cascading!</span>`;
+                            }
+                            return '';
+                        })()}
+                    </div>
+                ` : ''}
+                ${debts.length >= 2 && !cascadeEnabled ? `
+                    <div style="margin-bottom:16px;padding:12px;background:var(--bg-secondary);border-radius:8px;font-size:13px;border-left:3px solid var(--text-muted);">
+                        <strong>Cascade OFF:</strong> When a debt is paid off, your budget shrinks (you keep the freed payment).
+                    </div>
+                ` : ''}
+
                 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;">
                     <div class="card" style="border:2px solid ${budget.strategy === 'avalanche' ? 'var(--accent)' : 'var(--border)'};">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -191,15 +299,15 @@ export function renderDebts(container, store) {
                         <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Pay highest interest first</div>
                         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
                             <span>Time to payoff:</span>
-                            <strong>${formatMonths(avalancheResult.monthsToPayoff)}</strong>
+                            <strong>${formatMonths(activeAvalanche.monthsToPayoff)}</strong>
                         </div>
                         <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
                             <span>Total interest:</span>
-                            <strong style="color:var(--red);">${avalancheResult.totalInterestPaid === Infinity ? 'N/A' : formatCurrency(avalancheResult.totalInterestPaid)}</strong>
+                            <strong style="color:var(--red);">${activeAvalanche.totalInterestPaid === Infinity ? 'N/A' : formatCurrency(activeAvalanche.totalInterestPaid)}</strong>
                         </div>
-                        ${avalancheResult.payoffOrder.length > 0 ? `
+                        ${activeAvalanche.payoffOrder.length > 0 ? `
                             <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Payoff order:</div>
-                            <div style="font-size:12px;">${avalancheResult.payoffOrder.map((n, i) => `${i + 1}. ${escapeHtml(n)}`).join('<br>')}</div>
+                            <div style="font-size:12px;">${activeAvalanche.payoffOrder.map((n, i) => `${i + 1}. ${escapeHtml(n)}`).join('<br>')}</div>
                         ` : ''}
                         ${budget.strategy !== 'avalanche' ? `<button class="btn btn-sm btn-primary" style="margin-top:12px;width:100%;" id="switch-avalanche">Switch to Avalanche</button>` : ''}
                     </div>
@@ -211,22 +319,22 @@ export function renderDebts(container, store) {
                         <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Pay smallest balance first</div>
                         <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
                             <span>Time to payoff:</span>
-                            <strong>${formatMonths(snowballResult.monthsToPayoff)}</strong>
+                            <strong>${formatMonths(activeSnowball.monthsToPayoff)}</strong>
                         </div>
                         <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
                             <span>Total interest:</span>
-                            <strong style="color:var(--red);">${snowballResult.totalInterestPaid === Infinity ? 'N/A' : formatCurrency(snowballResult.totalInterestPaid)}</strong>
+                            <strong style="color:var(--red);">${activeSnowball.totalInterestPaid === Infinity ? 'N/A' : formatCurrency(activeSnowball.totalInterestPaid)}</strong>
                         </div>
-                        ${snowballResult.payoffOrder.length > 0 ? `
+                        ${activeSnowball.payoffOrder.length > 0 ? `
                             <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Payoff order:</div>
-                            <div style="font-size:12px;">${snowballResult.payoffOrder.map((n, i) => `${i + 1}. ${escapeHtml(n)}`).join('<br>')}</div>
+                            <div style="font-size:12px;">${activeSnowball.payoffOrder.map((n, i) => `${i + 1}. ${escapeHtml(n)}`).join('<br>')}</div>
                         ` : ''}
                         ${budget.strategy !== 'snowball' ? `<button class="btn btn-sm btn-primary" style="margin-top:12px;width:100%;" id="switch-snowball">Switch to Snowball</button>` : ''}
                     </div>
                 </div>
-                ${avalancheResult.totalInterestPaid < snowballResult.totalInterestPaid ? `
+                ${activeAvalanche.totalInterestPaid < activeSnowball.totalInterestPaid ? `
                     <div style="margin-top:16px;padding:12px;background:var(--green)15;border-radius:8px;font-size:13px;">
-                        Avalanche saves <strong>${formatCurrency(snowballResult.totalInterestPaid - avalancheResult.totalInterestPaid)}</strong> in interest
+                        Avalanche saves <strong>${formatCurrency(activeSnowball.totalInterestPaid - activeAvalanche.totalInterestPaid)}</strong> in interest
                     </div>
                 ` : ''}
             </div>
@@ -251,6 +359,7 @@ export function renderDebts(container, store) {
                                 <th>Balance</th>
                                 <th>APR</th>
                                 <th>Min Payment</th>
+                                <th>Payoff Date</th>
                                 <th>Progress</th>
                                 <th>Actions</th>
                             </tr>
@@ -264,6 +373,8 @@ export function renderDebts(container, store) {
                                 const hasLinkedBill = bills.some(b => b.linkedDebtId === debt.id);
                                 const isLinked = hasLinkedAccount || hasLinkedBill;
                                 const linkTitle = hasLinkedAccount && hasLinkedBill ? 'Linked to account & bill' : hasLinkedAccount ? 'Linked to account' : 'Linked to bill';
+                                const payoffMonths = calculateIndividualPayoffMonths(debt.currentBalance, debt.interestRate, debt.minimumPayment);
+                                const payoffInfo = getIndividualDebtFreeDate(payoffMonths);
                                 return `
                                     <tr>
                                         <td>
@@ -280,6 +391,10 @@ export function renderDebts(container, store) {
                                         <td class="font-bold" style="color:var(--red);">${formatCurrency(debt.currentBalance)}</td>
                                         <td>${debt.interestRate.toFixed(1)}%</td>
                                         <td>${formatCurrency(debt.minimumPayment)}${debt.chargeCard ? '<div style="font-size:10px;color:var(--orange);">Full balance</div>' : ''}</td>
+                                        <td style="color:${payoffInfo.color};font-weight:500;">
+                                            ${payoffInfo.text}
+                                            ${payoffMonths > 0 && payoffMonths < Infinity ? `<div style="font-size:10px;color:var(--text-muted);font-weight:normal;">${formatMonths(payoffMonths)}</div>` : ''}
+                                        </td>
                                         <td style="min-width:120px;">
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <div style="flex:1;height:8px;background:var(--bg-secondary);border-radius:4px;overflow:hidden;">
@@ -290,6 +405,11 @@ export function renderDebts(container, store) {
                                         </td>
                                         <td>
                                             <div style="display:flex;gap:4px;">
+                                                ${debt.type === 'auto-loan' ? `
+                                                <button class="btn-icon refinance-debt" data-debt-id="${debt.id}" title="Refinance Calculator" style="color:var(--orange);">
+                                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
+                                                </button>
+                                                ` : ''}
                                                 <button class="btn-icon edit-debt" data-debt-id="${debt.id}" title="Edit">
                                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                                 </button>
@@ -362,6 +482,14 @@ export function renderDebts(container, store) {
     container.querySelector('#add-debt-btn').addEventListener('click', () => showDebtForm(store));
     container.querySelector('#set-budget-btn').addEventListener('click', () => showBudgetForm(store, budget));
 
+    const cascadeToggle = container.querySelector('#cascade-toggle');
+    if (cascadeToggle) {
+        cascadeToggle.addEventListener('change', () => {
+            store.updateDebtBudget({ cascadeEnabled: cascadeToggle.checked });
+            refreshPage();
+        });
+    }
+
     const emptyAddBtn = container.querySelector('#empty-add-debt');
     if (emptyAddBtn) {
         emptyAddBtn.addEventListener('click', () => showDebtForm(store));
@@ -408,6 +536,14 @@ export function renderDebts(container, store) {
                 store.deleteDebt(btn.dataset.debtId);
                 refreshPage();
             }
+        });
+    });
+
+    // Refinance calculator handlers
+    container.querySelectorAll('.refinance-debt').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const debt = debts.find(d => d.id === btn.dataset.debtId);
+            if (debt) showRefinanceCalculator(debt);
         });
     });
 }
@@ -683,3 +819,184 @@ function showBudgetForm(store, budget) {
         refreshPage();
     });
 }
+
+function showRefinanceCalculator(debt) {
+    const currentBalance = debt.currentBalance;
+    const currentRate = debt.interestRate;
+    const currentPayment = debt.minimumPayment;
+
+    // Estimate remaining term from current values (if we have balance, rate, payment)
+    let estimatedRemainingMonths = 0;
+    if (currentPayment > 0 && currentBalance > 0) {
+        if (currentRate > 0) {
+            const monthlyRate = currentRate / 100 / 12;
+            // Solve for n: P = (r * PV) / (1 - (1+r)^-n)
+            // n = -ln(1 - (r * PV / P)) / ln(1 + r)
+            const x = 1 - (monthlyRate * currentBalance / currentPayment);
+            if (x > 0) {
+                estimatedRemainingMonths = Math.ceil(-Math.log(x) / Math.log(1 + monthlyRate));
+            }
+        } else {
+            estimatedRemainingMonths = Math.ceil(currentBalance / currentPayment);
+        }
+    }
+
+    const formHtml = `
+        <div style="margin-bottom:20px;">
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(debt.name)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">Current Balance: ${formatCurrency(currentBalance)}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+            <div class="card" style="padding:16px;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Current Loan</div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">APR:</span>
+                    <strong>${currentRate.toFixed(2)}%</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">Payment:</span>
+                    <strong>${formatCurrency(currentPayment)}</strong>
+                </div>
+                ${estimatedRemainingMonths > 0 ? `
+                <div style="display:flex;justify-content:space-between;">
+                    <span style="font-size:13px;">Est. Remaining:</span>
+                    <strong>${formatMonths(estimatedRemainingMonths)}</strong>
+                </div>
+                ` : ''}
+            </div>
+            <div class="card" style="padding:16px;border:2px solid var(--accent);">
+                <div style="font-size:12px;color:var(--accent);margin-bottom:8px;">New Loan Estimate</div>
+                <div id="refi-new-rate-display" style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">APR:</span>
+                    <strong>--</strong>
+                </div>
+                <div id="refi-new-payment-display" style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">Payment:</span>
+                    <strong style="color:var(--green);">--</strong>
+                </div>
+                <div id="refi-new-term-display" style="display:flex;justify-content:space-between;">
+                    <span style="font-size:13px;">Term:</span>
+                    <strong>--</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>New Loan Amount</label>
+            <input type="number" class="form-input" id="refi-amount" step="0.01" value="${currentBalance}" placeholder="Amount to refinance">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Enter the new loan principal (may differ if rolling in fees or paying down)</div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>New Interest Rate (APR %)</label>
+                <input type="number" class="form-input" id="refi-rate" step="0.01" value="" placeholder="e.g., 5.5">
+            </div>
+            <div class="form-group">
+                <label>New Loan Term</label>
+                <select class="form-select" id="refi-term">
+                    <option value="24">24 months (2 years)</option>
+                    <option value="36">36 months (3 years)</option>
+                    <option value="48">48 months (4 years)</option>
+                    <option value="60" selected>60 months (5 years)</option>
+                    <option value="72">72 months (6 years)</option>
+                    <option value="84">84 months (7 years)</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="refi-comparison" style="display:none;margin-top:20px;padding:16px;background:var(--bg-secondary);border-radius:8px;">
+            <h4 style="margin:0 0 12px 0;">Comparison</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
+                <div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Monthly Savings</div>
+                    <div id="refi-monthly-savings" style="font-size:18px;font-weight:700;color:var(--green);">--</div>
+                </div>
+                <div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Total Interest (Current)</div>
+                    <div id="refi-current-interest" style="font-size:14px;font-weight:600;color:var(--red);">--</div>
+                </div>
+                <div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Total Interest (New)</div>
+                    <div id="refi-new-interest" style="font-size:14px;font-weight:600;color:var(--orange);">--</div>
+                </div>
+            </div>
+            <div id="refi-warning" style="margin-top:12px;padding:8px;background:var(--orange)15;border-radius:4px;font-size:12px;color:var(--orange);display:none;"></div>
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="modal-cancel">Close</button>
+        </div>
+    `;
+
+    openModal('Auto Loan Refinance Calculator', formHtml);
+
+    const amountInput = document.getElementById('refi-amount');
+    const rateInput = document.getElementById('refi-rate');
+    const termSelect = document.getElementById('refi-term');
+    const comparisonDiv = document.getElementById('refi-comparison');
+
+    const updateCalculation = () => {
+        const newAmount = parseFloat(amountInput.value) || 0;
+        const newRate = parseFloat(rateInput.value) || 0;
+        const newTermMonths = parseInt(termSelect.value) || 60;
+
+        // Update new loan display
+        document.querySelector('#refi-new-rate-display strong').textContent = newRate > 0 ? `${newRate.toFixed(2)}%` : '--';
+        document.querySelector('#refi-new-term-display strong').textContent = formatMonths(newTermMonths);
+
+        if (newAmount > 0 && newRate >= 0 && newTermMonths > 0) {
+            const newPayment = calculateMonthlyPayment(newAmount, newRate, newTermMonths);
+            document.querySelector('#refi-new-payment-display strong').textContent = formatCurrency(newPayment);
+
+            // Show comparison
+            comparisonDiv.style.display = 'block';
+
+            const monthlySavings = currentPayment - newPayment;
+            const monthlySavingsEl = document.getElementById('refi-monthly-savings');
+            if (monthlySavings > 0) {
+                monthlySavingsEl.textContent = formatCurrency(monthlySavings);
+                monthlySavingsEl.style.color = 'var(--green)';
+            } else if (monthlySavings < 0) {
+                monthlySavingsEl.textContent = '+' + formatCurrency(Math.abs(monthlySavings));
+                monthlySavingsEl.style.color = 'var(--red)';
+            } else {
+                monthlySavingsEl.textContent = '$0';
+                monthlySavingsEl.style.color = 'var(--text-muted)';
+            }
+
+            // Calculate total interest for current loan (remaining)
+            const currentTotalInterest = estimatedRemainingMonths > 0
+                ? calculateTotalInterest(currentPayment, estimatedRemainingMonths, currentBalance)
+                : 0;
+            document.getElementById('refi-current-interest').textContent = currentTotalInterest > 0 ? formatCurrency(currentTotalInterest) : '--';
+
+            // Calculate total interest for new loan
+            const newTotalInterest = calculateTotalInterest(newPayment, newTermMonths, newAmount);
+            document.getElementById('refi-new-interest').textContent = formatCurrency(newTotalInterest);
+
+            // Show warning if new loan costs more in interest
+            const warningEl = document.getElementById('refi-warning');
+            if (newTotalInterest > currentTotalInterest && currentTotalInterest > 0) {
+                warningEl.textContent = `Note: While your monthly payment is lower, you'll pay ${formatCurrency(newTotalInterest - currentTotalInterest)} more in total interest over the life of the loan due to the longer term.`;
+                warningEl.style.display = 'block';
+            } else if (monthlySavings < 0) {
+                warningEl.textContent = 'Your new monthly payment would be higher than your current payment.';
+                warningEl.style.display = 'block';
+            } else {
+                warningEl.style.display = 'none';
+            }
+        } else {
+            document.querySelector('#refi-new-payment-display strong').textContent = '--';
+            comparisonDiv.style.display = 'none';
+        }
+    };
+
+    amountInput.addEventListener('input', updateCalculation);
+    rateInput.addEventListener('input', updateCalculation);
+    termSelect.addEventListener('change', updateCalculation);
+
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+}
+
+// Cascade is now an inline toggle in the Strategy Comparison section
