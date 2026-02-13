@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PennyHelm — Connecting Bank...</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1923;
+            color: #e4e8ec;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+        }
+        .logo {
+            width: 48px; height: 48px;
+            background: linear-gradient(135deg, #4fc3f7, #0288d1);
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 18px;
+            color: #fff;
+            margin-bottom: 1.5rem;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(79,195,247,0.2);
+            border-top-color: #4fc3f7;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 1.5rem auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+        p { color: #8899a6; font-size: 0.9rem; }
+        .error { color: #f44336; display: none; margin-top: 1rem; }
+        .error a { color: #4fc3f7; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">PH</div>
+        <h2>Connecting your bank...</h2>
+        <div class="spinner" id="spinner"></div>
+        <p id="status">Completing authentication with your bank.</p>
+        <p class="error" id="error">
+            Something went wrong. <a href="/app#settings">Return to PennyHelm</a>
+        </p>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
+    <!-- Plaid Link SDK -->
+    <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+
+    <script>
+        // Initialize Firebase
+        firebase.initializeApp({
+            apiKey: "AIzaSyAGVbGJmAXmGFMlFFkgcbIxLFdXyHxk2l4",
+            authDomain: "cashpilot-c58d5.firebaseapp.com",
+            projectId: "cashpilot-c58d5",
+            storageBucket: "cashpilot-c58d5.firebasestorage.app",
+            messagingSenderId: "348712070883",
+            appId: "1:348712070883:web:147ed5974770faedbf9fd6"
+        });
+
+        const statusEl = document.getElementById('status');
+        const errorEl = document.getElementById('error');
+        const spinnerEl = document.getElementById('spinner');
+
+        function showError(msg) {
+            spinnerEl.style.display = 'none';
+            statusEl.textContent = msg || 'An error occurred.';
+            errorEl.style.display = 'block';
+        }
+
+        // Wait for Firebase auth to be ready, then complete the OAuth flow
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (!user) {
+                // Not logged in — redirect to login
+                window.location.href = '/login';
+                return;
+            }
+
+            try {
+                // The full URL including query params is the receivedRedirectUri
+                const receivedRedirectUri = window.location.href;
+
+                // Get a new link token with the same redirect_uri (origin + path only)
+                const oauthRedirectUri = window.location.origin + '/oauth';
+                const fn = firebase.app().functions().httpsCallable('createLinkToken');
+                const result = await fn({ redirect_uri: oauthRedirectUri });
+                const linkToken = result.data.link_token;
+
+                statusEl.textContent = 'Finishing bank connection...';
+
+                // Re-open Plaid Link with the receivedRedirectUri to complete OAuth
+                const handler = Plaid.create({
+                    token: linkToken,
+                    receivedRedirectUri: receivedRedirectUri,
+                    onSuccess: async (public_token, metadata) => {
+                        try {
+                            statusEl.textContent = 'Importing accounts...';
+
+                            // Exchange the public token
+                            const exchangeFn = firebase.app().functions().httpsCallable('exchangePublicToken');
+                            await exchangeFn({
+                                public_token: public_token,
+                                institution_name: metadata.institution?.name || 'Unknown Bank',
+                                institution_id: metadata.institution?.institution_id || null,
+                            });
+
+                            statusEl.textContent = 'Success! Redirecting...';
+                            // Redirect back to the app — accounts page will pick up the new data
+                            window.location.href = '/app#settings';
+                        } catch (err) {
+                            console.error('OAuth exchange error:', err);
+                            showError('Failed to import accounts.');
+                        }
+                    },
+                    onEvent: (eventName, metadata) => {
+                        console.log('Plaid OAuth event:', eventName, metadata);
+                    },
+                    onExit: (err, metadata) => {
+                        if (err) {
+                            console.error('Plaid OAuth exit error:', err, metadata);
+                            showError('Bank connection was cancelled or failed.');
+                        } else {
+                            // User closed — go back to app
+                            window.location.href = '/app#settings';
+                        }
+                    },
+                });
+
+                handler.open();
+            } catch (err) {
+                console.error('OAuth completion error:', err);
+                showError('Failed to complete bank connection.');
+            }
+        });
+    </script>
+</body>
+</html>

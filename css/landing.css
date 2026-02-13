@@ -12,6 +12,7 @@
     --text-muted: #6b7185;
     --accent: #4f8cff;
     --accent-hover: #3a75e6;
+    --accent-bg: rgba(79, 140, 255, 0.12);
     --green: #34d399;
     --green-bg: rgba(52, 211, 153, 0.12);
     --red: #f87171;
@@ -19,12 +20,85 @@
     --orange: #fb923c;
     --orange-bg: rgba(251, 146, 60, 0.12);
     --yellow: #fbbf24;
+    --yellow-bg: rgba(251, 191, 36, 0.12);
     --purple: #a78bfa;
     --purple-bg: rgba(167, 139, 250, 0.12);
+    --blue: #60a5fa;
+    --blue-bg: rgba(96, 165, 250, 0.12);
     --cyan: #22d3ee;
     --cyan-bg: rgba(34, 211, 238, 0.12);
+    --pink: #ec4899;
+    --pink-bg: rgba(236, 72, 153, 0.12);
+    --modal-overlay: rgba(0, 0, 0, 0.6);
     --radius: 10px;
     --radius-sm: 6px;
+}
+
+/* ===== Light Theme ===== */
+[data-theme="light"] {
+    --bg-primary: #f5f6f8;
+    --bg-secondary: #ebedf2;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f0f1f5;
+    --bg-input: #ffffff;
+    --border: #d5d9e2;
+    --text-primary: #1a1d27;
+    --text-secondary: #5a6174;
+    --text-muted: #8890a4;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-bg: rgba(37, 99, 235, 0.08);
+    --green: #059669;
+    --green-bg: rgba(5, 150, 105, 0.08);
+    --red: #dc2626;
+    --red-bg: rgba(220, 38, 38, 0.08);
+    --orange: #d97706;
+    --orange-bg: rgba(217, 119, 6, 0.08);
+    --yellow: #b45309;
+    --yellow-bg: rgba(180, 83, 9, 0.08);
+    --purple: #7c3aed;
+    --purple-bg: rgba(124, 58, 237, 0.08);
+    --blue: #2563eb;
+    --blue-bg: rgba(37, 99, 235, 0.08);
+    --cyan: #0891b2;
+    --cyan-bg: rgba(8, 145, 178, 0.08);
+    --pink: #be185d;
+    --pink-bg: rgba(190, 24, 93, 0.08);
+    --modal-overlay: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+        --bg-primary: #f5f6f8;
+        --bg-secondary: #ebedf2;
+        --bg-card: #ffffff;
+        --bg-card-hover: #f0f1f5;
+        --bg-input: #ffffff;
+        --border: #d5d9e2;
+        --text-primary: #1a1d27;
+        --text-secondary: #5a6174;
+        --text-muted: #8890a4;
+        --accent: #2563eb;
+        --accent-hover: #1d4ed8;
+        --accent-bg: rgba(37, 99, 235, 0.08);
+        --green: #059669;
+        --green-bg: rgba(5, 150, 105, 0.08);
+        --red: #dc2626;
+        --red-bg: rgba(220, 38, 38, 0.08);
+        --orange: #d97706;
+        --orange-bg: rgba(217, 119, 6, 0.08);
+        --yellow: #b45309;
+        --yellow-bg: rgba(180, 83, 9, 0.08);
+        --purple: #7c3aed;
+        --purple-bg: rgba(124, 58, 237, 0.08);
+        --blue: #2563eb;
+        --blue-bg: rgba(37, 99, 235, 0.08);
+        --cyan: #0891b2;
+        --cyan-bg: rgba(8, 145, 178, 0.08);
+        --pink: #be185d;
+        --pink-bg: rgba(190, 24, 93, 0.08);
+        --modal-overlay: rgba(0, 0, 0, 0.4);
+    }
 }
 
 *, *::before, *::after {
@@ -400,7 +474,92 @@ body {
     font-size: 0.85rem;
     color: var(--green);
     font-weight: 600;
+    margin-top: 8px;
+}
+
+/* Billing toggle */
+.billing-toggle {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    margin-bottom: 32px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    max-width: 320px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.toggle-btn {
+    flex: 1;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.toggle-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.toggle-btn:hover:not(.active) {
+    color: var(--text-primary);
+}
+
+.toggle-save {
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--green);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.toggle-btn.active .toggle-save {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+/* Promo badge */
+.promo-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: linear-gradient(135deg, rgba(79, 140, 255, 0.15), rgba(124, 58, 237, 0.15));
+    color: var(--accent);
+    border: 1px solid rgba(79, 140, 255, 0.3);
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 8px;
+}
+
+/* Price detail / subtext */
+.path-price-detail {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.path-price-after {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
     margin-top: 4px;
+    opacity: 0.7;
 }
 
 .path-features {

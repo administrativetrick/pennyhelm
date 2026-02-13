@@ -36,6 +36,10 @@
       {
         "source": "/accept-invite",
         "destination": "/accept-invite.html"
+      },
+      {
+        "source": "/oauth",
+        "destination": "/oauth.html"
       }
     ]
   },

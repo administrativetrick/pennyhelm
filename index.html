@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PennyHelm - Take Control of Your Finances</title>
     <meta name="description" content="Track bills, accounts, debts, and taxes in one place. Self-host for total privacy or use PennyHelm Cloud for seamless access anywhere.">
+    <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
     <link rel="stylesheet" href="css/landing.css">
 </head>
 <body>
@@ -105,6 +106,13 @@
         <div class="section-inner">
             <h2 class="section-title">Choose Your Path</h2>
             <p class="section-subtitle">Both options give you the full PennyHelm experience</p>
+
+            <!-- Billing Toggle -->
+            <div class="billing-toggle">
+                <button class="toggle-btn active" data-billing="annual">Annual <span class="toggle-save">Save 20%</span></button>
+                <button class="toggle-btn" data-billing="monthly">Monthly</button>
+            </div>
+
             <div class="path-cards">
                 <div class="path-card">
                     <div class="path-header">
@@ -139,8 +147,19 @@
                     <div class="path-badge">Recommended</div>
                     <div class="path-header">
                         <h3>PennyHelm Cloud</h3>
-                        <div class="path-price">$5<span>/month</span></div>
-                        <div class="path-trial">30-day free trial</div>
+                        <!-- Annual pricing (default) -->
+                        <div class="pricing-annual">
+                            <div class="promo-badge">First year intro pricing</div>
+                            <div class="path-price">$4.99<span>/month</span></div>
+                            <div class="path-price-detail">$59.88 billed annually</div>
+                            <div class="path-price-after">Then $8/mo ($96/yr)</div>
+                        </div>
+                        <!-- Monthly pricing (hidden by default) -->
+                        <div class="pricing-monthly" style="display:none;">
+                            <div class="path-price">$10<span>/month</span></div>
+                            <div class="path-price-detail">Billed monthly, cancel anytime</div>
+                        </div>
+                        <div class="path-trial">30-day free trial &middot; No card required</div>
                     </div>
                     <ul class="path-features">
                         <li>
@@ -210,7 +229,7 @@
                 <span>PennyHelm</span>
             </div>
             <div class="footer-links">
-                <a href="#">Privacy</a>
+                <a href="/privacy.html">Privacy</a>
                 <a href="#">Terms</a>
                 <a href="https://github.com/administrativetrick/pennyhelm">GitHub</a>
             </div>
@@ -236,6 +255,16 @@
                     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     navLinks.classList.remove('open');
                 }
+            });
+        });
+        // Billing toggle (annual/monthly)
+        document.querySelectorAll('.billing-toggle .toggle-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.billing-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const isAnnual = btn.dataset.billing === 'annual';
+                document.querySelectorAll('.pricing-annual').forEach(el => el.style.display = isAnnual ? '' : 'none');
+                document.querySelectorAll('.pricing-monthly').forEach(el => el.style.display = isAnnual ? 'none' : '');
             });
         });
     </script>

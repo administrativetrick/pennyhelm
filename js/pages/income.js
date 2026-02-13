@@ -1,5 +1,15 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
+import {
+    renderTaxes,
+    getSelectedYear, setSelectedYear,
+    getActiveTab, setActiveTab,
+    setActiveCategory, setActiveOwner
+} from './taxes.js';
+import { renderAssetsTab } from './assets.js';
+
+// Tab state for Income & Taxes page
+let activeIncomeTab = 'income'; // 'income' | 'documents' | 'deductions' | 'assets'
 
 const FREQ_LABELS = {
     biweekly: 'Biweekly (every 2 weeks)',
@@ -53,7 +63,32 @@ function getOrdinal(n) {
     return s[(v - 20) % 10] || s[v] || s[0];
 }
 
-export function renderIncome(container, store) {
+export function renderIncome(container, store, subTab = null) {
+    // Handle sub-tab from URL (e.g., #income/documents)
+    if (subTab === 'documents') {
+        activeIncomeTab = 'documents';
+        setActiveTab('documents');
+    } else if (subTab === 'deductions') {
+        activeIncomeTab = 'deductions';
+        setActiveTab('deductions');
+    } else if (subTab === 'assets') {
+        activeIncomeTab = 'assets';
+    } else {
+        activeIncomeTab = 'income';
+    }
+
+    // Delegate to sub-tab renderers
+    if (activeIncomeTab === 'assets') {
+        renderAssetsTab(container, store);
+        return;
+    }
+    if (activeIncomeTab === 'documents' || activeIncomeTab === 'deductions') {
+        setActiveTab(activeIncomeTab);
+        renderTaxes(container, store);
+        return;
+    }
+
+    // Income tab content
     const userName = store.getUserName();
     const depName = store.getDependentName();
     const depEnabled = store.isDependentEnabled();
@@ -79,9 +114,17 @@ export function renderIncome(container, store) {
     container.innerHTML = `
         <div class="page-header">
             <div>
-                <h2>Income</h2>
+                <h2>Income & Taxes</h2>
                 <div class="subtitle">${formatCurrency(totalMonthlyIncome)}/month ${depEnabled && combineDepIncome ? 'total household income' : 'total income'}</div>
             </div>
+            <button class="btn btn-primary btn-sm" id="add-other-income-header">+ Add Income</button>
+        </div>
+
+        <div class="filters" style="margin-bottom:20px;">
+            <button class="filter-chip ${activeIncomeTab === 'income' ? 'active' : ''}" data-tab="income">Income</button>
+            <button class="filter-chip ${activeIncomeTab === 'documents' ? 'active' : ''}" data-tab="documents">Documents</button>
+            <button class="filter-chip ${activeIncomeTab === 'deductions' ? 'active' : ''}" data-tab="deductions">Deductions</button>
+            <button class="filter-chip ${activeIncomeTab === 'assets' ? 'active' : ''}" data-tab="assets">Assets</button>
         </div>
 
         <div class="stats-grid">
@@ -277,6 +320,28 @@ export function renderIncome(container, store) {
     `;
 
     // === Event Handlers ===
+
+    // Tab switching
+    container.querySelectorAll('.filters .filter-chip[data-tab]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const tab = chip.dataset.tab;
+            activeIncomeTab = tab;
+            // Update URL hash
+            if (tab === 'income') {
+                window.location.hash = 'income';
+            } else {
+                window.location.hash = `income/${tab}`;
+            }
+        });
+    });
+
+    // Add income header button
+    const addIncomeHeaderBtn = container.querySelector('#add-other-income-header');
+    if (addIncomeHeaderBtn) {
+        addIncomeHeaderBtn.addEventListener('click', () => {
+            showOtherIncomeForm(store);
+        });
+    }
 
     // Edit user pay
     container.querySelector('#edit-user-pay').addEventListener('click', () => {

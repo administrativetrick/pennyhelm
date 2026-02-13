@@ -1,5 +1,7 @@
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { escapeHtml, formatCurrency } from '../utils.js';
+import { auth } from '../auth.js';
+import { requireMFAForUpload } from '../mfa-guard.js';
 
 // ===== IndexedDB Helper for Tax Document Blobs =====
 const DB_NAME = 'personal_finances_taxdocs';
@@ -101,6 +103,17 @@ let activeCategory = 'all';
 let activeTab = 'documents'; // 'documents' or 'deductions'
 let activeOwner = 'user'; // 'user' or 'dependent' - for filtering docs by owner
 
+// Exported state getters/setters for use by income.js
+export function getSelectedYear() { return selectedYear; }
+export function setSelectedYear(year) { selectedYear = year; saveSelectedYear(year); }
+export function getActiveTab() { return activeTab; }
+export function setActiveTab(tab) { activeTab = tab; }
+export function setActiveCategory(cat) { activeCategory = cat; }
+export function setActiveOwner(owner) { activeOwner = owner; }
+
+// Export constants
+export { TAX_CATEGORIES, DEDUCTION_CATEGORIES, STANDARD_DEDUCTION, MILEAGE_RATES };
+
 // Check which doc IDs have blobs in IndexedDB
 async function checkMissingBlobs(docIds) {
     const missing = new Set();
@@ -172,7 +185,7 @@ export function renderTaxes(container, store) {
     container.innerHTML = `
         <div class="page-header">
             <div>
-                <h2>Taxes</h2>
+                <h2>Income & Taxes</h2>
                 <div style="font-size:13px;color:var(--text-secondary);">${selectedYear} Tax Year</div>
             </div>
             <div style="display:flex;gap:8px;">
@@ -184,6 +197,7 @@ export function renderTaxes(container, store) {
         </div>
 
         <div class="filters" style="margin-bottom:16px;">
+            <button class="filter-chip" data-tab="income">Income</button>
             <button class="filter-chip ${activeTab === 'documents' ? 'active' : ''}" id="tab-documents">Documents</button>
             <button class="filter-chip ${activeTab === 'deductions' ? 'active' : ''}" id="tab-deductions">Deductions</button>
         </div>
@@ -202,14 +216,20 @@ export function renderTaxes(container, store) {
     `;
 
     // Tab click handlers
+    const incomeTabBtn = container.querySelector('.filter-chip[data-tab="income"]');
+    if (incomeTabBtn) {
+        incomeTabBtn.addEventListener('click', () => {
+            window.location.hash = 'income';
+        });
+    }
     container.querySelector('#tab-documents').addEventListener('click', () => {
         activeTab = 'documents';
         activeCategory = 'all';
-        renderTaxes(container, store);
+        window.location.hash = 'income/documents';
     });
     container.querySelector('#tab-deductions').addEventListener('click', () => {
         activeTab = 'deductions';
-        renderTaxes(container, store);
+        window.location.hash = 'income/deductions';
     });
 
     // Year tabs
@@ -330,7 +350,7 @@ function attachDocumentTabEvents(container, store, yearDocs) {
     const uploadBtn = document.querySelector('#upload-doc-btn');
     if (uploadBtn) {
         uploadBtn.addEventListener('click', () => {
-            document.querySelector('#tax-file-input').click();
+            requireMFAForUpload(() => document.querySelector('#tax-file-input').click());
         });
     }
 
@@ -340,6 +360,7 @@ function attachDocumentTabEvents(container, store, yearDocs) {
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
+            if (auth.isCloud() && !auth.isMFAEnabled()) { e.target.value = ''; return; }
             if (files.length === 1) {
                 showUploadModal(store, files[0], selectedYear);
             } else {
@@ -726,13 +747,14 @@ function attachTaxEvents(container, store, yearDocs) {
 
     // Upload button
     container.querySelector('#upload-doc-btn').addEventListener('click', () => {
-        container.querySelector('#tax-file-input').click();
+        requireMFAForUpload(() => container.querySelector('#tax-file-input').click());
     });
 
     // File input
     container.querySelector('#tax-file-input').addEventListener('change', (e) => {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
+        if (auth.isCloud() && !auth.isMFAEnabled()) { e.target.value = ''; return; }
         if (files.length === 1) {
             showUploadModal(store, files[0], selectedYear);
         } else {

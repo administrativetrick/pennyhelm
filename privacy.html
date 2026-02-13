@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - PennyHelm</title>
+    <meta name="description" content="PennyHelm Privacy Policy - How we collect, use, and protect your data.">
+    <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
+    <link rel="stylesheet" href="css/landing.css">
+    <style>
+        .policy-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px 80px;
+        }
+        .policy-container h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #e8eaed;
+            margin-bottom: 8px;
+        }
+        .policy-date {
+            color: #6b7185;
+            font-size: 0.95rem;
+            margin-bottom: 40px;
+        }
+        .policy-container h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #e8eaed;
+            margin-top: 36px;
+            margin-bottom: 12px;
+        }
+        .policy-container h3 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #c0c4d0;
+            margin-top: 24px;
+            margin-bottom: 8px;
+        }
+        .policy-container p,
+        .policy-container li {
+            color: #9aa0b0;
+            font-size: 0.95rem;
+            line-height: 1.7;
+            margin-bottom: 12px;
+        }
+        .policy-container ul {
+            padding-left: 24px;
+            margin-bottom: 16px;
+        }
+        .policy-container li {
+            margin-bottom: 6px;
+        }
+        .policy-container strong {
+            color: #c0c4d0;
+        }
+        .policy-container a {
+            color: #4f8cff;
+            text-decoration: none;
+        }
+        .policy-container a:hover {
+            text-decoration: underline;
+        }
+        .policy-container table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0 24px;
+            font-size: 0.9rem;
+        }
+        .policy-container th,
+        .policy-container td {
+            text-align: left;
+            padding: 10px 14px;
+            border: 1px solid #2e3348;
+            color: #9aa0b0;
+        }
+        .policy-container th {
+            background: #1a1d27;
+            color: #c0c4d0;
+            font-weight: 600;
+        }
+        .policy-container td {
+            background: #13151d;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 24px;
+            color: #4f8cff;
+            text-decoration: none;
+            font-size: 0.95rem;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="landing-nav">
+        <div class="landing-nav-inner">
+            <div class="landing-logo">
+                <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+                    <div class="logo-mark">PH</div>
+                    <span class="logo-text">PennyHelm</span>
+                </a>
+            </div>
+            <div class="landing-nav-links">
+                <a href="/">Home</a>
+                <a href="/login.html" class="nav-cta">Sign In</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="policy-container">
+        <a href="/" class="back-link">&larr; Back to Home</a>
+
+        <h1>Privacy Policy</h1>
+        <p class="policy-date">Effective Date: February 10, 2025</p>
+
+        <p>
+            PennyHelm ("we," "us," or "our") is a personal finance management application. We take your privacy seriously and are committed to protecting the personal and financial information you entrust to us. This Privacy Policy explains what data we collect, how we use it, how we store and protect it, and your rights regarding your information.
+        </p>
+
+        <h2>1. Information We Collect</h2>
+
+        <h3>1.1 Account Information</h3>
+        <ul>
+            <li><strong>Email address</strong> &mdash; used for authentication and account recovery</li>
+            <li><strong>Display name</strong> &mdash; a name you choose to personalize the app</li>
+            <li><strong>Authentication credentials</strong> &mdash; managed securely by Firebase Authentication (we never store your password in plaintext)</li>
+        </ul>
+
+        <h3>1.2 Financial Data You Enter</h3>
+        <p>All financial data is entered voluntarily by you. This may include:</p>
+        <ul>
+            <li>Bills, recurring payments, and payment history</li>
+            <li>Bank account names, types, and balances</li>
+            <li>Debts (credit cards, loans, mortgages) with balances and interest rates</li>
+            <li>Income information and pay schedules</li>
+            <li>Credit scores</li>
+            <li>Tax deduction records and document metadata</li>
+            <li>Savings goals</li>
+            <li>Vehicle mileage and trip logs</li>
+            <li>Custom bill categories</li>
+        </ul>
+
+        <h3>1.3 Bank Data via Plaid</h3>
+        <p>If you choose to connect a bank account, we use <strong>Plaid Inc.</strong> to securely retrieve:</p>
+        <ul>
+            <li>Account names and types (checking, savings, credit, etc.)</li>
+            <li>Account balances (current and available)</li>
+            <li>Last four digits of account numbers (mask)</li>
+            <li>Institution name</li>
+        </ul>
+        <p>We do <strong>not</strong> access or store your bank login credentials. Plaid handles authentication directly with your financial institution. We do not currently import or store transaction history.</p>
+        <p>Plaid's access tokens (used to refresh your balances) are stored securely on our servers and are never exposed to your browser or device. For more information, see <a href="https://plaid.com/legal/#end-user-privacy-policy" target="_blank" rel="noopener">Plaid's End User Privacy Policy</a>.</p>
+
+        <h3>1.4 Notification Preferences (Mobile App)</h3>
+        <p>If you enable bill reminders on the mobile app, we store your preferences:</p>
+        <ul>
+            <li>Whether notifications are enabled</li>
+            <li>Reminder timing (how many days before a due date)</li>
+            <li>Preferred notification time</li>
+            <li>Whether to include auto-pay bills</li>
+        </ul>
+        <p>Notifications are scheduled locally on your device. We do not use push notification servers or send notifications from our servers.</p>
+
+        <h3>1.5 App Telemetry (Mobile App Only)</h3>
+        <p>The mobile app collects limited usage telemetry to help us identify bugs and improve the experience:</p>
+        <ul>
+            <li>Screen navigation events</li>
+            <li>App lifecycle events (open, background, foreground)</li>
+            <li>Error reports (error type, message, and a brief stack trace)</li>
+            <li>App version, platform (Android/iOS), and OS version</li>
+        </ul>
+        <p>Telemetry data is associated with your user ID for debugging purposes, is accessible only to administrators, and is <strong>automatically deleted after 30 days</strong>. No financial data is included in telemetry events.</p>
+
+        <h3>1.6 Information We Do NOT Collect</h3>
+        <ul>
+            <li>We do not use cookies for tracking or advertising</li>
+            <li>We do not use third-party analytics services (no Google Analytics, Mixpanel, etc.)</li>
+            <li>We do not display advertisements</li>
+            <li>We do not collect location data</li>
+            <li>We do not access your contacts, camera, or photos</li>
+            <li>We do not sell or share your data with advertisers or data brokers</li>
+        </ul>
+
+        <h2>2. How We Use Your Information</h2>
+        <p>We use your information solely to provide and improve the PennyHelm service:</p>
+        <ul>
+            <li><strong>Authentication</strong> &mdash; to verify your identity and secure your account</li>
+            <li><strong>Financial tracking</strong> &mdash; to display your bills, accounts, debts, and budgets within the app</li>
+            <li><strong>Bank balance refresh</strong> &mdash; to fetch updated account balances from connected banks (once daily via Plaid)</li>
+            <li><strong>Bill reminders</strong> &mdash; to schedule local notifications on your device</li>
+            <li><strong>Shared access</strong> &mdash; to allow people you explicitly invite (partner, financial planner, CPA) to view or edit your data</li>
+            <li><strong>Bug diagnosis</strong> &mdash; to identify and fix app issues using telemetry data</li>
+            <li><strong>Email communication</strong> &mdash; to send invite notifications and account setup emails</li>
+        </ul>
+
+        <h2>3. Data Sharing</h2>
+
+        <h3>3.1 People You Invite</h3>
+        <p>You can invite others (a partner, financial planner, or CPA) to access your financial data. When you send an invite:</p>
+        <ul>
+            <li>The invitee receives an email with a link to access your data</li>
+            <li>You choose whether they get <strong>view-only</strong> or <strong>edit</strong> access</li>
+            <li>You can revoke access at any time from Settings</li>
+        </ul>
+        <p>We never share your data with anyone you have not explicitly invited.</p>
+
+        <h3>3.2 Third-Party Services</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Purpose</th>
+                    <th>Data Shared</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Firebase (Google Cloud)</strong></td>
+                    <td>Authentication, data storage, cloud functions</td>
+                    <td>Email, display name, encrypted financial data</td>
+                </tr>
+                <tr>
+                    <td><strong>Plaid</strong></td>
+                    <td>Bank account linking and balance retrieval</td>
+                    <td>Bank credentials (handled by Plaid, not PennyHelm)</td>
+                </tr>
+                <tr>
+                    <td><strong>SMTP Email Provider</strong></td>
+                    <td>Sending invite and account setup emails</td>
+                    <td>Recipient email address, email content</td>
+                </tr>
+            </tbody>
+        </table>
+        <p>We do not sell, rent, or trade your personal information to any third party.</p>
+
+        <h2>4. Data Storage and Security</h2>
+
+        <h3>4.1 Where Your Data Is Stored</h3>
+        <ul>
+            <li><strong>Cloud:</strong> Your financial data is stored in Google Cloud Firestore, secured by Firebase Authentication and Firestore Security Rules</li>
+            <li><strong>Device:</strong> The mobile app may cache data locally for offline access using device storage</li>
+            <li><strong>Plaid tokens:</strong> Bank access tokens are stored server-side only and are never sent to your browser or device</li>
+        </ul>
+
+        <h3>4.2 Security Measures</h3>
+        <ul>
+            <li>All data transmitted between your device and our servers is encrypted in transit (HTTPS/TLS)</li>
+            <li>Firebase Authentication manages credentials with industry-standard security</li>
+            <li>Firestore Security Rules enforce that only you (and people you invite) can access your data</li>
+            <li>Admin access is restricted via Firebase custom claims</li>
+            <li>Plaid access tokens are stored in a separate, protected collection inaccessible to client applications</li>
+        </ul>
+
+        <h2>5. Data Retention</h2>
+        <ul>
+            <li><strong>Financial data:</strong> Retained as long as your account is active. You can delete your data at any time from the Settings page</li>
+            <li><strong>Telemetry data:</strong> Automatically deleted after 30 days</li>
+            <li><strong>Plaid connections:</strong> Active until you disconnect your bank or delete your account</li>
+            <li><strong>Invite records:</strong> Retained while active; revoked invites are marked as revoked</li>
+        </ul>
+
+        <h2>6. Your Rights and Controls</h2>
+        <p>You have full control over your data:</p>
+        <ul>
+            <li><strong>Export:</strong> Download all your financial data as a JSON file from Settings at any time</li>
+            <li><strong>Delete:</strong> Clear all financial data or reset your account entirely from Settings</li>
+            <li><strong>Revoke sharing:</strong> Remove any shared access at any time</li>
+            <li><strong>Disconnect banks:</strong> Remove connected bank accounts</li>
+            <li><strong>Disable notifications:</strong> Turn off bill reminders at any time</li>
+            <li><strong>Account deletion:</strong> Contact us to request full account deletion, including all associated data</li>
+        </ul>
+
+        <h2>7. Children's Privacy</h2>
+        <p>PennyHelm is not intended for use by anyone under the age of 18. We do not knowingly collect personal information from children. If we become aware that we have collected data from a child under 18, we will take steps to delete it promptly.</p>
+
+        <h2>8. Changes to This Policy</h2>
+        <p>We may update this Privacy Policy from time to time. If we make material changes, we will notify you by updating the effective date at the top of this page. We encourage you to review this policy periodically.</p>
+
+        <h2>9. Contact Us</h2>
+        <p>If you have questions about this Privacy Policy or your data, please contact us:</p>
+        <ul>
+            <li>GitHub: <a href="https://github.com/administrativetrick/pennyhelm" target="_blank" rel="noopener">github.com/administrativetrick/pennyhelm</a></li>
+        </ul>
+    </div>
+
+    <!-- Footer -->
+    <footer class="landing-footer">
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <div class="logo-mark">PH</div>
+                <span>PennyHelm</span>
+            </div>
+            <div class="footer-links">
+                <a href="/privacy.html">Privacy</a>
+                <a href="#">Terms</a>
+                <a href="https://github.com/administrativetrick/pennyhelm">GitHub</a>
+            </div>
+            <div class="footer-copy">&copy; 2025 PennyHelm. All rights reserved.</div>
+        </div>
+    </footer>
+</body>
+</html>

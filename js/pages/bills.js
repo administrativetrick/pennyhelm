@@ -1,7 +1,74 @@
 import { formatCurrency, getCategoryBadgeClass, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
+import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+// Expand a recurring bill into individual dated occurrences within a date range
+function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = []) {
+    const occurrences = [];
+    const freq = bill.frequency;
+
+    if (freq === 'weekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        let cursor = new Date(rangeStart);
+        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
+        while (cursor <= rangeEnd) {
+            occurrences.push({
+                ...bill,
+                _occurrenceDate: new Date(cursor),
+                _occurrenceKey: `${bill.id}_w_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
+            });
+            cursor = new Date(cursor.getTime() + 7 * 86400000);
+        }
+    } else if (freq === 'biweekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        let cursor = new Date(rangeStart);
+        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
+        while (cursor <= rangeEnd) {
+            occurrences.push({
+                ...bill,
+                _occurrenceDate: new Date(cursor),
+                _occurrenceKey: `${bill.id}_bw_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
+            });
+            cursor = new Date(cursor.getTime() + 14 * 86400000);
+        }
+    } else if (freq === 'per-paycheck') {
+        payDatesInRange.forEach((pd, idx) => {
+            const payDate = new Date(pd);
+            if (payDate >= rangeStart && payDate <= rangeEnd) {
+                occurrences.push({
+                    ...bill,
+                    _occurrenceDate: payDate,
+                    _occurrenceKey: `${bill.id}_pp_${idx}_${payDate.getTime()}`,
+                });
+            }
+        });
+    } else if (freq === 'twice-monthly') {
+        const byMonth = {};
+        payDatesInRange.forEach(pd => {
+            const d = new Date(pd);
+            const key = `${d.getFullYear()}-${d.getMonth()}`;
+            if (!byMonth[key]) byMonth[key] = [];
+            byMonth[key].push(d);
+        });
+        Object.values(byMonth).forEach(monthDates => {
+            monthDates.sort((a, b) => a - b);
+            const first = monthDates[0];
+            const last = monthDates[monthDates.length - 1];
+            if (first >= rangeStart && first <= rangeEnd) {
+                occurrences.push({ ...bill, _occurrenceDate: first, _occurrenceKey: `${bill.id}_tm_first_${first.getTime()}` });
+            }
+            if (last.getTime() !== first.getTime() && last >= rangeStart && last <= rangeEnd) {
+                occurrences.push({ ...bill, _occurrenceDate: last, _occurrenceKey: `${bill.id}_tm_last_${last.getTime()}` });
+            }
+        });
+    } else {
+        return null; // monthly, yearly, semi-annual — no expansion
+    }
+    return occurrences;
+}
 
 let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
 let cfPeriodOffset = 0; // For cashflow view pay period navigation
@@ -76,46 +143,47 @@ export function renderBills(container, store) {
         return false;
     }
 
-    // Filter bills based on view mode
+    // Get pay dates in current month for expansion
+    const payDatesInMonth = sorted.filter(d => d.getFullYear() === year && d.getMonth() === month);
+
+    // Filter bills based on view mode, expanding recurring bills into individual occurrences
     let bills, periodicBills;
     if (billsViewMode === 'paycheck' && periodStart && periodEnd) {
-        // Count paychecks in this month for per-paycheck bill logic
-        const monthPaychecks = sorted.filter(d =>
-            d.getFullYear() === periodStart.getFullYear() && d.getMonth() === periodStart.getMonth()
-        );
-        const isThreeCheckMonth = monthPaychecks.length >= 3;
-        const isFirstCheck = isThreeCheckMonth && periodStart.getTime() === Math.min(...monthPaychecks.map(d => d.getTime()));
-        const isLastCheck = isThreeCheckMonth && periodStart.getTime() === Math.max(...monthPaychecks.map(d => d.getTime()));
+        const payDatesInPeriod = sorted.filter(d => d >= periodStart && d <= periodEnd);
 
-        bills = allRegularBills.filter(b => {
-            if (b.frozen) return false;
-
-            // Per-paycheck bills: show on every check, except 3-check months (first & last only)
-            if (b.frequency === 'per-paycheck') {
-                if (isThreeCheckMonth) {
-                    return isFirstCheck || isLastCheck;
+        const expandedBills = [];
+        allRegularBills.forEach(b => {
+            if (b.frozen) return;
+            const expanded = expandBillOccurrences(b, periodStart, periodEnd, payDatesInPeriod);
+            if (expanded !== null) {
+                expandedBills.push(...expanded);
+            } else {
+                const dueThisMonth = new Date(periodStart.getFullYear(), periodStart.getMonth(), b.dueDay);
+                const dueNextMonth = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, b.dueDay);
+                if ((dueThisMonth >= periodStart && dueThisMonth <= periodEnd) ||
+                    (dueNextMonth >= periodStart && dueNextMonth <= periodEnd)) {
+                    expandedBills.push(b);
                 }
-                return true;
             }
-
-            // Weekly bills: always show (they occur every week)
-            if (b.frequency === 'weekly') {
-                return true;
-            }
-
-            // Biweekly bills: always show (they occur every other week, roughly aligns with paychecks)
-            if (b.frequency === 'biweekly') {
-                return true;
-            }
-
-            const dueThisMonth = new Date(periodStart.getFullYear(), periodStart.getMonth(), b.dueDay);
-            const dueNextMonth = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, b.dueDay);
-            return (dueThisMonth >= periodStart && dueThisMonth <= periodEnd) ||
-                   (dueNextMonth >= periodStart && dueNextMonth <= periodEnd);
         });
+        bills = expandedBills;
 
-        // Only show periodic bills if they're due in this pay period
         periodicBills = allPeriodicBills.filter(b => !b.frozen && isPeriodicBillDueInRange(b, periodStart, periodEnd));
+    } else if (billsViewMode === 'month') {
+        const monthStart = new Date(year, month, 1);
+        const monthEnd = new Date(year, month + 1, 0);
+
+        const expandedBills = [];
+        allRegularBills.forEach(b => {
+            const expanded = expandBillOccurrences(b, monthStart, monthEnd, payDatesInMonth);
+            if (expanded !== null) {
+                expandedBills.push(...expanded);
+            } else {
+                expandedBills.push(b);
+            }
+        });
+        bills = expandedBills;
+        periodicBills = allPeriodicBills;
     } else {
         bills = allRegularBills;
         periodicBills = allPeriodicBills;
@@ -165,10 +233,10 @@ export function renderBills(container, store) {
         </div>
 
         <div class="filters" id="filters">
-            <button class="filter-chip active" data-filter="all">All</button>
+            <button class="filter-chip active" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
+            <button class="filter-chip" data-filter="all">All</button>
             ${categories.map(c => `<button class="filter-chip" data-filter="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}
             ${billsViewMode === 'month' ? '<button class="filter-chip" data-filter="frozen" style="border-color:var(--blue);color:var(--blue);">Frozen</button>' : ''}
-            <button class="filter-chip" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
         </div>
 
         <div class="table-wrapper">
@@ -186,7 +254,7 @@ export function renderBills(container, store) {
                     </tr>
                 </thead>
                 <tbody id="bills-tbody">
-                    ${renderBillRows(sortBills(bills, store, year, month), store, year, month, depEnabled, userName, depName)}
+                    ${renderBillRows(sortBills(filterBills(bills, 'unpaid', store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
                 </tbody>
             </table>
         </div>
@@ -213,7 +281,7 @@ export function renderBills(container, store) {
                         </tr>
                     </thead>
                     <tbody id="periodic-bills-tbody">
-                        ${renderBillRows(sortBills(periodicBills, store, year, month), store, year, month, depEnabled, userName, depName)}
+                        ${renderBillRows(sortBills(filterBills(periodicBills, 'unpaid', store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
                     </tbody>
                 </table>
             </div>
@@ -221,14 +289,8 @@ export function renderBills(container, store) {
         ` : ''}
 
         ${(() => {
-            const regularTotal = bills.filter(b => !b.frozen && !b.excludeFromTotal).reduce((s, b) => {
-                if (billsViewMode === 'month') {
-                    if (b.frequency === 'per-paycheck') return s + b.amount * 2;
-                    if (b.frequency === 'weekly') return s + b.amount * 4;
-                    if (b.frequency === 'biweekly') return s + b.amount * 2;
-                }
-                return s + b.amount;
-            }, 0);
+            // Bills are already expanded into individual occurrences, so just sum
+            const regularTotal = bills.filter(b => !b.frozen && !b.excludeFromTotal).reduce((s, b) => s + b.amount, 0);
             const periodicDueTotal = (() => {
                 if (billsViewMode === 'paycheck') {
                     return periodicBills.filter(b => !b.frozen && !b.excludeFromTotal).reduce((s, b) => s + b.amount, 0);
@@ -320,13 +382,13 @@ export function renderBills(container, store) {
             chip.classList.add('active');
             const filter = chip.dataset.filter;
             const tbody = container.querySelector('#bills-tbody');
-            tbody.innerHTML = renderBillRows(sortBills(filterBills(bills, filter), store, year, month), store, year, month, depEnabled, userName, depName);
+            tbody.innerHTML = renderBillRows(sortBills(filterBills(bills, filter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName);
             attachRowEvents(tbody, store, allBills, sources, categories, year, month, depEnabled, userName, depName);
             attachSelectionEvents(tbody);
             // Also filter periodic bills section
             const periodicTbody = container.querySelector('#periodic-bills-tbody');
             if (periodicTbody) {
-                periodicTbody.innerHTML = renderBillRows(sortBills(filterBills(periodicBills, filter), store, year, month), store, year, month, depEnabled, userName, depName);
+                periodicTbody.innerHTML = renderBillRows(sortBills(filterBills(periodicBills, filter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName);
                 attachRowEvents(periodicTbody, store, allBills, sources, categories, year, month, depEnabled, userName, depName);
                 attachSelectionEvents(periodicTbody);
             }
@@ -487,10 +549,13 @@ export function renderBills(container, store) {
     }
 }
 
-function filterBills(bills, filter) {
+function filterBills(bills, filter, store = null, year = null, month = null) {
     if (filter === 'all') return bills;
     if (filter === 'frozen') return bills.filter(b => b.frozen);
-    if (filter === 'unpaid') return bills; // handled differently in rendering
+    if (filter === 'unpaid') {
+        if (!store || year === null || month === null) return bills;
+        return bills.filter(b => !b.frozen && !store.isBillPaid(b.id, year, month));
+    }
     return bills.filter(b => b.category === filter);
 }
 
@@ -511,8 +576,9 @@ function sortBills(bills, store, year, month) {
                 cmp = (a.category || '').toLowerCase().localeCompare((b.category || '').toLowerCase());
                 break;
             case 'dueDay': {
-                const dayA = (a.frequency === 'per-paycheck' || a.frequency === 'weekly' || a.frequency === 'biweekly') ? 99 : (a.dueDay || 0);
-                const dayB = (b.frequency === 'per-paycheck' || b.frequency === 'weekly' || b.frequency === 'biweekly') ? 99 : (b.dueDay || 0);
+                // Sort by occurrence date if expanded, otherwise by due day
+                const dayA = a._occurrenceDate ? a._occurrenceDate.getDate() : (a.dueDay || 0);
+                const dayB = b._occurrenceDate ? b._occurrenceDate.getDate() : (b.dueDay || 0);
                 cmp = dayA - dayB;
                 break;
             }
@@ -533,6 +599,7 @@ function sortBills(bills, store, year, month) {
 }
 
 function renderBillRows(bills, store, year, month, depEnabled = false, userName = 'User', depName = 'Dependent') {
+    const customCategories = store.getCustomCategories();
     return bills.map(bill => {
         const isPaid = store.isBillPaid(bill.id, year, month);
         const statusClass = bill.frozen ? 'status-frozen' : isPaid ? 'status-paid' : 'status-unpaid';
@@ -540,6 +607,7 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
         const isLinked = !!bill.linkedDebtId;
         const isDepBill = bill.owner === 'dependent';
         const isCovering = isDepBill && bill.userCovering;
+        const badgeClass = getCategoryBadgeClass(bill.category, customCategories);
 
         return `
             <tr data-bill-id="${bill.id}" style="${isPaid ? 'opacity:0.6;' : ''}${bill.frozen ? 'opacity:0.5;' : ''}" class="${selectedBillIds.has(bill.id) ? 'bill-selected' : ''}">
@@ -555,13 +623,13 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
                         ${depEnabled && isDepBill ? `<span style="display:inline-block;margin-left:6px;font-size:9px;padding:1px 5px;background:var(--purple)15;color:var(--purple);border:1px solid var(--purple)40;border-radius:3px;vertical-align:middle;font-weight:600;" title="${escapeHtml(depName)}'s bill">${escapeHtml(depName)}</span>` : ''}
                         ${isCovering ? `<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:var(--orange)15;color:var(--orange);border:1px solid var(--orange)40;border-radius:3px;vertical-align:middle;font-weight:600;" title="${escapeHtml(userName)} covering">Covering</span>` : ''}
                         ${isLinked ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;border-radius:4px;vertical-align:middle;" title="Linked to debt">&#128279; Linked</span>' : ''}
-                        ${bill.excludeFromTotal ? '<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:rgba(251,191,36,0.1);color:var(--yellow);border:1px solid rgba(251,191,36,0.3);border-radius:3px;vertical-align:middle;font-weight:600;letter-spacing:0.3px;" title="Excluded from bill totals">EXCL</span>' : ''}
+                        ${bill.excludeFromTotal ? '<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--yellow);border-radius:3px;vertical-align:middle;font-weight:600;letter-spacing:0.3px;" title="Excluded from bill totals">EXCL</span>' : ''}
                     </div>
                     ${bill.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(bill.notes)}</div>` : ''}
                 </td>
-                <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">per check</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : ''}</td>
-                <td><span class="badge ${getCategoryBadgeClass(bill.category)}">${escapeHtml(bill.category)}</span></td>
-                <td>${bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Per check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
+                <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every check</div>' : bill.frequency === 'twice-monthly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">2x/month</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : ''}</td>
+                <td><span class="badge ${badgeClass}">${escapeHtml(bill.category)}</span></td>
+                <td>${bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
                 <td style="font-size:12px;">
                     ${escapeHtml(bill.paymentSource || '-')}
                     ${bill.autoPay ? '<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:var(--green)18;color:var(--green);border:1px solid var(--green)40;border-radius:3px;vertical-align:middle;font-weight:600;letter-spacing:0.3px;">AUTO</span>' : ''}
@@ -615,6 +683,111 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month, 
     });
 }
 
+// Render grouped category dropdown HTML
+function renderCategoryDropdown(customCategories = []) {
+    const grouped = getCategoriesByGroup(customCategories);
+    const groups = [...CATEGORY_GROUPS];
+    if (customCategories.length > 0) groups.push('Custom');
+
+    return groups.map(group => {
+        const cats = grouped[group];
+        if (!cats || cats.length === 0) return '';
+
+        return `
+            <div class="category-group">
+                <div class="category-group-header">${escapeHtml(group)}</div>
+                ${cats.map(cat => `
+                    <div class="category-option" data-category="${escapeHtml(cat.name)}" data-color="${cat.color}">
+                        <span class="category-dot" style="background:var(--${cat.color === 'pink' ? 'pink' : cat.color})"></span>
+                        ${escapeHtml(cat.name)}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }).join('');
+}
+
+// Setup category picker event handlers
+function setupCategoryPicker() {
+    const input = document.getElementById('bill-category');
+    const dropdown = document.getElementById('category-dropdown');
+    const toggle = document.getElementById('category-picker-toggle');
+    if (!input || !dropdown || !toggle) return;
+
+    // Toggle dropdown on button click
+    toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropdown.classList.toggle('open');
+        if (dropdown.classList.contains('open')) {
+            filterCategoryOptions('');
+        }
+    });
+
+    // Filter as user types
+    input.addEventListener('input', () => {
+        dropdown.classList.add('open');
+        filterCategoryOptions(input.value);
+    });
+
+    // Focus shows dropdown
+    input.addEventListener('focus', () => {
+        dropdown.classList.add('open');
+        filterCategoryOptions(input.value);
+    });
+
+    // Select category on click
+    dropdown.querySelectorAll('.category-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            input.value = opt.dataset.category;
+            dropdown.classList.remove('open');
+        });
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.category-picker-wrapper') && !e.target.closest('.category-dropdown')) {
+            dropdown.classList.remove('open');
+        }
+    });
+}
+
+// Filter category options based on search text
+function filterCategoryOptions(search) {
+    const dropdown = document.getElementById('category-dropdown');
+    if (!dropdown) return;
+
+    const term = search.toLowerCase().trim();
+    let anyVisible = false;
+
+    dropdown.querySelectorAll('.category-group').forEach(group => {
+        let groupVisible = false;
+        group.querySelectorAll('.category-option').forEach(opt => {
+            const name = opt.dataset.category.toLowerCase();
+            const visible = !term || name.includes(term);
+            opt.style.display = visible ? '' : 'none';
+            if (visible) groupVisible = true;
+        });
+        group.style.display = groupVisible ? '' : 'none';
+        if (groupVisible) anyVisible = true;
+    });
+
+    // Show "no results" message if needed
+    let noResults = dropdown.querySelector('.no-results');
+    if (!anyVisible && term) {
+        if (!noResults) {
+            noResults = document.createElement('div');
+            noResults.className = 'no-results';
+            noResults.style.cssText = 'padding:12px;color:var(--text-secondary);font-size:13px;text-align:center;';
+            noResults.textContent = 'No matching categories. Type to use custom value.';
+            dropdown.appendChild(noResults);
+        }
+        noResults.style.display = '';
+    } else if (noResults) {
+        noResults.style.display = 'none';
+    }
+}
+
 function showBillForm(store, sources, categories, existingBill = null, depEnabled = false, userName = 'User', depName = 'Dependent') {
     const isEdit = !!existingBill;
     const bill = existingBill || {
@@ -654,7 +827,7 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
                 <label>Amount</label>
                 <input type="number" class="form-input" id="bill-amount" step="0.01" value="${bill.amount}">
             </div>
-            <div class="form-group" id="bill-due-group" style="${bill.frequency === 'weekly' || bill.frequency === 'biweekly' ? 'display:none;' : ''}">
+            <div class="form-group" id="bill-due-group" style="${bill.frequency === 'weekly' || bill.frequency === 'biweekly' || bill.frequency === 'per-paycheck' || bill.frequency === 'twice-monthly' ? 'display:none;' : ''}">
                 <label>Due Day of Month</label>
                 <input type="number" class="form-input" id="bill-due" min="1" max="31" value="${bill.dueDay}">
             </div>
@@ -680,20 +853,16 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             </select>
         </div>
         <div class="form-row">
-            <div class="form-group">
+            <div class="form-group" style="position:relative;">
                 <label>Category</label>
-                <input type="text" class="form-input" id="bill-category" list="categories-list" value="${escapeHtml(bill.category)}">
-                <datalist id="categories-list">
-                    ${categories.map(c => `<option value="${escapeHtml(c)}">`).join('')}
-                    <option value="Housing">
-                    <option value="Car">
-                    <option value="Subscription">
-                    <option value="Necessity">
-                    <option value="Credit Card">
-                    <option value="Utilities">
-                    <option value="Insurance">
-                    <option value="Storage">
-                </datalist>
+                <div class="category-picker-wrapper">
+                    <input type="text" class="form-input" id="bill-category" placeholder="Search or select..."
+                           value="${escapeHtml(bill.category)}" autocomplete="off">
+                    <button type="button" class="category-picker-btn" id="category-picker-toggle">▼</button>
+                </div>
+                <div class="category-dropdown" id="category-dropdown">
+                    ${renderCategoryDropdown(store.getCustomCategories())}
+                </div>
             </div>
             <div class="form-group">
                 <label>Payment Source</label>
@@ -709,6 +878,7 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
                 <select class="form-select" id="bill-frequency">
                     <option value="monthly" ${bill.frequency === 'monthly' ? 'selected' : ''}>Monthly</option>
                     <option value="per-paycheck" ${bill.frequency === 'per-paycheck' ? 'selected' : ''}>Per Paycheck</option>
+                    <option value="twice-monthly" ${bill.frequency === 'twice-monthly' ? 'selected' : ''}>2x/Month (1st &amp; last check)</option>
                     <option value="biweekly" ${bill.frequency === 'biweekly' ? 'selected' : ''}>Biweekly</option>
                     <option value="weekly" ${bill.frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
                     <option value="semi-annual" ${bill.frequency === 'semi-annual' ? 'selected' : ''}>Semi-Annual (6 months)</option>
@@ -739,6 +909,9 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
 
     openModal(isEdit ? 'Edit Bill' : 'Add New Bill', formHtml);
 
+    // Setup category picker dropdown
+    setupCategoryPicker();
+
     // Show/hide covering checkbox based on owner
     const ownerSelect = document.getElementById('bill-owner');
     const coveringGroup = document.getElementById('bill-covering-group');
@@ -758,9 +931,10 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
         const freq = freqSelect.value;
         const showMonth = freq === 'yearly' || freq === 'semi-annual';
         const showDayOfWeek = freq === 'weekly' || freq === 'biweekly';
+        const isPaycheckBased = freq === 'per-paycheck' || freq === 'twice-monthly';
         dueMonthGroup.style.display = showMonth ? '' : 'none';
         dueMonthLabel.textContent = freq === 'semi-annual' ? 'First Due Month (repeats 6 months later)' : 'Due Month';
-        dueDayGroup.style.display = showDayOfWeek ? 'none' : '';
+        dueDayGroup.style.display = (showDayOfWeek || isPaycheckBased) ? 'none' : '';
         dayOfWeekGroup.style.display = showDayOfWeek ? '' : 'none';
     });
 
@@ -835,7 +1009,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
 
     const monthlyOutflow = bills.reduce((sum, b) => {
         if (b.frozen || b.excludeFromTotal) return sum;
-        return sum + getBillMonthlyAmount(b, month);
+        return sum + getBillMonthlyAmount(b, month, store);
     }, 0) + depCoverageTotal;
 
     const netCashflow = totalMonthlyIncome - monthlyOutflow;
@@ -861,7 +1035,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
         const projMonth = (month + i) % 12;
         const monthExpenses = bills.reduce((sum, b) => {
             if (b.frozen || b.excludeFromTotal) return sum;
-            return sum + getBillMonthlyAmount(b, projMonth);
+            return sum + getBillMonthlyAmount(b, projMonth, store);
         }, 0) + depCoverageTotal;
         projection.push({
             month: projMonth,
@@ -1085,7 +1259,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
                     runningBalance = periodEnd;
                     const progressPct = periodStart > 0 ? Math.max(0, Math.min(100, (periodEnd / periodStart) * 100)) : 50;
                     const isCurrent = period.isCurrent;
-                    const borderStyle = isCurrent ? 'border-color:var(--accent);background:rgba(79,140,255,0.04);' : '';
+                    const borderStyle = isCurrent ? 'border-color:var(--accent);background:var(--accent-bg);' : '';
                     return `
                     <div class="card" style="padding:16px;${borderStyle}">
                         <div class="flex-between mb-16">
@@ -1217,10 +1391,37 @@ function getOtherIncomeMonthly(src) {
     }
 }
 
-// Helper: bill amount for a specific month (respects frequency)
-function getBillMonthlyAmount(bill, targetMonth) {
+// Helper: count occurrences of a day-of-week in a given month
+function countDayOfWeekInMonth(targetDay, yr, mo) {
+    const lastOfMonth = new Date(yr, mo + 1, 0);
+    let count = 0;
+    let d = new Date(yr, mo, 1);
+    while (d.getDay() !== targetDay) d = new Date(d.getTime() + 86400000);
+    while (d <= lastOfMonth) { count++; d = new Date(d.getTime() + 7 * 86400000); }
+    return count;
+}
+
+// Helper: bill amount for a specific month (respects frequency using occurrence counting)
+function getBillMonthlyAmount(bill, targetMonth, store) {
     if (bill.frozen || bill.excludeFromTotal) return 0;
-    if (bill.frequency === 'per-paycheck') return bill.amount * 2;
+    const yr = new Date().getFullYear();
+    if (bill.frequency === 'per-paycheck') {
+        // Count actual pay dates in the month
+        const payDates = store ? store.getPayDates() : [];
+        const count = payDates.filter(d => d.getFullYear() === yr && d.getMonth() === targetMonth).length;
+        return bill.amount * (count || 2);
+    }
+    if (bill.frequency === 'twice-monthly') {
+        return bill.amount * 2;
+    }
+    if (bill.frequency === 'weekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        return bill.amount * countDayOfWeekInMonth(targetDay, yr, targetMonth);
+    }
+    if (bill.frequency === 'biweekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        return bill.amount * Math.ceil(countDayOfWeekInMonth(targetDay, yr, targetMonth) / 2);
+    }
     if (bill.frequency === 'yearly') {
         return bill.dueMonth === targetMonth ? bill.amount : 0;
     }
@@ -1235,6 +1436,9 @@ function getBillMonthlyAmount(bill, targetMonth) {
 function getBillAnnualizedMonthly(bill) {
     if (bill.frozen || bill.excludeFromTotal) return 0;
     if (bill.frequency === 'per-paycheck') return bill.amount * 2;
+    if (bill.frequency === 'twice-monthly') return bill.amount * 2;
+    if (bill.frequency === 'weekly') return bill.amount * 52 / 12;
+    if (bill.frequency === 'biweekly') return bill.amount * 26 / 12;
     if (bill.frequency === 'yearly') return bill.amount / 12;
     if (bill.frequency === 'semi-annual') return bill.amount / 6;
     return bill.amount;
@@ -1247,17 +1451,7 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const activeBills = bills.filter(b => !b.frozen && b.amount > 0);
-    const regularBills = activeBills.filter(b => b.frequency !== 'per-paycheck');
-    const perPaycheckBills = activeBills.filter(b => b.frequency === 'per-paycheck');
-
     const sorted = [...payDates].sort((a, b) => a - b);
-
-    const paychecksPerMonth = {};
-    sorted.forEach(d => {
-        const key = `${d.getFullYear()}-${d.getMonth()}`;
-        if (!paychecksPerMonth[key]) paychecksPerMonth[key] = [];
-        paychecksPerMonth[key].push(d.getTime());
-    });
 
     const periods = [];
 
@@ -1270,8 +1464,9 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
         const periodBills = [];
         const startMonth = periodStart.getMonth();
         const startYear = periodStart.getFullYear();
+        const payDatesInPeriod = sorted.filter(d => d >= periodStart && d <= periodEnd);
 
-        regularBills.forEach(bill => {
+        activeBills.forEach(bill => {
             if (bill.frequency === 'yearly' && bill.dueMonth != null) {
                 const dueDate = new Date(startYear, bill.dueMonth, bill.dueDay);
                 const dueDateNextYear = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
@@ -1296,27 +1491,20 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
                 return;
             }
 
-            const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
-            const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
+            // Expand recurring bills into individual occurrences
+            const expanded = expandBillOccurrences(bill, periodStart, periodEnd, payDatesInPeriod);
+            if (expanded !== null) {
+                periodBills.push(...expanded);
+            } else {
+                // Monthly bill — check due day
+                const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
+                const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
 
-            if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
-                periodBills.push(bill);
-            } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
-                periodBills.push(bill);
-            }
-        });
-
-        perPaycheckBills.forEach(bill => {
-            const monthKey = `${periodStart.getFullYear()}-${periodStart.getMonth()}`;
-            const monthPaychecks = paychecksPerMonth[monthKey] || [];
-            if (monthPaychecks.length >= 3) {
-                const first = Math.min(...monthPaychecks);
-                const last = Math.max(...monthPaychecks);
-                if (periodStart.getTime() === first || periodStart.getTime() === last) {
+                if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
+                    periodBills.push(bill);
+                } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
                     periodBills.push(bill);
                 }
-            } else {
-                periodBills.push(bill);
             }
         });
 

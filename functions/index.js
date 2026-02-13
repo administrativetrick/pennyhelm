@@ -1,9 +1,12 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, HttpsError, onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const { Configuration, PlaidApi, PlaidEnvironments } = require("plaid");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
+const Stripe = require("stripe");
+const { TOTP, Secret } = require("otpauth");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -20,13 +23,29 @@ const SMTP_USER = defineSecret("SMTP_USER");
 const SMTP_PASS = defineSecret("SMTP_PASS");
 const SMTP_FROM = defineSecret("SMTP_FROM");
 
+// Stripe secrets (set via: firebase functions:secrets:set STRIPE_SECRET_KEY, etc.)
+const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
+
+// MFA secrets (set via: firebase functions:secrets:set MFA_ENCRYPTION_KEY)
+// Must be a 64-character hex string (32 bytes)
+const MFA_ENCRYPTION_KEY = defineSecret("MFA_ENCRYPTION_KEY");
+// Price IDs set after creating products in Stripe Dashboard
+const STRIPE_ANNUAL_PRICE_ID = defineSecret("STRIPE_ANNUAL_PRICE_ID");
+const STRIPE_MONTHLY_PRICE_ID = defineSecret("STRIPE_MONTHLY_PRICE_ID");
+const STRIPE_FIRST_YEAR_COUPON_ID = defineSecret("STRIPE_FIRST_YEAR_COUPON_ID");
+
 function getPlaidClient(clientId, secret, env) {
+    // Trim secrets to remove any trailing newlines/whitespace from secret manager
+    const cleanId = clientId.trim();
+    const cleanSecret = secret.trim();
+    const cleanEnv = env.trim();
     const configuration = new Configuration({
-        basePath: PlaidEnvironments[env] || PlaidEnvironments.development,
+        basePath: PlaidEnvironments[cleanEnv] || PlaidEnvironments.production,
         baseOptions: {
             headers: {
-                "PLAID-CLIENT-ID": clientId,
-                "PLAID-SECRET": secret,
+                "PLAID-CLIENT-ID": cleanId,
+                "PLAID-SECRET": cleanSecret,
             },
         },
     });
@@ -115,12 +134,26 @@ exports.setupMobileCredentials = onCall(
             const passwordHash = hashPassword(tempPassword);
 
             // Update Firestore - store hash and flag for password change requirement
-            await db.collection("users").doc(uid).set({
+            const updateData = {
+                email: email,
                 mobilePasswordSet: true,
                 mobilePasswordHash: passwordHash,
                 requirePasswordChange: true,
                 mobileCredentialsCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
+            };
+
+            // Add subscription fields if they don't exist (fixes mobile-first signups)
+            if (!userData.subscriptionStatus) {
+                updateData.subscriptionStatus = 'trial';
+            }
+            if (!userData.trialStartDate) {
+                updateData.trialStartDate = admin.firestore.FieldValue.serverTimestamp();
+            }
+            if (!userData.createdAt) {
+                updateData.createdAt = admin.firestore.FieldValue.serverTimestamp();
+            }
+
+            await db.collection("users").doc(uid).set(updateData, { merge: true });
             console.log("Firestore updated");
 
             // Send email with temporary password
@@ -373,18 +406,88 @@ exports.createLinkToken = onCall(
         );
 
         try {
-            const response = await client.linkTokenCreate({
+            const linkConfig = {
                 user: { client_user_id: uid },
                 client_name: "PennyHelm",
                 products: ["transactions"],
+                additional_consented_products: ["liabilities", "investments"],
                 country_codes: ["US"],
                 language: "en",
-            });
+            };
+
+            // OAuth redirect URI — required for institutions like Chase in production
+            const redirectUri = request.data?.redirect_uri;
+            if (redirectUri) {
+                linkConfig.redirect_uri = redirectUri;
+            }
+
+            const response = await client.linkTokenCreate(linkConfig);
 
             return { link_token: response.data.link_token };
         } catch (err) {
             console.error("createLinkToken error:", err.response?.data || err.message);
             throw new HttpsError("internal", "Failed to create link token.");
+        }
+    }
+);
+
+// 1b. createUpdateLinkToken
+//     Creates a Link token in "update mode" for an existing Plaid item.
+//     Used to collect additional consent (e.g. investments, liabilities)
+//     without requiring the user to fully disconnect/reconnect.
+exports.createUpdateLinkToken = onCall(
+    { secrets: [PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV] },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+        const itemId = request.data?.item_id;
+
+        if (!itemId) {
+            throw new HttpsError("invalid-argument", "Missing item_id.");
+        }
+
+        // Verify ownership
+        const itemDoc = await db.collection("plaidItems").doc(itemId).get();
+        if (!itemDoc.exists) {
+            throw new HttpsError("not-found", "Plaid item not found.");
+        }
+
+        const itemData = itemDoc.data();
+        const isAdmin = request.auth.token?.admin === true;
+        if (itemData.uid !== uid && !isAdmin) {
+            throw new HttpsError("permission-denied", "Not your Plaid item.");
+        }
+
+        const client = getPlaidClient(
+            PLAID_CLIENT_ID.value(),
+            PLAID_SECRET.value(),
+            PLAID_ENV.value()
+        );
+
+        try {
+            const linkConfig = {
+                user: { client_user_id: uid },
+                client_name: "PennyHelm",
+                access_token: itemData.accessToken,
+                additional_consented_products: ["liabilities", "investments"],
+                country_codes: ["US"],
+                language: "en",
+            };
+
+            const redirectUri = request.data?.redirect_uri;
+            if (redirectUri) {
+                linkConfig.redirect_uri = redirectUri;
+            }
+
+            const response = await client.linkTokenCreate(linkConfig);
+
+            return { link_token: response.data.link_token };
+        } catch (err) {
+            console.error("createUpdateLinkToken error:", err.response?.data || err.message);
+            throw new HttpsError("internal", "Failed to create update link token.");
         }
     }
 );
@@ -439,18 +542,148 @@ exports.exchangePublicToken = onCall(
                 access_token: accessToken,
             });
 
-            const accounts = accountsResponse.data.accounts.map((acct) => ({
-                plaidAccountId: acct.account_id,
-                plaidItemId: itemId,
-                name: acct.official_name || acct.name,
-                mask: acct.mask,
-                type: acct.type,
-                subtype: acct.subtype,
-                balanceCurrent: acct.balances.current,
-                balanceAvailable: acct.balances.available,
-                balanceLimit: acct.balances.limit,
-                institutionName: institutionName,
-            }));
+            // Try to fetch liabilities for credit/loan details (min payment, APR, etc.)
+            let liabilities = null;
+            try {
+                const liabResponse = await client.liabilitiesGet({
+                    access_token: accessToken,
+                });
+                liabilities = liabResponse.data.liabilities;
+            } catch (liabErr) {
+                // Liabilities may not be available for all institutions — that's OK
+                console.log("Liabilities not available:", liabErr.response?.data?.error_code || liabErr.message);
+            }
+
+            // Try to fetch investment holdings
+            let investmentHoldings = null;
+            let investmentSecurities = null;
+            try {
+                const invResponse = await client.investmentsHoldingsGet({
+                    access_token: accessToken,
+                });
+                investmentHoldings = invResponse.data.holdings;
+                investmentSecurities = invResponse.data.securities;
+            } catch (invErr) {
+                // Investments may not be available for all institutions — that's OK
+                console.log("Investments not available:", invErr.response?.data?.error_code || invErr.message);
+            }
+
+            // Build a securities lookup map (security_id → security details)
+            const securitiesMap = {};
+            if (investmentSecurities) {
+                for (const sec of investmentSecurities) {
+                    securitiesMap[sec.security_id] = sec;
+                }
+            }
+
+            // Build a map of account_id → holdings array
+            const holdingsMap = {};
+            if (investmentHoldings) {
+                for (const h of investmentHoldings) {
+                    if (!holdingsMap[h.account_id]) holdingsMap[h.account_id] = [];
+                    const sec = securitiesMap[h.security_id] || {};
+                    holdingsMap[h.account_id].push({
+                        securityId: h.security_id,
+                        name: sec.name || "Unknown",
+                        ticker: sec.ticker_symbol || null,
+                        type: sec.type || null, // equity, etf, mutual fund, cash, etc.
+                        quantity: h.quantity,
+                        price: sec.close_price || null,
+                        priceDate: sec.close_price_as_of || null,
+                        value: h.institution_value,
+                        costBasis: h.cost_basis,
+                        isoCurrencyCode: h.iso_currency_code || "USD",
+                    });
+                }
+            }
+
+            // Build a map of account_id → liability data for easy lookup
+            const creditMap = {};
+            const mortgageMap = {};
+            const studentMap = {};
+            if (liabilities) {
+                if (liabilities.credit) {
+                    for (const cc of liabilities.credit) {
+                        creditMap[cc.account_id] = cc;
+                    }
+                }
+                if (liabilities.mortgage) {
+                    for (const m of liabilities.mortgage) {
+                        mortgageMap[m.account_id] = m;
+                    }
+                }
+                if (liabilities.student) {
+                    for (const s of liabilities.student) {
+                        studentMap[s.account_id] = s;
+                    }
+                }
+            }
+
+            const accounts = accountsResponse.data.accounts.map((acct) => {
+                const base = {
+                    plaidAccountId: acct.account_id,
+                    plaidItemId: itemId,
+                    name: acct.official_name || acct.name,
+                    mask: acct.mask,
+                    type: acct.type,
+                    subtype: acct.subtype,
+                    balanceCurrent: acct.balances.current,
+                    balanceAvailable: acct.balances.available,
+                    balanceLimit: acct.balances.limit,
+                    institutionName: institutionName,
+                };
+
+                // Enrich with credit card liability data
+                const cc = creditMap[acct.account_id];
+                if (cc) {
+                    base.minimumPayment = cc.minimum_payment_amount;
+                    base.lastPaymentAmount = cc.last_payment_amount;
+                    base.lastPaymentDate = cc.last_payment_date;
+                    base.nextPaymentDueDate = cc.next_payment_due_date;
+                    base.lastStatementBalance = cc.last_statement_balance;
+                    base.isOverdue = cc.is_overdue;
+                    // Get the purchase APR (most relevant)
+                    const purchaseApr = cc.aprs?.find(a => a.apr_type === "purchase_apr");
+                    base.interestRate = purchaseApr ? purchaseApr.apr_percentage : null;
+                }
+
+                // Enrich with mortgage liability data
+                const mort = mortgageMap[acct.account_id];
+                if (mort) {
+                    base.interestRate = mort.interest_rate?.percentage;
+                    base.interestRateType = mort.interest_rate?.type; // fixed or variable
+                    base.originationDate = mort.origination_date;
+                    base.originationPrincipal = mort.origination_principal_amount;
+                    base.nextPaymentDueDate = mort.next_payment_due_date;
+                    base.nextPaymentAmount = mort.next_monthly_payment;
+                    base.lastPaymentDate = mort.last_payment_date;
+                    base.lastPaymentAmount = mort.last_payment_amount;
+                    base.loanTerm = mort.loan_term;
+                    base.maturityDate = mort.maturity_date;
+                }
+
+                // Enrich with student loan liability data
+                const student = studentMap[acct.account_id];
+                if (student) {
+                    base.interestRate = student.interest_rate_percentage;
+                    base.minimumPayment = student.minimum_payment_amount;
+                    base.nextPaymentDueDate = student.next_payment_due_date;
+                    base.lastPaymentDate = student.last_payment_date;
+                    base.lastPaymentAmount = student.last_payment_amount;
+                    base.originationDate = student.origination_date;
+                    base.originationPrincipal = student.origination_principal_amount;
+                    base.loanStatus = student.loan_status?.type;
+                    base.servicerName = student.servicer_address?.organization;
+                }
+
+                // Enrich with investment holdings
+                const holdings = holdingsMap[acct.account_id];
+                if (holdings) {
+                    base.holdings = holdings;
+                }
+
+                return base;
+            });
 
             return { itemId, institutionName, accounts };
         } catch (err) {
@@ -502,18 +735,137 @@ exports.refreshBalances = onCall(
                 access_token: itemData.accessToken,
             });
 
-            const accounts = balanceResponse.data.accounts.map((acct) => ({
-                plaidAccountId: acct.account_id,
-                plaidItemId: itemId,
-                name: acct.official_name || acct.name,
-                mask: acct.mask,
-                type: acct.type,
-                subtype: acct.subtype,
-                balanceCurrent: acct.balances.current,
-                balanceAvailable: acct.balances.available,
-                balanceLimit: acct.balances.limit,
-                institutionName: itemData.institutionName,
-            }));
+            // Try to fetch liabilities for credit/loan details
+            let liabilities = null;
+            try {
+                const liabResponse = await client.liabilitiesGet({
+                    access_token: itemData.accessToken,
+                });
+                liabilities = liabResponse.data.liabilities;
+            } catch (liabErr) {
+                console.log("Liabilities not available on refresh:", liabErr.response?.data?.error_code || liabErr.message);
+            }
+
+            // Try to fetch investment holdings
+            let investmentHoldings = null;
+            let investmentSecurities = null;
+            try {
+                const invResponse = await client.investmentsHoldingsGet({
+                    access_token: itemData.accessToken,
+                });
+                investmentHoldings = invResponse.data.holdings;
+                investmentSecurities = invResponse.data.securities;
+            } catch (invErr) {
+                console.log("Investments not available on refresh:", invErr.response?.data?.error_code || invErr.message);
+            }
+
+            // Build securities lookup map
+            const securitiesMap = {};
+            if (investmentSecurities) {
+                for (const sec of investmentSecurities) {
+                    securitiesMap[sec.security_id] = sec;
+                }
+            }
+
+            // Build holdings map (account_id → holdings array)
+            const holdingsMap = {};
+            if (investmentHoldings) {
+                for (const h of investmentHoldings) {
+                    if (!holdingsMap[h.account_id]) holdingsMap[h.account_id] = [];
+                    const sec = securitiesMap[h.security_id] || {};
+                    holdingsMap[h.account_id].push({
+                        securityId: h.security_id,
+                        name: sec.name || "Unknown",
+                        ticker: sec.ticker_symbol || null,
+                        type: sec.type || null,
+                        quantity: h.quantity,
+                        price: sec.close_price || null,
+                        priceDate: sec.close_price_as_of || null,
+                        value: h.institution_value,
+                        costBasis: h.cost_basis,
+                        isoCurrencyCode: h.iso_currency_code || "USD",
+                    });
+                }
+            }
+
+            // Build liability lookup maps
+            const creditMap = {};
+            const mortgageMap = {};
+            const studentMap = {};
+            if (liabilities) {
+                if (liabilities.credit) {
+                    for (const cc of liabilities.credit) {
+                        creditMap[cc.account_id] = cc;
+                    }
+                }
+                if (liabilities.mortgage) {
+                    for (const m of liabilities.mortgage) {
+                        mortgageMap[m.account_id] = m;
+                    }
+                }
+                if (liabilities.student) {
+                    for (const s of liabilities.student) {
+                        studentMap[s.account_id] = s;
+                    }
+                }
+            }
+
+            const accounts = balanceResponse.data.accounts.map((acct) => {
+                const base = {
+                    plaidAccountId: acct.account_id,
+                    plaidItemId: itemId,
+                    name: acct.official_name || acct.name,
+                    mask: acct.mask,
+                    type: acct.type,
+                    subtype: acct.subtype,
+                    balanceCurrent: acct.balances.current,
+                    balanceAvailable: acct.balances.available,
+                    balanceLimit: acct.balances.limit,
+                    institutionName: itemData.institutionName,
+                };
+
+                // Enrich with credit card data
+                const cc = creditMap[acct.account_id];
+                if (cc) {
+                    base.minimumPayment = cc.minimum_payment_amount;
+                    base.lastPaymentAmount = cc.last_payment_amount;
+                    base.lastPaymentDate = cc.last_payment_date;
+                    base.nextPaymentDueDate = cc.next_payment_due_date;
+                    base.lastStatementBalance = cc.last_statement_balance;
+                    base.isOverdue = cc.is_overdue;
+                    const purchaseApr = cc.aprs?.find(a => a.apr_type === "purchase_apr");
+                    base.interestRate = purchaseApr ? purchaseApr.apr_percentage : null;
+                }
+
+                // Enrich with mortgage data
+                const mort = mortgageMap[acct.account_id];
+                if (mort) {
+                    base.interestRate = mort.interest_rate?.percentage;
+                    base.interestRateType = mort.interest_rate?.type;
+                    base.nextPaymentDueDate = mort.next_payment_due_date;
+                    base.nextPaymentAmount = mort.next_monthly_payment;
+                    base.lastPaymentDate = mort.last_payment_date;
+                    base.lastPaymentAmount = mort.last_payment_amount;
+                }
+
+                // Enrich with student loan data
+                const student = studentMap[acct.account_id];
+                if (student) {
+                    base.interestRate = student.interest_rate_percentage;
+                    base.minimumPayment = student.minimum_payment_amount;
+                    base.nextPaymentDueDate = student.next_payment_due_date;
+                    base.lastPaymentDate = student.last_payment_date;
+                    base.lastPaymentAmount = student.last_payment_amount;
+                }
+
+                // Enrich with investment holdings
+                const holdings = holdingsMap[acct.account_id];
+                if (holdings) {
+                    base.holdings = holdings;
+                }
+
+                return base;
+            });
 
             return { itemId, accounts };
         } catch (err) {
@@ -850,6 +1202,906 @@ exports.declineInvite = onCall(
             console.error("declineInvite error:", err);
             if (err instanceof HttpsError) throw err;
             throw new HttpsError("internal", "Failed to decline invitation.");
+        }
+    }
+);
+
+// 11. cleanupTelemetry
+//     Scheduled function to delete telemetry logs older than 30 days
+//     Runs daily at 3:00 AM UTC
+exports.cleanupTelemetry = onSchedule(
+    {
+        schedule: "0 3 * * *", // Daily at 3:00 AM UTC (cron format)
+        timeZone: "UTC",
+    },
+    async (event) => {
+        console.log("Starting telemetry cleanup...");
+
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - 30);
+
+        let totalDeleted = 0;
+        let batchCount = 0;
+
+        try {
+            // Process in batches to avoid timeout
+            while (true) {
+                const snapshot = await db.collection("telemetry")
+                    .where("timestamp", "<", cutoffDate)
+                    .limit(500)
+                    .get();
+
+                if (snapshot.empty) {
+                    break;
+                }
+
+                const batch = db.batch();
+                snapshot.docs.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+
+                totalDeleted += snapshot.size;
+                batchCount++;
+                console.log(`Batch ${batchCount}: Deleted ${snapshot.size} logs`);
+
+                // Safety limit - don't run forever
+                if (batchCount >= 20) {
+                    console.log("Reached batch limit, will continue next run");
+                    break;
+                }
+            }
+
+            console.log(`Telemetry cleanup complete. Total deleted: ${totalDeleted}`);
+            return null;
+
+        } catch (err) {
+            console.error("Telemetry cleanup error:", err);
+            throw err;
+        }
+    }
+);
+
+// 12. scheduledBalanceRefresh
+//     Runs daily at 6:00 AM PT (14:00 UTC) to refresh Plaid balances
+//     for all connected items and update user account data in Firestore
+exports.scheduledBalanceRefresh = onSchedule(
+    {
+        schedule: "0 14 * * *", // Daily at 6:00 AM PT (14:00 UTC)
+        timeZone: "UTC",
+        secrets: [PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV],
+    },
+    async (event) => {
+        console.log("Starting scheduled balance refresh...");
+
+        try {
+            // Get all Plaid items
+            const itemsSnapshot = await db.collection("plaidItems").get();
+
+            if (itemsSnapshot.empty) {
+                console.log("No Plaid items found, nothing to refresh.");
+                return null;
+            }
+
+            console.log(`Found ${itemsSnapshot.size} Plaid item(s) to refresh.`);
+
+            const client = getPlaidClient(
+                PLAID_CLIENT_ID.value(),
+                PLAID_SECRET.value(),
+                PLAID_ENV.value()
+            );
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const itemDoc of itemsSnapshot.docs) {
+                const itemData = itemDoc.data();
+                const itemId = itemDoc.id;
+                const uid = itemData.uid;
+
+                try {
+                    // Fetch fresh balances from Plaid
+                    const balanceResponse = await client.accountsBalanceGet({
+                        access_token: itemData.accessToken,
+                    });
+
+                    const plaidAccounts = balanceResponse.data.accounts;
+                    console.log(`Item ${itemId}: Got ${plaidAccounts.length} account(s) from Plaid.`);
+
+                    // Get user's PennyHelm data from Firestore
+                    const userDataDoc = await db.collection("userData").doc(uid).get();
+                    if (!userDataDoc.exists) {
+                        console.warn(`Item ${itemId}: No userData doc for user ${uid}, skipping.`);
+                        continue;
+                    }
+
+                    const rawData = userDataDoc.data().data;
+                    const userData = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+
+                    let updated = false;
+
+                    for (const pa of plaidAccounts) {
+                        // Update matching accounts
+                        if (userData.accounts) {
+                            const acct = userData.accounts.find(a => a.plaidAccountId === pa.account_id);
+                            if (acct) {
+                                acct.balance = pa.balances.current || 0;
+                                if (acct.type === 'property' || acct.type === 'vehicle') {
+                                    acct.amountOwed = pa.balances.current || 0;
+                                }
+                                acct.name = pa.official_name || pa.name || acct.name;
+                                updated = true;
+                                continue;
+                            }
+                        }
+
+                        // Update matching debts
+                        if (userData.debts) {
+                            const debt = userData.debts.find(d => d.plaidAccountId === pa.account_id);
+                            if (debt) {
+                                debt.currentBalance = pa.balances.current || 0;
+                                debt.name = pa.official_name || pa.name || debt.name;
+                                updated = true;
+                            }
+                        }
+                    }
+
+                    // Save updated data back to Firestore
+                    if (updated) {
+                        // Preserve sharedWithUids/sharedWithEdit arrays
+                        const existingDoc = userDataDoc.data();
+                        const saveData = {
+                            data: JSON.stringify(userData),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        };
+                        if (existingDoc.sharedWithUids) saveData.sharedWithUids = existingDoc.sharedWithUids;
+                        if (existingDoc.sharedWithEdit) saveData.sharedWithEdit = existingDoc.sharedWithEdit;
+
+                        await db.collection("userData").doc(uid).set(saveData);
+                        console.log(`Item ${itemId}: Updated balances for user ${uid}.`);
+                    }
+
+                    successCount++;
+
+                } catch (itemErr) {
+                    console.error(`Item ${itemId}: Failed to refresh -`, itemErr.response?.data || itemErr.message);
+                    errorCount++;
+                }
+            }
+
+            console.log(`Scheduled balance refresh complete. Success: ${successCount}, Errors: ${errorCount}`);
+            return null;
+
+        } catch (err) {
+            console.error("Scheduled balance refresh error:", err);
+            throw err;
+        }
+    }
+);
+
+// 13. fixUserDocument (Admin only)
+//     One-time utility to fix incomplete user documents
+//     Adds missing subscription fields while preserving existing data
+exports.fixUserDocument = onCall(
+    async (request) => {
+        // Only allow admin users
+        if (!request.auth || request.auth.token.admin !== true) {
+            throw new HttpsError("permission-denied", "Admin access required.");
+        }
+
+        const { uid, email, subscriptionStatus, trialStartDate, createdAt } = request.data || {};
+
+        if (!uid || !email) {
+            throw new HttpsError("invalid-argument", "Missing uid or email.");
+        }
+
+        try {
+            const userRef = db.collection("users").doc(uid);
+            const docSnap = await userRef.get();
+
+            if (!docSnap.exists) {
+                throw new HttpsError("not-found", `User document ${uid} does not exist.`);
+            }
+
+            const existingData = docSnap.data();
+            console.log(`Fixing user ${uid}, existing fields:`, Object.keys(existingData));
+
+            // Merge new fields with existing data
+            const updateData = {
+                email: email,
+                subscriptionStatus: subscriptionStatus || 'trial',
+                trialStartDate: trialStartDate ? new Date(trialStartDate) : new Date(),
+                createdAt: createdAt ? new Date(createdAt) : new Date()
+            };
+
+            await userRef.set(updateData, { merge: true });
+
+            // Verify the update
+            const updatedDoc = await userRef.get();
+            console.log(`User ${uid} updated, new fields:`, Object.keys(updatedDoc.data()));
+
+            return {
+                success: true,
+                message: `User ${uid} updated successfully`,
+                fields: Object.keys(updatedDoc.data())
+            };
+
+        } catch (err) {
+            console.error("fixUserDocument error:", err);
+            if (err instanceof HttpsError) throw err;
+            throw new HttpsError("internal", "Failed to fix user document.");
+        }
+    }
+);
+
+// 13. fixAllIncompleteUsers (Admin only)
+//     Scans all users documents and adds missing subscription fields
+exports.fixAllIncompleteUsers = onCall(
+    async (request) => {
+        // Only allow admin users
+        if (!request.auth || request.auth.token.admin !== true) {
+            throw new HttpsError("permission-denied", "Admin access required.");
+        }
+
+        try {
+            const usersSnapshot = await db.collection("users").get();
+            const fixedUsers = [];
+            const alreadyCompleteUsers = [];
+
+            for (const userDoc of usersSnapshot.docs) {
+                const uid = userDoc.id;
+                const data = userDoc.data();
+
+                // Check if missing required subscription fields
+                if (!data.subscriptionStatus || !data.trialStartDate || !data.createdAt) {
+                    console.log(`Fixing incomplete user: ${uid}`);
+
+                    const updateData = {};
+                    if (!data.email && data.mobilePasswordSet) {
+                        // Try to get email from Firebase Auth
+                        try {
+                            const authUser = await admin.auth().getUser(uid);
+                            updateData.email = authUser.email || '';
+                        } catch (e) {
+                            updateData.email = '';
+                        }
+                    }
+                    if (!data.subscriptionStatus) {
+                        updateData.subscriptionStatus = 'trial';
+                    }
+                    if (!data.trialStartDate) {
+                        // Use createdAt if available, otherwise mobileCredentialsCreatedAt, otherwise now
+                        updateData.trialStartDate = data.createdAt || data.mobileCredentialsCreatedAt || admin.firestore.FieldValue.serverTimestamp();
+                    }
+                    if (!data.createdAt) {
+                        updateData.createdAt = data.mobileCredentialsCreatedAt || admin.firestore.FieldValue.serverTimestamp();
+                    }
+
+                    await db.collection("users").doc(uid).set(updateData, { merge: true });
+                    fixedUsers.push(uid);
+                } else {
+                    alreadyCompleteUsers.push(uid);
+                }
+            }
+
+            return {
+                success: true,
+                message: `Fixed ${fixedUsers.length} users, ${alreadyCompleteUsers.length} were already complete`,
+                fixedUsers,
+                alreadyCompleteUsers
+            };
+
+        } catch (err) {
+            console.error("fixAllIncompleteUsers error:", err);
+            throw new HttpsError("internal", "Failed to fix users.");
+        }
+    }
+);
+
+// ─────────────────────────────────────────────
+// STRIPE SUBSCRIPTION FUNCTIONS
+// ─────────────────────────────────────────────
+
+// Helper to get or create a Stripe customer for a Firebase user
+async function getOrCreateStripeCustomer(stripe, uid, email, displayName) {
+    const userDoc = await db.collection("users").doc(uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    if (userData.stripeCustomerId) {
+        return userData.stripeCustomerId;
+    }
+
+    // Create new Stripe customer
+    const customer = await stripe.customers.create({
+        email: email,
+        name: displayName || undefined,
+        metadata: { firebaseUid: uid },
+    });
+
+    // Store customer ID in Firestore
+    await db.collection("users").doc(uid).set(
+        { stripeCustomerId: customer.id },
+        { merge: true }
+    );
+
+    return customer.id;
+}
+
+// 14. createCheckoutSession
+//     Creates a Stripe Checkout session for subscription
+exports.createCheckoutSession = onCall(
+    {
+        secrets: [STRIPE_SECRET_KEY, STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID, STRIPE_FIRST_YEAR_COUPON_ID],
+    },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+        const email = request.auth.token.email;
+        const plan = request.data?.plan; // 'annual' or 'monthly'
+
+        if (!plan || !['annual', 'monthly'].includes(plan)) {
+            throw new HttpsError("invalid-argument", "Plan must be 'annual' or 'monthly'.");
+        }
+
+        try {
+            const stripe = new Stripe(STRIPE_SECRET_KEY.value());
+            const customerId = await getOrCreateStripeCustomer(stripe, uid, email, request.auth.token.name);
+
+            const priceId = plan === 'annual'
+                ? STRIPE_ANNUAL_PRICE_ID.value()
+                : STRIPE_MONTHLY_PRICE_ID.value();
+
+            const sessionParams = {
+                customer: customerId,
+                payment_method_types: ["card"],
+                mode: "subscription",
+                line_items: [{ price: priceId, quantity: 1 }],
+                success_url: "https://pennyhelm.com/app#subscription-success",
+                cancel_url: "https://pennyhelm.com/app#subscription-cancelled",
+                subscription_data: {
+                    metadata: { firebaseUid: uid },
+                },
+                allow_promotion_codes: true,
+                metadata: { firebaseUid: uid },
+            };
+
+            // Apply first-year coupon for annual plans
+            if (plan === 'annual') {
+                const couponId = STRIPE_FIRST_YEAR_COUPON_ID.value();
+                if (couponId) {
+                    sessionParams.discounts = [{ coupon: couponId }];
+                    // Can't use both discounts and allow_promotion_codes
+                    delete sessionParams.allow_promotion_codes;
+                }
+            }
+
+            const session = await stripe.checkout.sessions.create(sessionParams);
+
+            return { sessionId: session.id, url: session.url };
+
+        } catch (err) {
+            console.error("createCheckoutSession error:", err);
+            throw new HttpsError("internal", "Failed to create checkout session.");
+        }
+    }
+);
+
+// 15. createPortalSession
+//     Creates a Stripe Customer Portal session for managing subscription
+exports.createPortalSession = onCall(
+    { secrets: [STRIPE_SECRET_KEY] },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+        const userDoc = await db.collection("users").doc(uid).get();
+
+        if (!userDoc.exists || !userDoc.data().stripeCustomerId) {
+            throw new HttpsError("failed-precondition", "No Stripe customer found. Please subscribe first.");
+        }
+
+        try {
+            const stripe = new Stripe(STRIPE_SECRET_KEY.value());
+
+            const session = await stripe.billingPortal.sessions.create({
+                customer: userDoc.data().stripeCustomerId,
+                return_url: "https://pennyhelm.com/app#settings",
+            });
+
+            return { url: session.url };
+
+        } catch (err) {
+            console.error("createPortalSession error:", err);
+            throw new HttpsError("internal", "Failed to create portal session.");
+        }
+    }
+);
+
+// 16. stripeWebhook
+//     Handles Stripe webhook events (subscription lifecycle)
+//     Must be an HTTP endpoint (not callable) for Stripe to POST to
+exports.stripeWebhook = onRequest(
+    {
+        secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET],
+        // Raw body needed for signature verification
+        invoker: "public",
+    },
+    async (req, res) => {
+        if (req.method !== "POST") {
+            res.status(405).send("Method Not Allowed");
+            return;
+        }
+
+        const stripe = new Stripe(STRIPE_SECRET_KEY.value());
+        const sig = req.headers["stripe-signature"];
+
+        let event;
+        try {
+            event = stripe.webhooks.constructEvent(
+                req.rawBody,
+                sig,
+                STRIPE_WEBHOOK_SECRET.value()
+            );
+        } catch (err) {
+            console.error("Webhook signature verification failed:", err.message);
+            res.status(400).send(`Webhook Error: ${err.message}`);
+            return;
+        }
+
+        console.log(`Stripe webhook received: ${event.type}`);
+
+        try {
+            switch (event.type) {
+                case "checkout.session.completed": {
+                    const session = event.data.object;
+                    const uid = session.metadata?.firebaseUid;
+                    if (uid && session.subscription) {
+                        await db.collection("users").doc(uid).set({
+                            subscriptionStatus: "active",
+                            stripeSubscriptionId: session.subscription,
+                            stripeCustomerId: session.customer,
+                            subscribedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        }, { merge: true });
+                        console.log(`User ${uid} subscription activated.`);
+                    }
+                    break;
+                }
+
+                case "customer.subscription.updated": {
+                    const subscription = event.data.object;
+                    const uid = subscription.metadata?.firebaseUid;
+                    if (uid) {
+                        const status = subscription.status === "active" || subscription.status === "trialing"
+                            ? "active"
+                            : subscription.status === "past_due"
+                                ? "past_due"
+                                : "expired";
+                        await db.collection("users").doc(uid).set({
+                            subscriptionStatus: status,
+                            subscriptionPeriodEnd: subscription.current_period_end
+                                ? new Date(subscription.current_period_end * 1000)
+                                : null,
+                        }, { merge: true });
+                        console.log(`User ${uid} subscription updated to ${status}.`);
+                    }
+                    break;
+                }
+
+                case "customer.subscription.deleted": {
+                    const subscription = event.data.object;
+                    const uid = subscription.metadata?.firebaseUid;
+                    if (uid) {
+                        await db.collection("users").doc(uid).set({
+                            subscriptionStatus: "expired",
+                        }, { merge: true });
+                        console.log(`User ${uid} subscription cancelled/expired.`);
+                    } else {
+                        // Fallback: look up user by stripeCustomerId
+                        const customerId = subscription.customer;
+                        const userSnapshot = await db.collection("users")
+                            .where("stripeCustomerId", "==", customerId)
+                            .limit(1).get();
+                        if (!userSnapshot.empty) {
+                            await userSnapshot.docs[0].ref.set({
+                                subscriptionStatus: "expired",
+                            }, { merge: true });
+                            console.log(`User (by customer) subscription expired.`);
+                        }
+                    }
+                    break;
+                }
+
+                case "invoice.payment_failed": {
+                    const invoice = event.data.object;
+                    const customerId = invoice.customer;
+                    const userSnapshot = await db.collection("users")
+                        .where("stripeCustomerId", "==", customerId)
+                        .limit(1).get();
+                    if (!userSnapshot.empty) {
+                        await userSnapshot.docs[0].ref.set({
+                            subscriptionStatus: "past_due",
+                        }, { merge: true });
+                        console.log(`Payment failed for customer ${customerId}.`);
+                    }
+                    break;
+                }
+
+                default:
+                    console.log(`Unhandled event type: ${event.type}`);
+            }
+
+            res.status(200).json({ received: true });
+
+        } catch (err) {
+            console.error("Webhook handler error:", err);
+            res.status(500).send("Internal error processing webhook.");
+        }
+    }
+);
+
+// ─────────────────────────────────────────────
+// MFA (TOTP Two-Factor Authentication) FUNCTIONS
+// ─────────────────────────────────────────────
+
+// AES-256-GCM encryption helpers for TOTP secrets
+function encryptMFA(text) {
+    const key = Buffer.from(MFA_ENCRYPTION_KEY.value(), 'hex');
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+    return { iv: iv.toString('hex'), encrypted, authTag };
+}
+
+function decryptMFA(encData) {
+    const key = Buffer.from(MFA_ENCRYPTION_KEY.value(), 'hex');
+    const iv = Buffer.from(encData.iv, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(Buffer.from(encData.authTag, 'hex'));
+    let decrypted = decipher.update(encData.encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+}
+
+// Generate 10 recovery codes (8-char alphanumeric each)
+function generateRecoveryCodes() {
+    const codes = [];
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/O/0/1 for clarity
+    for (let i = 0; i < 10; i++) {
+        let code = '';
+        const bytes = crypto.randomBytes(8);
+        for (let j = 0; j < 8; j++) {
+            code += chars[bytes[j] % chars.length];
+        }
+        codes.push(code);
+    }
+    return codes;
+}
+
+// Hash a recovery code for storage
+function hashRecoveryCode(code) {
+    return crypto.createHash('sha256').update(code.toUpperCase()).digest('hex');
+}
+
+// 17. setupMFA
+//     Generates TOTP secret + recovery codes, stores in pending subcollection
+exports.setupMFA = onCall(
+    { secrets: [MFA_ENCRYPTION_KEY] },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+        const email = request.auth.token.email || 'user';
+
+        try {
+            // Generate a random TOTP secret
+            const secret = new Secret({ size: 20 });
+
+            // Create TOTP instance for URI generation
+            const totp = new TOTP({
+                issuer: 'PennyHelm',
+                label: email,
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret: secret,
+            });
+
+            const otpauthUri = totp.toString();
+            const secretBase32 = secret.base32;
+
+            // Generate recovery codes
+            const recoveryCodes = generateRecoveryCodes();
+            const hashedRecoveryCodes = recoveryCodes.map(code => ({
+                hash: hashRecoveryCode(code),
+                used: false,
+            }));
+
+            // Encrypt the secret for storage
+            const encryptedSecret = encryptMFA(secretBase32);
+
+            // Store in pending subcollection (not active yet until verified)
+            await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("pending").set({
+                    encryptedSecret: encryptedSecret,
+                    recoveryCodes: hashedRecoveryCodes,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+            return {
+                secret: secretBase32,
+                otpauthUri: otpauthUri,
+                recoveryCodes: recoveryCodes,
+            };
+
+        } catch (err) {
+            console.error("setupMFA error:", err);
+            throw new HttpsError("internal", "Failed to set up MFA.");
+        }
+    }
+);
+
+// 18. verifyMFASetup
+//     Verifies the TOTP code to confirm setup, then activates MFA
+exports.verifyMFASetup = onCall(
+    { secrets: [MFA_ENCRYPTION_KEY] },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+        const code = request.data?.code;
+
+        if (!code || typeof code !== 'string' || code.length !== 6) {
+            throw new HttpsError("invalid-argument", "Must provide a 6-digit code.");
+        }
+
+        try {
+            // Read the pending secret
+            const pendingDoc = await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("pending").get();
+
+            if (!pendingDoc.exists) {
+                throw new HttpsError("not-found", "No pending MFA setup found. Start setup first.");
+            }
+
+            const pendingData = pendingDoc.data();
+            const secretBase32 = decryptMFA(pendingData.encryptedSecret);
+
+            // Verify the TOTP code
+            const totp = new TOTP({
+                issuer: 'PennyHelm',
+                label: request.auth.token.email || 'user',
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret: Secret.fromBase32(secretBase32),
+            });
+
+            const delta = totp.validate({ token: code, window: 1 });
+
+            if (delta === null) {
+                throw new HttpsError("invalid-argument", "Invalid code. Please try again.");
+            }
+
+            // Move pending → active config
+            await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("config").set({
+                    encryptedSecret: pendingData.encryptedSecret,
+                    recoveryCodes: pendingData.recoveryCodes,
+                    enabledAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+            // Delete pending
+            await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("pending").delete();
+
+            // Set mfaEnabled flag on user doc
+            await db.collection("users").doc(uid).set({
+                mfaEnabled: true,
+            }, { merge: true });
+
+            return { success: true };
+
+        } catch (err) {
+            console.error("verifyMFASetup error:", err);
+            if (err instanceof HttpsError) throw err;
+            throw new HttpsError("internal", "Failed to verify MFA setup.");
+        }
+    }
+);
+
+// 19. verifyMFALogin
+//     Verifies a TOTP code or recovery code during login
+exports.verifyMFALogin = onCall(
+    { secrets: [MFA_ENCRYPTION_KEY] },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+        const code = request.data?.code;
+        const isRecoveryCode = request.data?.isRecoveryCode === true;
+
+        if (!code || typeof code !== 'string') {
+            throw new HttpsError("invalid-argument", "Must provide a code.");
+        }
+
+        try {
+            // Read the active config
+            const configDoc = await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("config").get();
+
+            if (!configDoc.exists) {
+                throw new HttpsError("not-found", "MFA is not configured.");
+            }
+
+            const configData = configDoc.data();
+
+            if (isRecoveryCode) {
+                // Verify recovery code
+                const codeHash = hashRecoveryCode(code);
+                const recoveryEntry = configData.recoveryCodes.find(
+                    rc => rc.hash === codeHash && !rc.used
+                );
+
+                if (!recoveryEntry) {
+                    throw new HttpsError("invalid-argument", "Invalid or already used recovery code.");
+                }
+
+                // Mark the recovery code as used
+                const updatedCodes = configData.recoveryCodes.map(rc => {
+                    if (rc.hash === codeHash && !rc.used) {
+                        return { ...rc, used: true };
+                    }
+                    return rc;
+                });
+
+                await db.collection("users").doc(uid)
+                    .collection("mfaSecrets").doc("config").update({
+                        recoveryCodes: updatedCodes,
+                    });
+
+            } else {
+                // Verify TOTP code
+                if (code.length !== 6) {
+                    throw new HttpsError("invalid-argument", "Must provide a 6-digit TOTP code.");
+                }
+
+                const secretBase32 = decryptMFA(configData.encryptedSecret);
+                const totp = new TOTP({
+                    issuer: 'PennyHelm',
+                    label: request.auth.token.email || 'user',
+                    algorithm: 'SHA1',
+                    digits: 6,
+                    period: 30,
+                    secret: Secret.fromBase32(secretBase32),
+                });
+
+                const delta = totp.validate({ token: code, window: 1 });
+
+                if (delta === null) {
+                    throw new HttpsError("invalid-argument", "Invalid code. Please try again.");
+                }
+            }
+
+            // Set lastMFAVerification timestamp
+            await db.collection("users").doc(uid).set({
+                lastMFAVerification: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+
+            return { success: true };
+
+        } catch (err) {
+            console.error("verifyMFALogin error:", err);
+            if (err instanceof HttpsError) throw err;
+            throw new HttpsError("internal", "Failed to verify MFA code.");
+        }
+    }
+);
+
+// 20. disableMFA
+//     Requires a valid TOTP code to disable MFA (security measure)
+exports.disableMFA = onCall(
+    { secrets: [MFA_ENCRYPTION_KEY] },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+        const code = request.data?.code;
+
+        if (!code || typeof code !== 'string' || code.length !== 6) {
+            throw new HttpsError("invalid-argument", "Must provide a 6-digit TOTP code to disable MFA.");
+        }
+
+        try {
+            // Read the active config
+            const configDoc = await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("config").get();
+
+            if (!configDoc.exists) {
+                throw new HttpsError("not-found", "MFA is not configured.");
+            }
+
+            const configData = configDoc.data();
+            const secretBase32 = decryptMFA(configData.encryptedSecret);
+
+            // Verify the TOTP code first
+            const totp = new TOTP({
+                issuer: 'PennyHelm',
+                label: request.auth.token.email || 'user',
+                algorithm: 'SHA1',
+                digits: 6,
+                period: 30,
+                secret: Secret.fromBase32(secretBase32),
+            });
+
+            const delta = totp.validate({ token: code, window: 1 });
+
+            if (delta === null) {
+                throw new HttpsError("invalid-argument", "Invalid code. MFA was not disabled.");
+            }
+
+            // Delete the config document
+            await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("config").delete();
+
+            // Also delete any pending setup
+            const pendingDoc = await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("pending").get();
+            if (pendingDoc.exists) {
+                await pendingDoc.ref.delete();
+            }
+
+            // Clear the mfaEnabled flag
+            await db.collection("users").doc(uid).set({
+                mfaEnabled: false,
+                lastMFAVerification: admin.firestore.FieldValue.delete(),
+            }, { merge: true });
+
+            return { success: true };
+
+        } catch (err) {
+            console.error("disableMFA error:", err);
+            if (err instanceof HttpsError) throw err;
+            throw new HttpsError("internal", "Failed to disable MFA.");
+        }
+    }
+);
+
+// 21. cancelMFASetup
+//     Deletes the pending MFA setup (user abandoned enrollment)
+exports.cancelMFASetup = onCall(
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
+        }
+
+        const uid = request.auth.uid;
+
+        try {
+            const pendingDoc = await db.collection("users").doc(uid)
+                .collection("mfaSecrets").doc("pending").get();
+
+            if (pendingDoc.exists) {
+                await pendingDoc.ref.delete();
+            }
+
+            return { success: true };
+
+        } catch (err) {
+            console.error("cancelMFASetup error:", err);
+            throw new HttpsError("internal", "Failed to cancel MFA setup.");
         }
     }
 );
