@@ -57,10 +57,16 @@ function populateInviteDetails(invite, container) {
     const typeClass = invite.type === 'cpa' ? 'cpa' :
                      invite.type === 'financial-planner' ? 'financial-planner' : '';
 
+    // Escape user-supplied values to prevent XSS
+    const esc = (str) => {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    };
     container.innerHTML = `
-        <div class="inviter-name">${invite.inviterName || 'Someone'}</div>
-        <div class="inviter-email">${invite.inviterEmail || ''}</div>
-        <span class="invite-type-badge ${typeClass}">${getTypeLabel(invite.type)}</span>
+        <div class="inviter-name">${esc(invite.inviterName || 'Someone')}</div>
+        <div class="inviter-email">${esc(invite.inviterEmail || '')}</div>
+        <span class="invite-type-badge ${typeClass}">${esc(getTypeLabel(invite.type))}</span>
         <div class="invite-info">
             <div class="info-item">
                 <div class="info-label">Access Level</div>

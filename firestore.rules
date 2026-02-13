@@ -9,7 +9,8 @@ service cloud.firestore {
 
     // User profiles
     match /users/{userId} {
-      // Users read own doc; admin reads any
+      // Users can read their own doc
+      // Admins can read any doc AND query/list the collection (for User Lookup)
       allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
 
       // Create: own doc with required fields, OR admin can create any (test users)
@@ -19,12 +20,16 @@ service cloud.firestore {
                         && request.resource.data.keys().hasAll(['email', 'trialStartDate', 'subscriptionStatus', 'createdAt']));
 
       // Update: admin can change anything; user can change non-protected fields;
-      // user can change protected fields ONLY during trial code redemption
+      // user can change protected fields ONLY during trial code redemption.
+      // Note: subscriptionStatus changes to 'active'/'expired' are handled server-side
+      // by Cloud Functions (Stripe webhook) which use admin SDK and bypass these rules.
       allow update: if request.auth != null && (
                       isAdmin()
                       || (request.auth.uid == userId
                           && !request.resource.data.diff(resource.data).affectedKeys()
-                              .hasAny(['subscriptionStatus', 'trialStartDate', 'createdAt']))
+                              .hasAny(['subscriptionStatus', 'trialStartDate', 'createdAt',
+                                       'stripeCustomerId', 'stripeSubscriptionId', 'subscribedAt',
+                                       'subscriptionPeriodEnd', 'mfaEnabled', 'lastMFAVerification']))
                       || (request.auth.uid == userId
                           && request.resource.data.subscriptionStatus == 'trial'
                           && 'trialCode' in request.resource.data
@@ -35,6 +40,12 @@ service cloud.firestore {
 
       // Delete: admin only (for test user cleanup)
       allow delete: if isAdmin();
+
+      // MFA secrets subcollection — only Cloud Functions (admin SDK) can access
+      // Client-side code NEVER reads/writes TOTP secrets directly
+      match /mfaSecrets/{docId} {
+        allow read, write: if false;
+      }
     }
 
     // User finance data
@@ -75,8 +86,10 @@ service cloud.firestore {
 
     // Invites collection — stores pending invites indexed by email
     match /invites/{inviteId} {
-      // Anyone can read an invite if they know the ID (sent via email link)
-      allow read: if request.auth != null;
+      // Only the inviter or invitee can read an invite
+      allow read: if request.auth != null
+                   && (resource.data.inviterUid == request.auth.uid
+                       || resource.data.inviteeEmail == request.auth.token.email);
 
       // Only the owner (inviter) can create/update/delete invites
       allow create: if request.auth != null && request.resource.data.inviterUid == request.auth.uid;
@@ -107,6 +120,16 @@ service cloud.firestore {
     // Plaid items — access_tokens stored here, NEVER readable by client
     match /plaidItems/{itemId} {
       allow read, write: if false;
+    }
+
+    // Telemetry collection — users can create their own logs for troubleshooting
+    // Logs are auto-deleted after 30 days by Cloud Function
+    match /telemetry/{logId} {
+      // Users can create logs for themselves only
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+      // Only admin can read (for troubleshooting) and delete (cleanup)
+      allow read, delete: if isAdmin();
     }
 
     // Deny everything else

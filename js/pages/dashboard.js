@@ -14,6 +14,8 @@ const GOAL_CATEGORIES = [
 let periodOffset = 0; // 0 = starts at current period
 
 export function renderDashboard(container, store) {
+    // Reset period offset to current period on each navigation to dashboard
+    periodOffset = 0;
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
@@ -46,15 +48,29 @@ export function renderDashboard(container, store) {
     }, 0);
     const depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
     const userMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
+    // Count occurrences of a day-of-week in a month
+    const countDayOfWeekInMonth = (targetDay, yr, mo) => {
+        const lastOfMonth = new Date(yr, mo + 1, 0);
+        let count = 0;
+        let d = new Date(yr, mo, 1);
+        while (d.getDay() !== targetDay) d = new Date(d.getTime() + 86400000);
+        while (d <= lastOfMonth) { count++; d = new Date(d.getTime() + 7 * 86400000); }
+        return count;
+    };
+    // Count pay dates in current month
+    const payDatesAll = store.getPayDates();
+    const payDatesThisMonth = payDatesAll.filter(d => d.getFullYear() === year && d.getMonth() === month).length || 2;
+
     const totalBills = bills.reduce((sum, b) => {
         if (b.frozen || b.excludeFromTotal) return sum;
-        // Per-paycheck bills are paid twice per month (standard months)
-        if (b.frequency === 'per-paycheck') return sum + b.amount * 2;
-        // Weekly bills are paid ~4 times per month
-        if (b.frequency === 'weekly') return sum + b.amount * 4;
-        // Biweekly bills are paid ~2 times per month
-        if (b.frequency === 'biweekly') return sum + b.amount * 2;
-        // Yearly/semi-annual only count at full amount when due this month
+        if (b.frequency === 'per-paycheck') return sum + b.amount * payDatesThisMonth;
+        if (b.frequency === 'twice-monthly') return sum + b.amount * Math.min(payDatesThisMonth, 2);
+        if (b.frequency === 'weekly') {
+            return sum + b.amount * countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month);
+        }
+        if (b.frequency === 'biweekly') {
+            return sum + b.amount * Math.ceil(countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month) / 2);
+        }
         if (b.frequency === 'yearly') {
             return sum + (b.dueMonth === month ? b.amount : 0);
         }
@@ -66,9 +82,10 @@ export function renderDashboard(container, store) {
     }, 0);
     const paidBills = bills.filter(b => store.isBillPaid(b.id, year, month) && !b.frozen && !b.excludeFromTotal);
     const paidTotal = paidBills.reduce((sum, b) => {
-        if (b.frequency === 'per-paycheck') return sum + b.amount * 2;
-        if (b.frequency === 'weekly') return sum + b.amount * 4;
-        if (b.frequency === 'biweekly') return sum + b.amount * 2;
+        if (b.frequency === 'per-paycheck') return sum + b.amount * payDatesThisMonth;
+        if (b.frequency === 'twice-monthly') return sum + b.amount * Math.min(payDatesThisMonth, 2);
+        if (b.frequency === 'weekly') return sum + b.amount * countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month);
+        if (b.frequency === 'biweekly') return sum + b.amount * Math.ceil(countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month) / 2);
         if (b.frequency === 'yearly') return sum + (b.dueMonth === month ? b.amount : 0);
         if (b.frequency === 'semi-annual') {
             const secondMonth = (b.dueMonth + 6) % 12;
@@ -90,13 +107,14 @@ export function renderDashboard(container, store) {
     const creditOwed = accounts.filter(a => a.type === 'credit').reduce((s, a) => s + a.balance, 0);
     const investmentTotal = accounts.filter(a => a.type === 'investment' || a.type === 'retirement').reduce((s, a) => s + a.balance, 0);
     const propertyEquity = accounts.filter(a => a.type === 'property').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
+    const vehicleEquity = accounts.filter(a => a.type === 'vehicle').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
     // Debts (credit cards, loans, etc. from Debts page)
     const debts = store.getDebts();
-    // Exclude linked debts — their balances are already counted via accounts (creditOwed, propertyEquity)
+    // Exclude linked debts — their balances are already counted via accounts (creditOwed, propertyEquity, vehicleEquity)
     const unlinkedDebtBalance = debts.filter(d => !d.linkedAccountId).reduce((s, d) => s + (d.currentBalance || 0), 0);
     const totalDebtBalance = debts.reduce((s, d) => s + (d.currentBalance || 0), 0);
 
-    const netBalance = cashTotal + investmentTotal + propertyEquity - creditOwed - unlinkedDebtBalance;
+    const netBalance = cashTotal + investmentTotal + propertyEquity + vehicleEquity - creditOwed - unlinkedDebtBalance;
 
     // Credit scores
     const creditScores = store.getCreditScores();
@@ -163,6 +181,13 @@ export function renderDashboard(container, store) {
                 <div class="sub">${accounts.filter(a => a.type === 'property').map(a => escapeHtml(a.name)).join(', ')}</div>
             </div>
             ` : ''}
+            ${accounts.filter(a => a.type === 'vehicle').length > 0 ? `
+            <div class="stat-card ${vehicleEquity >= 0 ? 'green' : 'red'}">
+                <div class="label">Vehicle Equity</div>
+                <div class="value">${formatCurrency(vehicleEquity)}</div>
+                <div class="sub">${accounts.filter(a => a.type === 'vehicle').map(a => escapeHtml(a.name)).join(', ')}</div>
+            </div>
+            ` : ''}
             ${accounts.length > 0 || debts.length > 0 ? `
             <div class="stat-card ${netBalance >= 0 ? 'blue' : 'red'}">
                 <div class="label">Net Worth</div>
@@ -171,7 +196,8 @@ export function renderDashboard(container, store) {
                     const parts = [];
                     if (cashTotal > 0) parts.push(formatCurrency(cashTotal) + ' cash');
                     if (investmentTotal > 0) parts.push(formatCurrency(investmentTotal) + ' invested');
-                    if (propertyEquity !== 0) parts.push(formatCurrency(Math.abs(propertyEquity)) + ' equity');
+                    if (propertyEquity !== 0) parts.push(formatCurrency(Math.abs(propertyEquity)) + ' property');
+                    if (vehicleEquity !== 0) parts.push(formatCurrency(Math.abs(vehicleEquity)) + ' vehicles');
                     if (creditOwed > 0) parts.push(formatCurrency(creditOwed) + ' credit owed');
                     if (unlinkedDebtBalance > 0) parts.push(formatCurrency(unlinkedDebtBalance) + ' debt');
                     return parts.length > 0 ? parts.join(' &middot; ') : 'No assets or debts tracked';
@@ -221,7 +247,7 @@ export function renderDashboard(container, store) {
                 ${visiblePeriods.map((period) => {
                     const availableClass = period.available >= 0 ? 'text-green' : 'text-red';
                     const isCurrent = period.isCurrent;
-                    const borderStyle = isCurrent ? 'border-color:var(--accent);background:rgba(79,140,255,0.04);' : '';
+                    const borderStyle = isCurrent ? 'border-color:var(--accent);background:var(--accent-bg);' : '';
                     return `
                         <div class="card" style="padding:16px;${borderStyle}">
                             <div class="flex-between mb-16">
@@ -240,7 +266,7 @@ export function renderDashboard(container, store) {
                                 </div>
                             </div>
                             <div style="background:var(--bg-input);border-radius:8px;height:8px;overflow:hidden;margin-bottom:12px;">
-                                <div style="height:100%;width:${Math.min(100, period.billsTotal > 0 ? (period.billsTotal / (income.user.payAmount + period.otherIncomeTotal) * 100) : 0)}%;background:${period.available >= 0 ? 'var(--accent)' : 'var(--red)'};border-radius:8px;"></div>
+                                <div style="height:100%;width:${Math.min(100, period.billsTotal > 0 && (income.user.payAmount + period.otherIncomeTotal) > 0 ? (period.billsTotal / (income.user.payAmount + period.otherIncomeTotal) * 100) : 0)}%;background:${period.available >= 0 ? 'var(--accent)' : 'var(--red)'};border-radius:8px;"></div>
                             </div>
                             <div class="flex-between" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">
                                 <span>Income: <strong class="text-green">${formatCurrency(income.user.payAmount)}${period.otherIncomeTotal > 0 ? ` + ${formatCurrency(period.otherIncomeTotal)}` : ''}</strong></span>
@@ -333,9 +359,10 @@ export function renderDashboard(container, store) {
                 const cat = bill.category || 'Uncategorized';
                 if (!categoryTotals[cat]) categoryTotals[cat] = { total: 0, count: 0, paid: 0 };
                 let amt = bill.amount;
-                if (bill.frequency === 'per-paycheck') amt = bill.amount * 2;
-                else if (bill.frequency === 'weekly') amt = bill.amount * 4;
-                else if (bill.frequency === 'biweekly') amt = bill.amount * 2;
+                if (bill.frequency === 'per-paycheck') amt = bill.amount * payDatesThisMonth;
+                else if (bill.frequency === 'twice-monthly') amt = bill.amount * Math.min(payDatesThisMonth, 2);
+                else if (bill.frequency === 'weekly') amt = bill.amount * countDayOfWeekInMonth((bill.dueDay || 0) % 7, year, month);
+                else if (bill.frequency === 'biweekly') amt = bill.amount * Math.ceil(countDayOfWeekInMonth((bill.dueDay || 0) % 7, year, month) / 2);
                 else if (bill.frequency === 'yearly') amt = bill.dueMonth === month ? bill.amount : 0;
                 else if (bill.frequency === 'semi-annual') {
                     const secondMonth = (bill.dueMonth + 6) % 12;
@@ -353,16 +380,16 @@ export function renderDashboard(container, store) {
             if (sorted.length === 0) return '';
             const maxTotal = sorted[0][1].total;
             const categoryColors = {
-                'Mortgage': 'var(--blue, #4f8cff)',
-                'Housing': 'var(--accent, #4f8cff)',
-                'Necessity': 'var(--green, #34d399)',
-                'Credit Card': 'var(--red, #f87171)',
-                'Subscription': 'var(--purple, #a78bfa)',
-                'Car': 'var(--orange, #fb923c)',
-                'Insurance': 'var(--yellow, #fbbf24)',
+                'Mortgage': 'var(--blue)',
+                'Housing': 'var(--accent)',
+                'Necessity': 'var(--green)',
+                'Credit Card': 'var(--red)',
+                'Subscription': 'var(--purple)',
+                'Car': 'var(--orange)',
+                'Insurance': 'var(--yellow)',
                 'Utilities': 'var(--teal, #2dd4bf)',
-                'INTERNET': 'var(--cyan, #22d3ee)',
-                'Storage': 'var(--text-secondary, #94a3b8)'
+                'INTERNET': 'var(--cyan)',
+                'Storage': 'var(--text-secondary)'
             };
             return `
         <div class="card mt-16">
@@ -371,7 +398,7 @@ export function renderDashboard(container, store) {
                 ${sorted.map(([cat, data]) => {
                     const pct = maxTotal > 0 ? (data.total / maxTotal * 100) : 0;
                     const incomePct = userMonthlyIncome > 0 ? (data.total / userMonthlyIncome * 100).toFixed(1) : '0';
-                    const barColor = categoryColors[cat] || 'var(--accent, #4f8cff)';
+                    const barColor = categoryColors[cat] || 'var(--accent)';
                     return `
                     <div>
                         <div class="flex-between" style="margin-bottom:4px;">
@@ -448,48 +475,97 @@ export function renderDashboard(container, store) {
     }
 }
 
+// Expand a recurring bill into individual dated occurrences within a date range
+// (shared logic with bills.js — kept in sync)
+function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = []) {
+    const occurrences = [];
+    const freq = bill.frequency;
+
+    if (freq === 'weekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        let cursor = new Date(rangeStart);
+        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
+        while (cursor <= rangeEnd) {
+            occurrences.push({
+                ...bill,
+                _occurrenceDate: new Date(cursor),
+                _occurrenceKey: `${bill.id}_w_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
+            });
+            cursor = new Date(cursor.getTime() + 7 * 86400000);
+        }
+    } else if (freq === 'biweekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        let cursor = new Date(rangeStart);
+        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
+        while (cursor <= rangeEnd) {
+            occurrences.push({
+                ...bill,
+                _occurrenceDate: new Date(cursor),
+                _occurrenceKey: `${bill.id}_bw_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
+            });
+            cursor = new Date(cursor.getTime() + 14 * 86400000);
+        }
+    } else if (freq === 'per-paycheck') {
+        payDatesInRange.forEach((pd, idx) => {
+            const payDate = new Date(pd);
+            if (payDate >= rangeStart && payDate <= rangeEnd) {
+                occurrences.push({
+                    ...bill,
+                    _occurrenceDate: payDate,
+                    _occurrenceKey: `${bill.id}_pp_${idx}_${payDate.getTime()}`,
+                });
+            }
+        });
+    } else if (freq === 'twice-monthly') {
+        const byMonth = {};
+        payDatesInRange.forEach(pd => {
+            const d = new Date(pd);
+            const key = `${d.getFullYear()}-${d.getMonth()}`;
+            if (!byMonth[key]) byMonth[key] = [];
+            byMonth[key].push(d);
+        });
+        Object.values(byMonth).forEach(monthDates => {
+            monthDates.sort((a, b) => a - b);
+            const first = monthDates[0];
+            const last = monthDates[monthDates.length - 1];
+            if (first >= rangeStart && first <= rangeEnd) {
+                occurrences.push({ ...bill, _occurrenceDate: first, _occurrenceKey: `${bill.id}_tm_first_${first.getTime()}` });
+            }
+            if (last.getTime() !== first.getTime() && last >= rangeStart && last <= rangeEnd) {
+                occurrences.push({ ...bill, _occurrenceDate: last, _occurrenceKey: `${bill.id}_tm_last_${last.getTime()}` });
+            }
+        });
+    } else {
+        return null; // monthly, yearly, semi-annual — no expansion
+    }
+    return occurrences;
+}
+
 function buildPayPeriods(payDates, bills, store, income, year, month, coveredDepBills = [], otherIncomeSources = []) {
     if (!payDates || payDates.length === 0) return [];
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const activeBills = bills.filter(b => !b.frozen && b.amount > 0);
-    const regularBills = activeBills.filter(b =>
-        b.frequency !== 'per-paycheck' && b.frequency !== 'weekly' && b.frequency !== 'biweekly'
-    );
-    const perPaycheckBills = activeBills.filter(b => b.frequency === 'per-paycheck');
-    const weeklyBills = activeBills.filter(b => b.frequency === 'weekly');
-    const biweeklyBills = activeBills.filter(b => b.frequency === 'biweekly');
-
-    // payDates are already Date objects from store.getPayDates()
     const sorted = [...payDates].sort((a, b) => a - b);
-
-    // Pre-compute which months have 3 paychecks for per-paycheck bill logic
-    const paychecksPerMonth = {};
-    sorted.forEach(d => {
-        const key = `${d.getFullYear()}-${d.getMonth()}`;
-        if (!paychecksPerMonth[key]) paychecksPerMonth[key] = [];
-        paychecksPerMonth[key].push(d.getTime());
-    });
 
     const periods = [];
 
     for (let i = 0; i < sorted.length; i++) {
         const periodStart = sorted[i];
         const periodEnd = sorted[i + 1]
-            ? new Date(sorted[i + 1].getTime() - 24 * 60 * 60 * 1000) // day before next payday
-            : new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000); // assume 14-day period if no next date
+            ? new Date(sorted[i + 1].getTime() - 24 * 60 * 60 * 1000)
+            : new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000);
 
-        // Find regular bills due in this period (by day of month falling between start and end)
         const periodBills = [];
         const startMonth = periodStart.getMonth();
         const startYear = periodStart.getFullYear();
+        const payDatesInPeriod = sorted.filter(d => d >= periodStart && d <= periodEnd);
 
-        regularBills.forEach(bill => {
+        activeBills.forEach(bill => {
             // For yearly/semi-annual bills, only show in their due month(s)
             if (bill.frequency === 'yearly' && bill.dueMonth != null) {
                 const dueDate = new Date(startYear, bill.dueMonth, bill.dueDay);
-                // Also check if it falls in the next year's occurrence
                 const dueDateNextYear = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
                 if ((dueDate >= periodStart && dueDate <= periodEnd) ||
                     (dueDateNextYear >= periodStart && dueDateNextYear <= periodEnd)) {
@@ -501,7 +577,6 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
                 const secondMonth = (bill.dueMonth + 6) % 12;
                 const dueDate1 = new Date(startYear, bill.dueMonth, bill.dueDay);
                 const dueDate2 = new Date(startYear, secondMonth, bill.dueDay);
-                // Check next year too for wrap-around
                 const dueDate1Next = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
                 const dueDate2Next = new Date(startYear + 1, secondMonth, bill.dueDay);
                 if ((dueDate1 >= periodStart && dueDate1 <= periodEnd) ||
@@ -513,44 +588,21 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
                 return;
             }
 
-            const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
-            const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
+            // Expand recurring bills (weekly/biweekly/per-paycheck/twice-monthly) into individual occurrences
+            const expanded = expandBillOccurrences(bill, periodStart, periodEnd, payDatesInPeriod);
+            if (expanded !== null) {
+                periodBills.push(...expanded);
+            } else {
+                // Monthly bill — check due day
+                const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
+                const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
 
-            if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
-                periodBills.push(bill);
-            } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
-                periodBills.push(bill);
-            }
-        });
-
-        // Add per-paycheck bills (e.g. Child Support)
-        // On 3-check months, only include on first and last check of that month
-        perPaycheckBills.forEach(bill => {
-            const monthKey = `${periodStart.getFullYear()}-${periodStart.getMonth()}`;
-            const monthPaychecks = paychecksPerMonth[monthKey] || [];
-            if (monthPaychecks.length >= 3) {
-                // Only first and last paycheck of this month
-                const first = Math.min(...monthPaychecks);
-                const last = Math.max(...monthPaychecks);
-                if (periodStart.getTime() === first || periodStart.getTime() === last) {
+                if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
+                    periodBills.push(bill);
+                } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
                     periodBills.push(bill);
                 }
-            } else {
-                // 2 or fewer checks this month — include on all
-                periodBills.push(bill);
             }
-        });
-
-        // Add weekly bills - they occur every week, so always show in every pay period
-        // For a ~2 week pay period, show the bill once (represents ~2 occurrences)
-        weeklyBills.forEach(bill => {
-            periodBills.push(bill);
-        });
-
-        // Add biweekly bills - they occur every other week
-        // Show in every pay period (roughly aligns with biweekly paychecks)
-        biweeklyBills.forEach(bill => {
-            periodBills.push(bill);
         });
 
         // Add covered dependent bills as virtual line items by their individual due dates
@@ -768,7 +820,7 @@ function openGoalModal(store, existingGoal) {
             <label>Category</label>
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;">
                 ${GOAL_CATEGORIES.map(cat => `
-                    <label style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;text-align:center;${isEdit && existingGoal.category === cat.value ? 'border-color:var(--accent);background:rgba(79,140,255,0.1);' : ''}">
+                    <label style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;text-align:center;${isEdit && existingGoal.category === cat.value ? 'border-color:var(--accent);background:var(--accent-bg);' : ''}">
                         <input type="radio" name="goal-category" value="${cat.value}" ${(!isEdit && cat.value === 'other') || (isEdit && existingGoal.category === cat.value) ? 'checked' : ''} style="display:none;">
                         <span style="font-size:20px;margin-bottom:4px;">${cat.icon}</span>
                         <span style="font-size:10px;color:var(--text-secondary);">${cat.label}</span>
@@ -798,7 +850,7 @@ function openGoalModal(store, existingGoal) {
         <style>
             .form-group label:has(input[type="radio"]:checked) {
                 border-color: var(--accent) !important;
-                background: rgba(79, 140, 255, 0.1);
+                background: var(--accent-bg);
             }
         </style>
     `);
@@ -812,7 +864,7 @@ function openGoalModal(store, existingGoal) {
             });
             if (radio.checked) {
                 radio.parentElement.style.borderColor = 'var(--accent)';
-                radio.parentElement.style.background = 'rgba(79, 140, 255, 0.1)';
+                radio.parentElement.style.background = 'var(--accent-bg)';
             }
         });
     });

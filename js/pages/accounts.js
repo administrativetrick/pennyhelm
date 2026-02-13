@@ -2,6 +2,8 @@ import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { auth } from '../auth.js';
 import { connectBank, refreshPlaidBalances, hasPlaidConnections } from '../plaid.js';
+import { showVehicleDetail } from './vehicle-detail.js';
+import { requireMFAForUpload } from '../mfa-guard.js';
 
 export function renderAccounts(container, store) {
     const accounts = store.getAccounts();
@@ -14,9 +16,15 @@ export function renderAccounts(container, store) {
     const investTotal = accounts.filter(a => a.type === 'investment' || a.type === 'retirement').reduce((s, a) => s + a.balance, 0);
     const propEquity = accounts.filter(a => a.type === 'property').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
     const propCount = accounts.filter(a => a.type === 'property').length;
-    const netTotal = cashTotal + investTotal + propEquity - creditTotal;
+    const vehicleEquity = accounts.filter(a => a.type === 'vehicle').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
+    const vehicleCount = accounts.filter(a => a.type === 'vehicle').length;
+    const equipEquity = accounts.filter(a => a.type === 'equipment').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
+    const equipCount = accounts.filter(a => a.type === 'equipment').length;
+    const otherAssetEquity = accounts.filter(a => a.type === 'other-asset').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
+    const otherAssetCount = accounts.filter(a => a.type === 'other-asset').length;
+    const netTotal = cashTotal + investTotal + propEquity + vehicleEquity + equipEquity + otherAssetEquity - creditTotal;
 
-    const typeLabels = { credit: 'Credit Card', savings: 'Savings', checking: 'Checking', investment: 'Brokerage/Investment', retirement: '401(k) / Retirement', property: 'Property' };
+    const typeLabels = { credit: 'Credit Card', savings: 'Savings', checking: 'Checking', investment: 'Brokerage/Investment', retirement: '401(k) / Retirement', property: 'Property', vehicle: 'Vehicle', equipment: 'Equipment', 'other-asset': 'Other Asset' };
 
     container.innerHTML = `
         <div class="page-header">
@@ -54,6 +62,13 @@ export function renderAccounts(container, store) {
                 <div class="sub">${propCount} propert${propCount !== 1 ? 'ies' : 'y'}</div>
             </div>
             ` : ''}
+            ${vehicleCount > 0 ? `
+            <div class="stat-card ${vehicleEquity >= 0 ? 'green' : 'red'}">
+                <div class="label">Vehicle Equity</div>
+                <div class="value">${formatCurrency(vehicleEquity)}</div>
+                <div class="sub">${vehicleCount} vehicle${vehicleCount !== 1 ? 's' : ''}</div>
+            </div>
+            ` : ''}
             ${creditTotal > 0 ? `
             <div class="stat-card red">
                 <div class="label">Credit Owed</div>
@@ -72,7 +87,7 @@ export function renderAccounts(container, store) {
         <div style="margin-top:16px;display:flex;justify-content:flex-end;">
             <button class="btn btn-secondary btn-sm" id="refresh-plaid-btn" style="display:flex;align-items:center;gap:6px;font-size:12px;">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                Refresh Plaid Balances
+                Refresh Connected Balances
             </button>
         </div>
         ` : ''}
@@ -87,7 +102,11 @@ export function renderAccounts(container, store) {
                     const isLinked = !!a.linkedDebtId;
                     const isPlaid = !!a.plaidAccountId;
                     const linkedDebt = isLinked ? store.getDebts().find(d => d.id === a.linkedDebtId) : null;
-                    const balanceHtml = a.type === 'property' ? (() => {
+                    const isAssetWithLoan = a.type === 'property' || a.type === 'vehicle' || a.type === 'equipment' || a.type === 'other-asset';
+                    const owedLabel = a.type === 'vehicle' ? 'Amount Owed (Auto Loan)' : a.type === 'equipment' ? 'Amount Owed (Equipment Loan)' : a.type === 'other-asset' ? 'Amount Owed' : 'Amount Owed (Mortgage)';
+                    const isInvestment = a.type === 'investment' || a.type === 'retirement';
+                    const holdings = a.holdings || [];
+                    const balanceHtml = isAssetWithLoan ? (() => {
                         const owed = a.amountOwed || 0;
                         const equity = a.balance - owed;
                         return `<div style="text-align:right;">
@@ -100,11 +119,12 @@ export function renderAccounts(container, store) {
                     <div class="settings-row" style="flex-wrap:wrap;">
                         <div style="flex:1;min-width:150px;">
                             <div class="setting-label">
-                                ${escapeHtml(a.name)}
-                                ${isPlaid ? `<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:rgba(16,185,129,0.1);color:#10b981;border:1px solid rgba(16,185,129,0.3);border-radius:4px;vertical-align:middle;" title="${escapeHtml(a.plaidInstitution || 'Bank')} &middot; ****${a.plaidMask || ''}">&#127974; ${escapeHtml(a.plaidInstitution || 'Bank')}</span>` : ''}
+                                ${a.type === 'vehicle' ? `<span class="vehicle-link" data-vehicle-id="${a.id}">${escapeHtml(a.name)}</span>` : escapeHtml(a.name)}
+                                ${isPlaid ? `<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--green-bg);color:var(--green);border:1px solid var(--green);border-radius:4px;vertical-align:middle;" title="${escapeHtml(a.plaidInstitution || 'Bank')} &middot; ****${a.plaidMask || ''}">&#127974; ${escapeHtml(a.plaidInstitution || 'Bank')}</span>` : ''}
                                 ${isLinked ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;border-radius:4px;vertical-align:middle;" title="Linked to debt">&#128279; Linked</span>' : ''}
+                                ${isInvestment && holdings.length > 0 ? `<span class="toggle-holdings" data-account-id="${a.id}" style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent);border-radius:4px;cursor:pointer;vertical-align:middle;" title="Show holdings">📊 ${holdings.length} holdings</span>` : ''}
                             </div>
-                            <div class="setting-desc">${typeLabel} &middot; Updated ${updated}${linkedDebt ? ` &middot; ${linkedDebt.interestRate.toFixed(1)}% APR &middot; ${formatCurrency(linkedDebt.minimumPayment)} min` : ''}</div>
+                            <div class="setting-desc">${typeLabel} &middot; Updated ${updated}${linkedDebt ? `${linkedDebt.interestRate ? ` &middot; ${linkedDebt.interestRate.toFixed(1)}% APR` : ''}${linkedDebt.minimumPayment ? ` &middot; ${formatCurrency(linkedDebt.minimumPayment)} min` : ''}` : ''}</div>
                         </div>
                         <div style="display:flex;align-items:center;gap:8px;">
                             ${balanceHtml}
@@ -117,6 +137,41 @@ export function renderAccounts(container, store) {
                             </button>
                         </div>
                     </div>
+                    ${isInvestment && holdings.length > 0 ? `
+                    <div class="holdings-panel" id="holdings-${a.id}" style="display:none;padding:0 0 12px 0;border-bottom:1px solid var(--border);">
+                        <table style="width:100%;font-size:12px;">
+                            <thead>
+                                <tr style="text-align:left;">
+                                    <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;">Name</th>
+                                    <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;">Ticker</th>
+                                    <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;">Type</th>
+                                    <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Shares</th>
+                                    <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Price</th>
+                                    <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Value</th>
+                                    <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Gain/Loss</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${holdings.map(h => {
+                                    const gain = (h.value != null && h.costBasis != null) ? h.value - h.costBasis : null;
+                                    const gainPct = (gain != null && h.costBasis > 0) ? (gain / h.costBasis * 100) : null;
+                                    return `<tr style="border-top:1px solid var(--border);">
+                                        <td style="padding:6px 10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(h.name)}">${escapeHtml(h.name)}</td>
+                                        <td style="padding:6px 10px;font-weight:600;color:var(--accent);">${h.ticker || '—'}</td>
+                                        <td style="padding:6px 10px;color:var(--text-muted);text-transform:capitalize;">${h.type || '—'}</td>
+                                        <td style="padding:6px 10px;text-align:right;">${h.quantity != null ? h.quantity.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '—'}</td>
+                                        <td style="padding:6px 10px;text-align:right;">${h.price != null ? formatCurrency(h.price) : '—'}</td>
+                                        <td style="padding:6px 10px;text-align:right;font-weight:600;">${h.value != null ? formatCurrency(h.value) : '—'}</td>
+                                        <td style="padding:6px 10px;text-align:right;font-weight:600;color:${gain != null ? (gain >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--text-muted)'};">
+                                            ${gain != null ? `${gain >= 0 ? '+' : ''}${formatCurrency(gain)}` : '—'}
+                                            ${gainPct != null ? `<div style="font-size:10px;font-weight:normal;">${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}%</div>` : ''}
+                                        </td>
+                                    </tr>`;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ` : ''}
                     `;
                 }).join('')}
             </div>
@@ -161,7 +216,7 @@ export function renderAccounts(container, store) {
         });
     }
 
-    // Refresh Plaid Balances button
+    // Refresh Connected Balances button
     const refreshPlaidBtn = container.querySelector('#refresh-plaid-btn');
     if (refreshPlaidBtn) {
         refreshPlaidBtn.addEventListener('click', async () => {
@@ -182,14 +237,14 @@ export function renderAccounts(container, store) {
                 refreshPlaidBtn.disabled = false;
                 refreshPlaidBtn.innerHTML = `
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                    Refresh Plaid Balances
+                    Refresh Connected Balances
                 `;
             }
         });
     }
 
     container.querySelector('#scan-statement-btn').addEventListener('click', () => {
-        container.querySelector('#ocr-file-input').click();
+        requireMFAForUpload(() => container.querySelector('#ocr-file-input').click());
     });
     container.querySelector('#ocr-file-input').addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -202,17 +257,18 @@ export function renderAccounts(container, store) {
         btn.addEventListener('click', () => {
             const account = accounts.find(a => a.id === btn.dataset.accountId);
             if (!account) return;
-            const isProperty = account.type === 'property';
+            const isAssetAcct = account.type === 'property' || account.type === 'vehicle' || account.type === 'equipment' || account.type === 'other-asset';
             const isCredit = account.type === 'credit';
             const linkedDebt = isCredit && account.linkedDebtId ? store.getDebts().find(d => d.id === account.linkedDebtId) : null;
+            const owedLabel = account.type === 'vehicle' ? 'Amount Owed (Auto Loan)' : account.type === 'equipment' ? 'Amount Owed (Equipment Loan)' : account.type === 'other-asset' ? 'Amount Owed' : 'Amount Owed (Mortgage)';
             openModal(`Update ${escapeHtml(account.name)}`, `
                 <div class="form-group">
-                    <label>${isProperty ? 'Estimated Market Value' : 'Current Balance'}</label>
+                    <label>${isAssetAcct ? 'Estimated Value' : 'Current Balance'}</label>
                     <input type="number" class="form-input" id="quick-balance-input" step="0.01" value="${account.balance}">
                 </div>
-                ${isProperty ? `
+                ${isAssetAcct ? `
                 <div class="form-group">
-                    <label>Amount Owed (Mortgage)</label>
+                    <label>${owedLabel}</label>
                     <input type="number" class="form-input" id="quick-owed-input" step="0.01" value="${account.amountOwed || 0}">
                 </div>
                 ` : ''}
@@ -239,7 +295,7 @@ export function renderAccounts(container, store) {
                 const val = parseFloat(document.getElementById('quick-balance-input').value);
                 if (!isNaN(val)) {
                     const updates = { balance: val };
-                    if (isProperty) {
+                    if (isAssetAcct) {
                         const owedVal = parseFloat(document.getElementById('quick-owed-input').value);
                         if (!isNaN(owedVal)) updates.amountOwed = owedVal;
                     }
@@ -279,12 +335,37 @@ export function renderAccounts(container, store) {
             }
         });
     });
+
+    // Toggle investment holdings panel
+    container.querySelectorAll('.toggle-holdings').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const panel = document.getElementById(`holdings-${btn.dataset.accountId}`);
+            if (panel) {
+                const isHidden = panel.style.display === 'none';
+                panel.style.display = isHidden ? 'block' : 'none';
+                btn.style.background = isHidden ? 'var(--accent)' : 'var(--accent-bg)';
+                btn.style.color = isHidden ? '#fff' : '';
+            }
+        });
+    });
+
+    // Vehicle detail click
+    container.querySelectorAll('.vehicle-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showVehicleDetail(store, link.dataset.vehicleId);
+        });
+    });
 }
 
-function showAccountForm(store, existingAccount = null) {
+export function showAccountForm(store, existingAccount = null) {
     const isEdit = !!existingAccount;
     const account = existingAccount || { name: '', type: 'checking', balance: 0, amountOwed: 0 };
+    const isAsset = account.type === 'property' || account.type === 'vehicle' || account.type === 'equipment' || account.type === 'other-asset';
     const isProperty = account.type === 'property';
+    const isVehicle = account.type === 'vehicle';
+    const isEquipment = account.type === 'equipment';
+    const isOtherAsset = account.type === 'other-asset';
     const isCredit = account.type === 'credit';
 
     // Pull APR + min payment from linked debt (if editing existing linked credit card)
@@ -313,15 +394,18 @@ function showAccountForm(store, existingAccount = null) {
                     <option value="investment" ${account.type === 'investment' ? 'selected' : ''}>Brokerage / Investment</option>
                     <option value="retirement" ${account.type === 'retirement' ? 'selected' : ''}>401(k) / Retirement</option>
                     <option value="property" ${account.type === 'property' ? 'selected' : ''}>Property</option>
+                    <option value="vehicle" ${account.type === 'vehicle' ? 'selected' : ''}>Vehicle</option>
+                    <option value="equipment" ${account.type === 'equipment' ? 'selected' : ''}>Equipment</option>
+                    <option value="other-asset" ${account.type === 'other-asset' ? 'selected' : ''}>Other Asset</option>
                 </select>
             </div>
             <div class="form-group">
-                <label id="balance-label">${isProperty ? 'Estimated Market Value' : 'Current Balance'}</label>
+                <label id="balance-label">${isAsset ? 'Estimated Value' : 'Current Balance'}</label>
                 <input type="number" class="form-input" id="account-balance" step="0.01" value="${account.balance}">
             </div>
         </div>
-        <div class="form-group" id="amount-owed-group" style="display:${isProperty ? '' : 'none'};">
-            <label>Amount Owed (Mortgage)</label>
+        <div class="form-group" id="amount-owed-group" style="display:${isAsset ? '' : 'none'};">
+            <label id="amount-owed-label">${isVehicle ? 'Amount Owed (Auto Loan)' : isEquipment ? 'Amount Owed (Equipment Loan)' : isOtherAsset ? 'Amount Owed' : 'Amount Owed (Mortgage)'}</label>
             <input type="number" class="form-input" id="account-amount-owed" step="0.01" value="${account.amountOwed || 0}">
         </div>
         <div id="credit-fields-group" style="display:${isCredit ? '' : 'none'};">
@@ -352,12 +436,18 @@ function showAccountForm(store, existingAccount = null) {
     const amountOwedGroup = document.getElementById('amount-owed-group');
     const creditFieldsGroup = document.getElementById('credit-fields-group');
     const balanceLabel = document.getElementById('balance-label');
+    const amountOwedLabel = document.getElementById('amount-owed-label');
     typeSelect.addEventListener('change', () => {
         const isProp = typeSelect.value === 'property';
+        const isVeh = typeSelect.value === 'vehicle';
+        const isEquip = typeSelect.value === 'equipment';
+        const isOther = typeSelect.value === 'other-asset';
+        const isAssetType = isProp || isVeh || isEquip || isOther;
         const isCred = typeSelect.value === 'credit';
-        amountOwedGroup.style.display = isProp ? '' : 'none';
+        amountOwedGroup.style.display = isAssetType ? '' : 'none';
         creditFieldsGroup.style.display = isCred ? '' : 'none';
-        balanceLabel.textContent = isProp ? 'Estimated Market Value' : 'Current Balance';
+        balanceLabel.textContent = isAssetType ? 'Estimated Value' : 'Current Balance';
+        amountOwedLabel.textContent = isVeh ? 'Amount Owed (Auto Loan)' : isEquip ? 'Amount Owed (Equipment Loan)' : isOther ? 'Amount Owed' : 'Amount Owed (Mortgage)';
     });
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
@@ -368,7 +458,7 @@ function showAccountForm(store, existingAccount = null) {
             balance: parseFloat(document.getElementById('account-balance').value) || 0
         };
 
-        if (data.type === 'property') {
+        if (data.type === 'property' || data.type === 'vehicle' || data.type === 'equipment' || data.type === 'other-asset') {
             data.amountOwed = parseFloat(document.getElementById('account-amount-owed').value) || 0;
         }
 
@@ -441,7 +531,7 @@ function parseOcrText(text) {
     return accounts;
 }
 
-async function handleOcrImport(file, store, existingAccounts) {
+export async function handleOcrImport(file, store, existingAccounts) {
     // Show processing modal with image preview
     const imageUrl = URL.createObjectURL(file);
 
