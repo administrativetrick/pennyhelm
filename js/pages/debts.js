@@ -1,5 +1,6 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
+import { showVehicleDetail } from './vehicle-detail.js';
 
 const DEBT_TYPES = {
     'credit-card': { label: 'Credit Card', color: 'var(--red)' },
@@ -379,7 +380,7 @@ export function renderDebts(container, store) {
                                     <tr>
                                         <td>
                                             <div style="font-weight:600;">
-                                                ${escapeHtml(debt.name)}
+                                                ${debt.type === 'auto-loan' && debt.linkedAccountId ? `<span class="vehicle-link" data-vehicle-id="${debt.linkedAccountId}">${escapeHtml(debt.name)}</span>` : escapeHtml(debt.name)}
                                                 ${isLinked ? `<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;border-radius:4px;vertical-align:middle;" title="${linkTitle}">&#128279; Linked</span>` : ''}
                                             </div>
                                             ${debt.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(debt.notes)}</div>` : ''}
@@ -388,9 +389,15 @@ export function renderDebts(container, store) {
                                             ${getDebtTypeBadge(debt.type)}
                                             ${debt.chargeCard ? '<div style="font-size:10px;color:var(--orange);margin-top:2px;">Charge Card</div>' : ''}
                                         </td>
-                                        <td class="font-bold" style="color:var(--red);">${formatCurrency(debt.currentBalance)}</td>
-                                        <td>${debt.interestRate.toFixed(1)}%</td>
-                                        <td>${formatCurrency(debt.minimumPayment)}${debt.chargeCard ? '<div style="font-size:10px;color:var(--orange);">Full balance</div>' : ''}</td>
+                                        <td>
+                                            <div class="font-bold" style="color:var(--red);">${formatCurrency(debt.currentBalance)}</div>
+                                            ${debt.lastPaymentAmount != null && debt.lastPaymentDate ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Last: ${formatCurrency(debt.lastPaymentAmount)} on ${new Date(debt.lastPaymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>` : ''}
+                                        </td>
+                                        <td>${debt.interestRate.toFixed(1)}%${debt.manualOverrides?.interestRate ? '<span title="Manually set" style="font-size:9px;color:var(--accent);margin-left:3px;">✏</span>' : ''}</td>
+                                        <td>
+                                            ${formatCurrency(debt.minimumPayment)}${debt.chargeCard ? '<div style="font-size:10px;color:var(--orange);">Full balance</div>' : ''}${debt.manualOverrides?.minimumPayment ? '<span title="Manually set" style="font-size:9px;color:var(--accent);margin-left:3px;">✏</span>' : ''}
+                                            ${debt.nextPaymentDueDate ? `<div style="font-size:10px;color:${debt.isOverdue ? 'var(--red)' : 'var(--text-muted)'};margin-top:2px;">${debt.isOverdue ? '⚠ Overdue' : 'Due'} ${new Date(debt.nextPaymentDueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${debt.manualOverrides?.nextPaymentDueDate ? '<span title="Manually set" style="font-size:9px;color:var(--accent);margin-left:3px;">✏</span>' : ''}</div>` : ''}
+                                        </td>
                                         <td style="color:${payoffInfo.color};font-weight:500;">
                                             ${payoffInfo.text}
                                             ${payoffMonths > 0 && payoffMonths < Infinity ? `<div style="font-size:10px;color:var(--text-muted);font-weight:normal;">${formatMonths(payoffMonths)}</div>` : ''}
@@ -407,6 +414,11 @@ export function renderDebts(container, store) {
                                             <div style="display:flex;gap:4px;">
                                                 ${debt.type === 'auto-loan' ? `
                                                 <button class="btn-icon refinance-debt" data-debt-id="${debt.id}" title="Refinance Calculator" style="color:var(--orange);">
+                                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
+                                                </button>
+                                                ` : ''}
+                                                ${debt.type === 'mortgage' ? `
+                                                <button class="btn-icon mortgage-refinance-debt" data-debt-id="${debt.id}" title="Mortgage Refinance Calculator" style="color:var(--green);">
                                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
                                                 </button>
                                                 ` : ''}
@@ -546,6 +558,22 @@ export function renderDebts(container, store) {
             if (debt) showRefinanceCalculator(debt);
         });
     });
+
+    // Mortgage refinance calculator handlers
+    container.querySelectorAll('.mortgage-refinance-debt').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const debt = debts.find(d => d.id === btn.dataset.debtId);
+            if (debt) showMortgageRefinanceCalculator(debt);
+        });
+    });
+
+    // Vehicle detail links (auto-loan debts)
+    container.querySelectorAll('.vehicle-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showVehicleDetail(store, link.dataset.vehicleId);
+        });
+    });
 }
 
 function showDebtForm(store, existingDebt = null) {
@@ -572,6 +600,7 @@ function showDebtForm(store, existingDebt = null) {
     const accountTypeForDebt = (debtType) => {
         if (debtType === 'credit-card') return 'credit';
         if (debtType === 'mortgage') return 'property';
+        if (debtType === 'auto-loan') return 'vehicle';
         return null; // show all for other debt types
     };
 
@@ -592,8 +621,8 @@ function showDebtForm(store, existingDebt = null) {
             ? availableAccounts.filter(a => a.type === matchType)
             : availableAccounts;
         return filtered.map(a => {
-            const typeLabel = { credit: 'Credit Card', property: 'Property', checking: 'Checking', savings: 'Savings', investment: 'Investment', retirement: 'Retirement' }[a.type] || a.type;
-            const balanceStr = a.type === 'property'
+            const typeLabel = { credit: 'Credit Card', property: 'Property', vehicle: 'Vehicle', checking: 'Checking', savings: 'Savings', investment: 'Investment', retirement: 'Retirement' }[a.type] || a.type;
+            const balanceStr = (a.type === 'property' || a.type === 'vehicle')
                 ? `${formatCurrency(a.balance)} value` + (a.amountOwed ? ` / ${formatCurrency(a.amountOwed)} owed` : '')
                 : formatCurrency(a.balance);
             return `<option value="${a.id}" ${currentLinkedAccount && currentLinkedAccount.id === a.id ? 'selected' : ''}>${escapeHtml(a.name)} — ${balanceStr} (${typeLabel})</option>`;
@@ -603,7 +632,12 @@ function showDebtForm(store, existingDebt = null) {
     const autoLabel = debt.type === 'credit-card'
         ? 'Auto (create credit card account)'
         : 'None';
-    const showAccountLink = debt.type === 'credit-card' || debt.type === 'mortgage' || currentLinkedAccount;
+    const showAccountLink = debt.type === 'credit-card' || debt.type === 'mortgage' || debt.type === 'auto-loan' || currentLinkedAccount;
+
+    // Check if this debt is Plaid-linked (directly or via linked account)
+    const linkedAcct = isEdit && debt.linkedAccountId ? allAccounts.find(a => a.id === debt.linkedAccountId) : null;
+    const isPlaidLinked = !!(debt.plaidAccountId || linkedAcct?.plaidAccountId);
+    const overrides = debt.manualOverrides || {};
 
     const formHtml = `
         <div class="form-group">
@@ -637,15 +671,21 @@ function showDebtForm(store, existingDebt = null) {
         </div>
         <div class="form-row">
             <div class="form-group">
-                <label>Interest Rate (APR %)</label>
+                <label>Interest Rate (APR %)${isPlaidLinked && overrides.interestRate ? ' <span style="font-size:10px;color:var(--accent);" title="This value is manually set and won\'t be overwritten by your bank sync">✏ Manual</span>' : ''}</label>
                 <input type="number" class="form-input" id="debt-rate" step="0.01" value="${debt.interestRate}">
             </div>
             <div class="form-group">
-                <label>Minimum Payment</label>
+                <label>Minimum Payment${isPlaidLinked && overrides.minimumPayment ? ' <span style="font-size:10px;color:var(--accent);" title="This value is manually set and won\'t be overwritten by your bank sync">✏ Manual</span>' : ''}</label>
                 <input type="number" class="form-input" id="debt-min" step="0.01" value="${debt.chargeCard ? debt.currentBalance : debt.minimumPayment}" ${debt.chargeCard ? 'disabled' : ''}>
                 <div id="charge-card-hint" style="font-size:11px;color:var(--accent);margin-top:4px;display:${debt.chargeCard ? '' : 'none'};">Set to full balance (charge card).</div>
             </div>
         </div>
+        <div class="form-group">
+            <label>Next Payment Due Date${isPlaidLinked && overrides.nextPaymentDueDate ? ' <span style="font-size:10px;color:var(--accent);" title="This value is manually set and won\'t be overwritten by your bank sync">✏ Manual</span>' : ''}</label>
+            <input type="date" class="form-input" id="debt-due-date" value="${debt.nextPaymentDueDate ? debt.nextPaymentDueDate.substring(0, 10) : ''}">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Optional. Shown on the debts table and calendar.</div>
+        </div>
+        ${isPlaidLinked ? '<div style="font-size:11px;color:var(--text-muted);padding:8px 12px;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;margin-bottom:12px;">🏦 This debt is synced with your bank. Values you change here for APR, minimum payment, or due date will be kept and <strong>won\'t be overwritten</strong> by future bank syncs.</div>' : ''}
         <div class="form-group" id="account-link-group" style="display:${showAccountLink ? '' : 'none'};">
             <label>Link to Account</label>
             <select class="form-select" id="debt-linked-account">
@@ -707,7 +747,7 @@ function showDebtForm(store, existingDebt = null) {
 
     typeSelect.addEventListener('change', () => {
         const newType = typeSelect.value;
-        const shouldShow = newType === 'credit-card' || newType === 'mortgage';
+        const shouldShow = newType === 'credit-card' || newType === 'mortgage' || newType === 'auto-loan';
         accountLinkGroup.style.display = shouldShow ? '' : 'none';
         // Show/hide charge card checkbox
         chargeCardGroup.style.display = newType === 'credit-card' ? '' : 'none';
@@ -732,16 +772,44 @@ function showDebtForm(store, existingDebt = null) {
         const linkedAccountValue = document.getElementById('debt-linked-account').value;
         const isChargeCard = chargeCardCheckbox.checked;
         const currentBalance = parseFloat(document.getElementById('debt-balance').value) || 0;
+        const newRate = parseFloat(document.getElementById('debt-rate').value) || 0;
+        const newMin = isChargeCard ? currentBalance : (parseFloat(document.getElementById('debt-min').value) || 0);
+        const newDueDate = document.getElementById('debt-due-date').value || '';
         const data = {
             name: document.getElementById('debt-name').value.trim(),
             type: document.getElementById('debt-type').value,
             currentBalance: currentBalance,
             originalBalance: parseFloat(document.getElementById('debt-original').value) || 0,
-            interestRate: parseFloat(document.getElementById('debt-rate').value) || 0,
-            minimumPayment: isChargeCard ? currentBalance : (parseFloat(document.getElementById('debt-min').value) || 0),
+            interestRate: newRate,
+            minimumPayment: newMin,
             chargeCard: isChargeCard,
             notes: document.getElementById('debt-notes').value.trim()
         };
+        if (newDueDate) {
+            data.nextPaymentDueDate = newDueDate;
+        } else if (isEdit && existingDebt.nextPaymentDueDate) {
+            // User cleared the due date
+            data.nextPaymentDueDate = null;
+        }
+
+        // Track manual overrides for Plaid-linked debts
+        if (isPlaidLinked && isEdit) {
+            const prevOverrides = existingDebt.manualOverrides || {};
+            const newOverrides = { ...prevOverrides };
+            const prevDueDate = (existingDebt.nextPaymentDueDate || '').substring(0, 10);
+            // Mark as overridden if user changed the value from what it was
+            if (newRate !== (existingDebt.interestRate || 0)) newOverrides.interestRate = true;
+            if (newMin !== (existingDebt.minimumPayment || 0)) newOverrides.minimumPayment = true;
+            if (newDueDate !== prevDueDate) {
+                if (newDueDate) {
+                    newOverrides.nextPaymentDueDate = true;
+                } else {
+                    // User cleared the due date — remove the override so Plaid can populate it again
+                    delete newOverrides.nextPaymentDueDate;
+                }
+            }
+            data.manualOverrides = newOverrides;
+        }
 
         if (!data.name) {
             alert('Please enter a debt name');
@@ -995,6 +1063,229 @@ function showRefinanceCalculator(debt) {
     amountInput.addEventListener('input', updateCalculation);
     rateInput.addEventListener('input', updateCalculation);
     termSelect.addEventListener('change', updateCalculation);
+
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+}
+
+function showMortgageRefinanceCalculator(debt) {
+    const currentBalance = debt.currentBalance;
+    const currentRate = debt.interestRate;
+    const currentPayment = debt.minimumPayment;
+
+    // Estimate remaining term from current values
+    let estimatedRemainingMonths = 0;
+    if (currentPayment > 0 && currentBalance > 0) {
+        if (currentRate > 0) {
+            const monthlyRate = currentRate / 100 / 12;
+            const x = 1 - (monthlyRate * currentBalance / currentPayment);
+            if (x > 0) {
+                estimatedRemainingMonths = Math.ceil(-Math.log(x) / Math.log(1 + monthlyRate));
+            }
+        } else {
+            estimatedRemainingMonths = Math.ceil(currentBalance / currentPayment);
+        }
+    }
+
+    const formHtml = `
+        <div style="margin-bottom:20px;">
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(debt.name)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">Current Balance: ${formatCurrency(currentBalance)}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+            <div class="card" style="padding:16px;">
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Current Mortgage</div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">APR:</span>
+                    <strong>${currentRate.toFixed(2)}%</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">Payment:</span>
+                    <strong>${formatCurrency(currentPayment)}</strong>
+                </div>
+                ${estimatedRemainingMonths > 0 ? `
+                <div style="display:flex;justify-content:space-between;">
+                    <span style="font-size:13px;">Est. Remaining:</span>
+                    <strong>${formatMonths(estimatedRemainingMonths)}</strong>
+                </div>
+                ` : ''}
+            </div>
+            <div class="card" style="padding:16px;border:2px solid var(--accent);">
+                <div style="font-size:12px;color:var(--accent);margin-bottom:8px;">New Mortgage Estimate</div>
+                <div id="mrefi-new-rate-display" style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">APR:</span>
+                    <strong>--</strong>
+                </div>
+                <div id="mrefi-new-payment-display" style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                    <span style="font-size:13px;">Payment:</span>
+                    <strong style="color:var(--green);">--</strong>
+                </div>
+                <div id="mrefi-new-term-display" style="display:flex;justify-content:space-between;">
+                    <span style="font-size:13px;">Term:</span>
+                    <strong>--</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>New Loan Amount</label>
+            <input type="number" class="form-input" id="mrefi-amount" step="0.01" value="${currentBalance}" placeholder="Amount to refinance">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">New loan principal (may differ if rolling in closing costs or paying down balance)</div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>New Interest Rate (APR %)</label>
+                <input type="number" class="form-input" id="mrefi-rate" step="0.01" value="" placeholder="e.g., 6.25">
+            </div>
+            <div class="form-group">
+                <label>New Loan Term</label>
+                <select class="form-select" id="mrefi-term">
+                    <option value="120">10 years</option>
+                    <option value="180">15 years</option>
+                    <option value="240">20 years</option>
+                    <option value="300">25 years</option>
+                    <option value="360" selected>30 years</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Estimated Closing Costs</label>
+            <input type="number" class="form-input" id="mrefi-closing" step="0.01" value="" placeholder="e.g., 5000">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Typically 2-5% of the loan amount. Included in break-even calculation.</div>
+        </div>
+
+        <div id="mrefi-comparison" style="display:none;margin-top:20px;padding:16px;background:var(--bg-secondary);border-radius:8px;">
+            <h4 style="margin:0 0 12px 0;">Comparison</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center;margin-bottom:12px;">
+                <div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Monthly Savings</div>
+                    <div id="mrefi-monthly-savings" style="font-size:18px;font-weight:700;color:var(--green);">--</div>
+                </div>
+                <div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Break-Even</div>
+                    <div id="mrefi-breakeven" style="font-size:18px;font-weight:700;color:var(--accent);">--</div>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:center;">
+                <div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Total Interest (Current)</div>
+                    <div id="mrefi-current-interest" style="font-size:14px;font-weight:600;color:var(--red);">--</div>
+                </div>
+                <div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Total Interest (New)</div>
+                    <div id="mrefi-new-interest" style="font-size:14px;font-weight:600;color:var(--orange);">--</div>
+                </div>
+            </div>
+            <div id="mrefi-lifetime" style="margin-top:12px;padding:8px;background:var(--bg-primary);border-radius:4px;font-size:12px;color:var(--text-secondary);display:none;"></div>
+            <div id="mrefi-warning" style="margin-top:8px;padding:8px;background:var(--orange)15;border-radius:4px;font-size:12px;color:var(--orange);display:none;"></div>
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="modal-cancel">Close</button>
+        </div>
+    `;
+
+    openModal('Mortgage Refinance Calculator', formHtml);
+
+    const amountInput = document.getElementById('mrefi-amount');
+    const rateInput = document.getElementById('mrefi-rate');
+    const termSelect = document.getElementById('mrefi-term');
+    const closingInput = document.getElementById('mrefi-closing');
+    const comparisonDiv = document.getElementById('mrefi-comparison');
+
+    const updateCalculation = () => {
+        const newAmount = parseFloat(amountInput.value) || 0;
+        const newRate = parseFloat(rateInput.value) || 0;
+        const newTermMonths = parseInt(termSelect.value) || 360;
+        const closingCosts = parseFloat(closingInput.value) || 0;
+
+        // Update new loan display
+        document.querySelector('#mrefi-new-rate-display strong').textContent = newRate > 0 ? `${newRate.toFixed(2)}%` : '--';
+        document.querySelector('#mrefi-new-term-display strong').textContent = formatMonths(newTermMonths);
+
+        if (newAmount > 0 && newRate >= 0 && newTermMonths > 0) {
+            const newPayment = calculateMonthlyPayment(newAmount, newRate, newTermMonths);
+            document.querySelector('#mrefi-new-payment-display strong').textContent = formatCurrency(newPayment);
+
+            // Show comparison
+            comparisonDiv.style.display = 'block';
+
+            const monthlySavings = currentPayment - newPayment;
+            const monthlySavingsEl = document.getElementById('mrefi-monthly-savings');
+            if (monthlySavings > 0) {
+                monthlySavingsEl.textContent = formatCurrency(monthlySavings);
+                monthlySavingsEl.style.color = 'var(--green)';
+            } else if (monthlySavings < 0) {
+                monthlySavingsEl.textContent = '+' + formatCurrency(Math.abs(monthlySavings));
+                monthlySavingsEl.style.color = 'var(--red)';
+            } else {
+                monthlySavingsEl.textContent = '$0';
+                monthlySavingsEl.style.color = 'var(--text-muted)';
+            }
+
+            // Break-even calculation (months until closing costs are recouped)
+            const breakevenEl = document.getElementById('mrefi-breakeven');
+            if (monthlySavings > 0 && closingCosts > 0) {
+                const breakevenMonths = Math.ceil(closingCosts / monthlySavings);
+                breakevenEl.textContent = formatMonths(breakevenMonths);
+                breakevenEl.style.color = 'var(--accent)';
+            } else if (monthlySavings > 0 && closingCosts === 0) {
+                breakevenEl.textContent = 'Immediate';
+                breakevenEl.style.color = 'var(--green)';
+            } else {
+                breakevenEl.textContent = 'N/A';
+                breakevenEl.style.color = 'var(--text-muted)';
+            }
+
+            // Calculate total interest for current loan (remaining)
+            const currentTotalInterest = estimatedRemainingMonths > 0
+                ? calculateTotalInterest(currentPayment, estimatedRemainingMonths, currentBalance)
+                : 0;
+            document.getElementById('mrefi-current-interest').textContent = currentTotalInterest > 0 ? formatCurrency(currentTotalInterest) : '--';
+
+            // Calculate total interest for new loan
+            const newTotalInterest = calculateTotalInterest(newPayment, newTermMonths, newAmount);
+            document.getElementById('mrefi-new-interest').textContent = formatCurrency(newTotalInterest);
+
+            // Lifetime cost comparison (interest + closing costs)
+            const lifetimeEl = document.getElementById('mrefi-lifetime');
+            if (currentTotalInterest > 0) {
+                const newTotalCost = newTotalInterest + closingCosts;
+                const lifetimeDiff = newTotalCost - currentTotalInterest;
+                if (lifetimeDiff < 0) {
+                    lifetimeEl.innerHTML = `<span style="color:var(--green);font-weight:600;">You'd save ${formatCurrency(Math.abs(lifetimeDiff))} over the life of the loan</span> (including ${formatCurrency(closingCosts)} in closing costs).`;
+                    lifetimeEl.style.display = 'block';
+                } else if (lifetimeDiff > 0) {
+                    lifetimeEl.innerHTML = `<span style="color:var(--red);font-weight:600;">You'd pay ${formatCurrency(lifetimeDiff)} more over the life of the loan</span> (including ${formatCurrency(closingCosts)} in closing costs).`;
+                    lifetimeEl.style.display = 'block';
+                } else {
+                    lifetimeEl.style.display = 'none';
+                }
+            } else {
+                lifetimeEl.style.display = 'none';
+            }
+
+            // Show warning if applicable
+            const warningEl = document.getElementById('mrefi-warning');
+            if (newTotalInterest > currentTotalInterest && currentTotalInterest > 0 && monthlySavings > 0) {
+                warningEl.textContent = `Note: While your monthly payment is lower, you'll pay ${formatCurrency(newTotalInterest - currentTotalInterest)} more in total interest over the life of the loan due to the longer term.`;
+                warningEl.style.display = 'block';
+            } else if (monthlySavings < 0) {
+                warningEl.textContent = 'Your new monthly payment would be higher than your current payment.';
+                warningEl.style.display = 'block';
+            } else {
+                warningEl.style.display = 'none';
+            }
+        } else {
+            document.querySelector('#mrefi-new-payment-display strong').textContent = '--';
+            comparisonDiv.style.display = 'none';
+        }
+    };
+
+    amountInput.addEventListener('input', updateCalculation);
+    rateInput.addEventListener('input', updateCalculation);
+    termSelect.addEventListener('change', updateCalculation);
+    closingInput.addEventListener('input', updateCalculation);
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
 }

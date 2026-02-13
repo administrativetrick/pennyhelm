@@ -2,6 +2,15 @@ import { escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage, navigate } from '../app.js';
 import { auth } from '../auth.js';
 
+// Debounce utility for real-time search
+function debounce(fn, delay) {
+    let timeout;
+    return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+    };
+}
+
 export async function renderAdmin(container, store) {
     const db = firebase.firestore();
 
@@ -42,8 +51,8 @@ export async function renderAdmin(container, store) {
                                         ${code.trialDays === 0 ? 'Unlimited' : code.trialDays + ' days'}
                                         &middot; ${code.maxUses === 0 ? 'Unlimited uses' : code.maxUses + ' max uses'}
                                         &middot; ${code.active
-                                            ? '<span style="color:#34d399;">Active</span>'
-                                            : '<span style="color:#f87171;">Inactive</span>'}
+                                            ? '<span style="color:var(--green);">Active</span>'
+                                            : '<span style="color:var(--red);">Inactive</span>'}
                                     </div>
                                 </div>
                                 <div style="display:flex;gap:6px;">
@@ -79,7 +88,7 @@ export async function renderAdmin(container, store) {
             <div class="settings-section">
                 <h3>User Lookup</h3>
                 <div style="display:flex;gap:8px;margin-top:12px;">
-                    <input type="email" class="form-input" id="user-lookup-email" placeholder="Search by email..." style="flex:1;">
+                    <input type="text" class="form-input" id="user-lookup-email" placeholder="Start typing email..." style="flex:1;" autocomplete="off">
                     <button class="btn btn-primary btn-sm" id="user-lookup-btn">Search</button>
                 </div>
                 <div id="user-lookup-result" style="margin-top:16px;"></div>
@@ -289,6 +298,10 @@ export async function renderAdmin(container, store) {
     document.getElementById('user-lookup-email').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') lookupUser(db);
     });
+
+    // Real-time search as user types (debounced)
+    const debouncedSearch = debounce(() => searchUsers(db), 300);
+    document.getElementById('user-lookup-email').addEventListener('input', debouncedSearch);
 }
 
 async function loadTestUsers(container, db, store) {
@@ -308,7 +321,7 @@ async function loadTestUsers(container, db, store) {
                     <div class="setting-label">${escapeHtml(u.displayName || 'Unknown')}</div>
                     <div class="setting-desc">
                         ${escapeHtml(u.email || '')}
-                        &middot; <span style="color:${u.subscriptionStatus === 'expired' ? '#f87171' : u.subscriptionStatus === 'active' ? '#34d399' : '#4f8cff'};">${u.subscriptionStatus}</span>
+                        &middot; <span style="color:${u.subscriptionStatus === 'expired' ? 'var(--red)' : u.subscriptionStatus === 'active' ? 'var(--green)' : 'var(--accent)'};">${u.subscriptionStatus}</span>
                         &middot; ${u.uid}
                     </div>
                 </div>
@@ -316,7 +329,7 @@ async function loadTestUsers(container, db, store) {
                     <button class="btn btn-secondary btn-sm impersonate-user" data-uid="${u.uid}" data-name="${escapeHtml(u.displayName || 'Test User')}">
                         Impersonate
                     </button>
-                    <button class="btn btn-secondary btn-sm delete-test-user" data-uid="${u.uid}" style="color:#f87171;">
+                    <button class="btn btn-secondary btn-sm delete-test-user" data-uid="${u.uid}" style="color:var(--red);">
                         Delete
                     </button>
                 </div>
@@ -353,7 +366,7 @@ async function loadTestUsers(container, db, store) {
         });
     } catch (e) {
         console.error('Failed to load test users:', e);
-        listDiv.innerHTML = '<p style="color:#f87171;font-size:13px;">Failed to load test users.</p>';
+        listDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load test users.</p>';
     }
 }
 
@@ -364,11 +377,11 @@ function showImpersonationBanner(name, uid, store) {
 
     const banner = document.createElement('div');
     banner.id = 'impersonation-banner';
-    banner.style.cssText = 'background:rgba(251,146,60,0.15);color:#fb923c;text-align:center;padding:10px 16px;font-size:13px;font-weight:600;border-bottom:2px solid rgba(251,146,60,0.5);position:fixed;top:0;left:0;right:0;z-index:300;display:flex;align-items:center;justify-content:center;gap:12px;';
+    banner.style.cssText = 'background:var(--orange-bg);color:var(--orange);text-align:center;padding:10px 16px;font-size:13px;font-weight:600;border-bottom:2px solid var(--orange);position:fixed;top:0;left:0;right:0;z-index:300;display:flex;align-items:center;justify-content:center;gap:12px;';
     banner.innerHTML = `
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         Impersonating: <strong>${escapeHtml(name)}</strong> (${escapeHtml(uid)})
-        <button id="exit-impersonation" style="background:#fb923c;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;">Exit</button>
+        <button id="exit-impersonation" style="background:var(--orange);color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;">Exit</button>
     `;
     document.body.prepend(banner);
     document.body.style.paddingTop = '42px';
@@ -382,12 +395,75 @@ function showImpersonationBanner(name, uid, store) {
     });
 }
 
+// Real-time prefix search as user types
+async function searchUsers(db) {
+    const searchTerm = document.getElementById('user-lookup-email').value.trim().toLowerCase();
+    const resultDiv = document.getElementById('user-lookup-result');
+
+    // Clear results if search is empty
+    if (!searchTerm) {
+        resultDiv.innerHTML = '';
+        return;
+    }
+
+    // Require at least 3 characters
+    if (searchTerm.length < 3) {
+        resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Type at least 3 characters...</p>';
+        return;
+    }
+
+    resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Searching...</p>';
+
+    try {
+        // Firestore prefix range query
+        const snap = await db.collection('users')
+            .where('email', '>=', searchTerm)
+            .where('email', '<', searchTerm + '\uf8ff')
+            .limit(10)
+            .get();
+
+        if (snap.empty) {
+            resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No users found matching "' + escapeHtml(searchTerm) + '"</p>';
+            return;
+        }
+
+        // Show list of matching users
+        const users = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+        resultDiv.innerHTML = `
+            <div style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
+                ${users.map(u => `
+                    <div class="user-search-result" data-uid="${escapeHtml(u.uid)}" style="padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.15s;">
+                        <div style="font-weight:500;font-size:14px;">${escapeHtml(u.email || 'No email')}</div>
+                        <div style="color:var(--text-secondary);font-size:12px;">${escapeHtml(u.displayName || 'Unknown')} &middot; ${u.subscriptionStatus || 'unknown'}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        // Add hover styles
+        resultDiv.querySelectorAll('.user-search-result').forEach(el => {
+            el.addEventListener('mouseenter', () => el.style.background = 'var(--bg-hover)');
+            el.addEventListener('mouseleave', () => el.style.background = '');
+            el.addEventListener('click', () => {
+                // Set the email in the input and trigger full lookup
+                const email = el.querySelector('div').textContent;
+                document.getElementById('user-lookup-email').value = email;
+                lookupUser(db);
+            });
+        });
+
+    } catch (e) {
+        console.error('Search error:', e);
+        resultDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Search failed. Check console.</p>';
+    }
+}
+
 async function lookupUser(db) {
     const email = document.getElementById('user-lookup-email').value.trim().toLowerCase();
     const resultDiv = document.getElementById('user-lookup-result');
 
     if (!email) {
-        resultDiv.innerHTML = '<p style="color:#f87171;font-size:13px;">Enter an email address.</p>';
+        resultDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Enter an email address.</p>';
         return;
     }
 
@@ -404,13 +480,19 @@ async function lookupUser(db) {
         const userDoc = snap.docs[0];
         const userData = userDoc.data();
         const uid = userDoc.id;
-        const trialStart = userData.trialStartDate?.toDate();
+        // Handle both Firestore Timestamp and string/Date formats
+        const trialStart = userData.trialStartDate?.toDate
+            ? userData.trialStartDate.toDate()
+            : (userData.trialStartDate ? new Date(userData.trialStartDate) : null);
         const daysSince = trialStart ? Math.floor((Date.now() - trialStart.getTime()) / 86400000) : 0;
-        const trialLength = userData.trialDays || 30;
+        const trialLength = userData.trialDays ?? 30;  // Use ?? so 0 (unlimited) isn't treated as falsy
 
-        const statusColor = userData.subscriptionStatus === 'trial' ? '#4f8cff'
-            : userData.subscriptionStatus === 'expired' ? '#f87171'
-            : '#34d399';
+        const statusColor = userData.subscriptionStatus === 'trial' ? 'var(--accent)'
+            : userData.subscriptionStatus === 'expired' ? 'var(--red)'
+            : 'var(--green)';
+        const statusBg = userData.subscriptionStatus === 'trial' ? 'var(--accent-bg)'
+            : userData.subscriptionStatus === 'expired' ? 'var(--red-bg)'
+            : 'var(--green-bg)';
 
         resultDiv.innerHTML = `
             <div style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);">
@@ -421,7 +503,7 @@ async function lookupUser(db) {
                         <div style="color:var(--text-secondary);font-size:12px;margin-top:4px;">UID: ${escapeHtml(uid)}</div>
                     </div>
                     <div>
-                        <span style="padding:4px 10px;border-radius:4px;font-size:12px;font-weight:600;background:${statusColor}22;color:${statusColor};">
+                        <span style="padding:4px 10px;border-radius:4px;font-size:12px;font-weight:600;background:${statusBg};color:${statusColor};">
                             ${userData.subscriptionStatus}
                         </span>
                     </div>
@@ -435,8 +517,10 @@ async function lookupUser(db) {
                 <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-secondary btn-sm" id="extend-trial-btn">Extend Trial</button>
                     <button class="btn btn-secondary btn-sm" id="reset-trial-btn">Reset Trial</button>
-                    <button class="btn btn-secondary btn-sm" id="grant-unlimited-btn" style="color:#34d399;">Grant Unlimited</button>
+                    <button class="btn btn-secondary btn-sm" id="grant-unlimited-btn" style="color:var(--green);">Grant Unlimited</button>
+                    <button class="btn btn-secondary btn-sm" id="view-telemetry-btn" style="color:var(--accent);">View Telemetry</button>
                 </div>
+                <div id="telemetry-results" style="margin-top:16px;display:none;"></div>
             </div>
         `;
 
@@ -495,8 +579,74 @@ async function lookupUser(db) {
                 console.error('Failed to grant unlimited:', e);
             }
         });
+
+        document.getElementById('view-telemetry-btn').addEventListener('click', async () => {
+            const telemetryDiv = document.getElementById('telemetry-results');
+            const btn = document.getElementById('view-telemetry-btn');
+
+            // Toggle visibility if already loaded
+            if (telemetryDiv.dataset.loaded === 'true') {
+                telemetryDiv.style.display = telemetryDiv.style.display === 'none' ? 'block' : 'none';
+                btn.textContent = telemetryDiv.style.display === 'none' ? 'View Telemetry' : 'Hide Telemetry';
+                return;
+            }
+
+            btn.textContent = 'Loading...';
+            btn.disabled = true;
+
+            try {
+                const telemetrySnap = await db.collection('telemetry')
+                    .where('uid', '==', uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(50)
+                    .get();
+
+                const logs = telemetrySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                if (logs.length === 0) {
+                    telemetryDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No telemetry data found for this user.</p>';
+                } else {
+                    telemetryDiv.innerHTML = `
+                        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">
+                            ${logs.length} telemetry entries (most recent first)
+                        </div>
+                        <div style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
+                            ${logs.map(log => {
+                                const time = log.timestamp?.toDate ? log.timestamp.toDate() : (log.timestamp ? new Date(log.timestamp) : null);
+                                const timeStr = time ? time.toLocaleString() : 'N/A';
+                                const typeColor = log.type === 'error' ? 'var(--red)' : log.type === 'action' ? 'var(--green)' : 'var(--accent)';
+                                const details = log.details ? JSON.stringify(log.details, null, 2) : '';
+
+                                return `
+                                    <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px;">
+                                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                            <span style="color:${typeColor};font-weight:600;text-transform:uppercase;">${escapeHtml(log.type || 'unknown')}</span>
+                                            <span style="color:var(--text-secondary);">${timeStr}</span>
+                                        </div>
+                                        <div style="font-weight:500;">${escapeHtml(log.action || '')} ${log.screen ? '<span style="color:var(--text-secondary);">on ' + escapeHtml(log.screen) + '</span>' : ''}</div>
+                                        ${details ? `<pre style="margin:6px 0 0 0;padding:8px;background:var(--bg-input);border-radius:4px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;">${escapeHtml(details)}</pre>` : ''}
+                                        ${log.appVersion ? `<div style="margin-top:4px;color:var(--text-secondary);font-size:11px;">v${escapeHtml(log.appVersion)} • ${escapeHtml(log.platform || '')}</div>` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                }
+
+                telemetryDiv.style.display = 'block';
+                telemetryDiv.dataset.loaded = 'true';
+                btn.textContent = 'Hide Telemetry';
+                btn.disabled = false;
+            } catch (e) {
+                console.error('Failed to load telemetry:', e);
+                telemetryDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load telemetry. Check console for details.</p>';
+                telemetryDiv.style.display = 'block';
+                btn.textContent = 'View Telemetry';
+                btn.disabled = false;
+            }
+        });
     } catch (e) {
         console.error('User lookup failed:', e);
-        resultDiv.innerHTML = '<p style="color:#f87171;font-size:13px;">Lookup failed. Check console for details.</p>';
+        resultDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Lookup failed. Check console for details.</p>';
     }
 }
