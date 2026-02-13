@@ -84,7 +84,7 @@ export function seedSampleData() {
         {
             name: 'Internet',
             amount: 65,
-            category: 'INTERNET',
+            category: 'Internet',
             dueDay: 20,
             frequency: 'monthly',
             paymentSource: 'Main Checking',

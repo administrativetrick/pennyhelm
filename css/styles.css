@@ -11,6 +11,7 @@
     --text-muted: #6b7185;
     --accent: #4f8cff;
     --accent-hover: #3a75e6;
+    --accent-bg: rgba(79, 140, 255, 0.12);
     --green: #34d399;
     --green-bg: rgba(52, 211, 153, 0.12);
     --red: #f87171;
@@ -25,9 +26,79 @@
     --blue-bg: rgba(96, 165, 250, 0.12);
     --cyan: #22d3ee;
     --cyan-bg: rgba(34, 211, 238, 0.12);
+    --pink: #ec4899;
+    --pink-bg: rgba(236, 72, 153, 0.12);
+    --modal-overlay: rgba(0, 0, 0, 0.6);
     --sidebar-width: 240px;
     --radius: 10px;
     --radius-sm: 6px;
+}
+
+/* ===== Light Theme ===== */
+[data-theme="light"] {
+    --bg-primary: #f5f6f8;
+    --bg-secondary: #ebedf2;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f0f1f5;
+    --bg-input: #ffffff;
+    --border: #d5d9e2;
+    --text-primary: #1a1d27;
+    --text-secondary: #5a6174;
+    --text-muted: #8890a4;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-bg: rgba(37, 99, 235, 0.08);
+    --green: #059669;
+    --green-bg: rgba(5, 150, 105, 0.08);
+    --red: #dc2626;
+    --red-bg: rgba(220, 38, 38, 0.08);
+    --orange: #d97706;
+    --orange-bg: rgba(217, 119, 6, 0.08);
+    --yellow: #b45309;
+    --yellow-bg: rgba(180, 83, 9, 0.08);
+    --purple: #7c3aed;
+    --purple-bg: rgba(124, 58, 237, 0.08);
+    --blue: #2563eb;
+    --blue-bg: rgba(37, 99, 235, 0.08);
+    --cyan: #0891b2;
+    --cyan-bg: rgba(8, 145, 178, 0.08);
+    --pink: #be185d;
+    --pink-bg: rgba(190, 24, 93, 0.08);
+    --modal-overlay: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+        --bg-primary: #f5f6f8;
+        --bg-secondary: #ebedf2;
+        --bg-card: #ffffff;
+        --bg-card-hover: #f0f1f5;
+        --bg-input: #ffffff;
+        --border: #d5d9e2;
+        --text-primary: #1a1d27;
+        --text-secondary: #5a6174;
+        --text-muted: #8890a4;
+        --accent: #2563eb;
+        --accent-hover: #1d4ed8;
+        --accent-bg: rgba(37, 99, 235, 0.08);
+        --green: #059669;
+        --green-bg: rgba(5, 150, 105, 0.08);
+        --red: #dc2626;
+        --red-bg: rgba(220, 38, 38, 0.08);
+        --orange: #d97706;
+        --orange-bg: rgba(217, 119, 6, 0.08);
+        --yellow: #b45309;
+        --yellow-bg: rgba(180, 83, 9, 0.08);
+        --purple: #7c3aed;
+        --purple-bg: rgba(124, 58, 237, 0.08);
+        --blue: #2563eb;
+        --blue-bg: rgba(37, 99, 235, 0.08);
+        --cyan: #0891b2;
+        --cyan-bg: rgba(8, 145, 178, 0.08);
+        --pink: #be185d;
+        --pink-bg: rgba(190, 24, 93, 0.08);
+        --modal-overlay: rgba(0, 0, 0, 0.4);
+    }
 }
 
 /* ===== Reset ===== */
@@ -288,7 +359,7 @@ tr.bill-selected {
     display: flex;
     position: fixed;
     bottom: 0;
-    left: 170px;
+    left: var(--sidebar-width, 240px);
     right: 0;
     background: var(--bg-card);
     border-top: 2px solid var(--accent);
@@ -483,14 +554,126 @@ tbody tr:hover { background: var(--bg-card-hover); }
     white-space: nowrap;
 }
 
-.badge-housing { background: var(--green-bg); color: var(--green); }
-.badge-car { background: var(--orange-bg); color: var(--orange); }
-.badge-subscription { background: var(--blue-bg); color: var(--blue); }
-.badge-necessity { background: var(--purple-bg); color: var(--purple); }
-.badge-credit-card { background: var(--red-bg); color: var(--red); }
-.badge-utilities { background: var(--yellow-bg); color: var(--yellow); }
-.badge-storage { background: var(--cyan-bg); color: var(--cyan); }
-.badge-insurance { background: rgba(236, 72, 153, 0.12); color: #ec4899; }
+.badge-housing, .badge-green { background: var(--green-bg); color: var(--green); }
+.badge-car, .badge-orange { background: var(--orange-bg); color: var(--orange); }
+.badge-subscription, .badge-blue { background: var(--blue-bg); color: var(--blue); }
+.badge-necessity, .badge-purple { background: var(--purple-bg); color: var(--purple); }
+.badge-credit-card, .badge-red { background: var(--red-bg); color: var(--red); }
+.badge-utilities, .badge-yellow { background: var(--yellow-bg); color: var(--yellow); }
+.badge-storage, .badge-cyan { background: var(--cyan-bg); color: var(--cyan); }
+.badge-insurance, .badge-pink { background: rgba(236, 72, 153, 0.12); color: #ec4899; }
+
+/* ===== Category Picker ===== */
+.category-picker-wrapper {
+    display: flex;
+    gap: 0;
+}
+
+.category-picker-wrapper .form-input {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    flex: 1;
+}
+
+.category-picker-btn {
+    width: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-left: none;
+    border-top-right-radius: var(--radius-sm);
+    border-bottom-right-radius: var(--radius-sm);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 10px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.category-picker-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.category-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    z-index: 100;
+    margin-top: 4px;
+}
+
+.category-dropdown.open {
+    display: block;
+}
+
+.category-group-header {
+    padding: 8px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+}
+
+.category-option {
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.1s;
+}
+
+.category-option:hover {
+    background: var(--bg-hover);
+}
+
+.category-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* Color Picker */
+.color-picker {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.color-option {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.1s, border-color 0.1s;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+}
+
+.color-option.selected {
+    border-color: var(--text-primary);
+    box-shadow: 0 0 0 2px var(--bg-primary);
+}
 
 /* ===== Status Badges ===== */
 .status-paid {
@@ -727,6 +910,153 @@ tbody tr:hover { background: var(--bg-card-hover); }
     margin-top: 20px;
 }
 
+/* ===== Vehicle Detail Modal ===== */
+.vehicle-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    margin: -20px -20px 16px -20px;
+    padding: 0 20px;
+}
+
+.vehicle-tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    background: none;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.vehicle-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.vehicle-tab:hover {
+    color: var(--text-primary);
+}
+
+.vehicle-link {
+    cursor: pointer;
+    color: var(--accent);
+    transition: opacity 0.15s;
+}
+
+.vehicle-link:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+}
+
+.vehicle-overview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.vehicle-overview-item {
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+}
+
+.vehicle-overview-item .label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.vehicle-overview-item .value {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.vehicle-log-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.vehicle-log-item:last-child {
+    border-bottom: none;
+}
+
+.vehicle-log-item .log-info {
+    flex: 1;
+}
+
+.vehicle-log-item .log-date {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.vehicle-log-item .log-value {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.vehicle-log-item .log-change {
+    font-size: 11px;
+    margin-left: 8px;
+}
+
+.vehicle-log-item .log-notes {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.vehicle-add-form {
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.vehicle-add-form .form-row {
+    gap: 8px;
+}
+
+.vehicle-add-form .form-group {
+    margin-bottom: 8px;
+}
+
+.vehicle-add-form label {
+    font-size: 11px;
+}
+
+.vehicle-add-form input, .vehicle-add-form textarea {
+    font-size: 13px;
+    padding: 6px 10px;
+}
+
+.vehicle-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.vehicle-stats strong {
+    color: var(--text-primary);
+}
+
+.vehicle-empty {
+    text-align: center;
+    padding: 24px 0;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
 /* ===== Calendar ===== */
 .calendar-grid {
     display: grid;
@@ -800,6 +1130,22 @@ tbody tr:hover { background: var(--bg-card-hover); }
     padding: 1px 5px;
     border-radius: 3px;
     font-weight: 700;
+}
+
+.calendar-payday-amount {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--green);
+    padding: 0 5px;
+    margin-top: 1px;
+}
+
+.calendar-day-total {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--red);
+    padding: 1px 5px;
+    margin-top: 2px;
 }
 
 .calendar-nav {
@@ -1046,9 +1392,11 @@ tbody tr:hover { background: var(--bg-card-hover); }
     .stat-card .label { font-size: 12px; }
     .stat-card .sub { font-size: 11px; }
 
-    .calendar-day { min-height: 60px; padding: 4px; }
+    .calendar-day { min-height: 80px; padding: 5px 4px; }
     .calendar-day .day-number { font-size: 11px; }
     .calendar-bill-dot { font-size: 8px; padding: 1px 3px; }
+    .calendar-day-total { font-size: 9px; }
+    .calendar-payday-amount { font-size: 9px; }
 
     .form-row { grid-template-columns: 1fr; }
 

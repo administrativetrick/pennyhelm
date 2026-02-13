@@ -145,7 +145,7 @@ function requireActiveSubscription(req, res, next) {
 }
 
 // ===== Middleware =====
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '5mb' }));
 
 // ===== Public API Routes =====
 
@@ -250,7 +250,18 @@ app.get('/app/*', (req, res) => {
     res.sendFile(path.join(__dirname, 'app.html'));
 });
 
-// Static file serving
+// Static file serving — block access to sensitive files
+app.use((req, res, next) => {
+    const blocked = ['/server.js', '/package.json', '/package-lock.json',
+        '/firebase-service-account.json', '/firebase.json', '/.firebaserc',
+        '/firestore.rules', '/firestore.indexes.json', '/auth_export.json'];
+    const lower = req.path.toLowerCase();
+    if (blocked.includes(lower) || lower.startsWith('/data/') || lower.startsWith('/scripts/') ||
+        lower.startsWith('/functions/') || lower.startsWith('/node_modules/') || lower.startsWith('/.')) {
+        return res.status(404).send('Not found');
+    }
+    next();
+});
 app.use(express.static(__dirname));
 
 // General fallback
@@ -270,7 +281,9 @@ process.on('SIGTERM', () => {
     process.exit(0);
 });
 
-app.listen(PORT, () => {
-    console.log(`PennyHelm (${MODE} mode) running at http://localhost:${PORT}`);
+// In selfhost mode, bind to localhost only for security
+const HOST = MODE === 'selfhost' ? '127.0.0.1' : '0.0.0.0';
+app.listen(PORT, HOST, () => {
+    console.log(`PennyHelm (${MODE} mode) running at http://${HOST}:${PORT}`);
     console.log(`Database: ${dbPath}`);
 });

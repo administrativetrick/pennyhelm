@@ -6,6 +6,7 @@ export function formatCurrency(amount) {
 }
 
 export function formatDate(date) {
+    if (!date || (date instanceof Date && isNaN(date.getTime()))) return '';
     return new Intl.DateTimeFormat('en-US', {
         month: 'short',
         day: 'numeric',
@@ -18,7 +19,7 @@ export function getMonthName(monthIndex) {
         'January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'
     ];
-    return months[monthIndex];
+    return months[((monthIndex % 12) + 12) % 12] || 'Unknown';
 }
 
 export function getDaysInMonth(year, month) {
@@ -36,22 +37,110 @@ export function isToday(date) {
            date.getFullYear() === today.getFullYear();
 }
 
-export function getCategoryBadgeClass(category) {
+export function getCategoryBadgeClass(category, customCategories = []) {
+    if (!category) return 'badge-necessity';
+
+    // Check custom categories first (user-defined take precedence)
+    const customCat = customCategories.find(c =>
+        c.name.toLowerCase() === category.toLowerCase()
+    );
+    if (customCat?.color) {
+        return `badge-${customCat.color}`;
+    }
+
+    // Comprehensive default category mappings
     const map = {
-        'Housing': 'badge-housing',
-        'HOUSING': 'badge-housing',
-        'Mortgage': 'badge-housing',
-        'Car': 'badge-car',
-        'Subscription': 'badge-subscription',
-        'Necessity': 'badge-necessity',
-        'Credit Card': 'badge-credit-card',
-        'UTILITIES': 'badge-utilities',
-        'Utilities': 'badge-utilities',
-        'Storage': 'badge-storage',
-        'INTERNET': 'badge-subscription',
-        'Insurance': 'badge-insurance'
+        // Housing group (green)
+        'housing': 'badge-housing',
+        'rent': 'badge-housing',
+        'mortgage': 'badge-housing',
+        'home maintenance': 'badge-housing',
+        'hoa': 'badge-housing',
+
+        // Utilities group (yellow)
+        'utilities': 'badge-utilities',
+        'electric': 'badge-utilities',
+        'gas': 'badge-utilities',
+        'water': 'badge-utilities',
+        'trash': 'badge-utilities',
+
+        // Internet/Phone (blue)
+        'internet': 'badge-subscription',
+        'phone': 'badge-subscription',
+        'cable/tv': 'badge-subscription',
+
+        // Transportation (orange)
+        'car': 'badge-car',
+        'auto loan': 'badge-car',
+        'car insurance': 'badge-car',
+        'gas/fuel': 'badge-car',
+        'public transit': 'badge-car',
+        'parking': 'badge-car',
+
+        // Food (green/purple)
+        'groceries': 'badge-housing',
+        'dining out': 'badge-necessity',
+        'food delivery': 'badge-necessity',
+
+        // Entertainment (purple/blue)
+        'entertainment': 'badge-necessity',
+        'streaming': 'badge-subscription',
+        'subscription': 'badge-subscription',
+        'gaming': 'badge-necessity',
+        'music': 'badge-necessity',
+
+        // Insurance (pink)
+        'insurance': 'badge-insurance',
+        'health insurance': 'badge-insurance',
+        'life insurance': 'badge-insurance',
+        'home insurance': 'badge-insurance',
+        'renters insurance': 'badge-insurance',
+
+        // Healthcare (red)
+        'medical': 'badge-credit-card',
+        'healthcare': 'badge-credit-card',
+        'dental': 'badge-credit-card',
+        'vision': 'badge-credit-card',
+        'pharmacy': 'badge-credit-card',
+
+        // Debt (red)
+        'credit card': 'badge-credit-card',
+        'loan': 'badge-credit-card',
+        'student loan': 'badge-credit-card',
+        'personal loan': 'badge-credit-card',
+        'debt payment': 'badge-credit-card',
+
+        // Family (purple/blue/cyan)
+        'childcare': 'badge-necessity',
+        'education': 'badge-subscription',
+        'pet': 'badge-storage',
+        'child support': 'badge-necessity',
+        'alimony': 'badge-necessity',
+
+        // Lifestyle (various)
+        'travel': 'badge-storage',
+        'fitness': 'badge-housing',
+        'gym': 'badge-housing',
+        'shopping': 'badge-necessity',
+        'clothing': 'badge-necessity',
+        'beauty': 'badge-insurance',
+
+        // Financial (green/yellow)
+        'savings': 'badge-housing',
+        'investments': 'badge-housing',
+        'retirement': 'badge-housing',
+        'taxes': 'badge-utilities',
+        'bank fees': 'badge-utilities',
+
+        // Other
+        'charity': 'badge-insurance',
+        'gifts': 'badge-necessity',
+        'storage': 'badge-storage',
+        'necessity': 'badge-necessity',
+        'miscellaneous': 'badge-necessity',
     };
-    return map[category] || 'badge-necessity';
+
+    return map[category.toLowerCase()] || 'badge-necessity';
 }
 
 export function getUpcomingBills(bills, store, daysAhead = 7) {
@@ -128,7 +217,11 @@ export function estimateScoreImpact(currentScore, debtChange, totalCreditLimit) 
 }
 
 export function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    if (typeof str !== 'string') return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }

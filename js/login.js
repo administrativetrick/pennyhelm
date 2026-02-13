@@ -69,6 +69,8 @@ form.addEventListener('submit', async (e) => {
         } else {
             isLoggingIn = true; // Prevent onAuthStateChanged redirect
             const userCredential = await auth.signInWithEmailAndPassword(email, password);
+            // Ensure users/{uid} doc exists (safety net for all sign-in methods)
+            await ensureUserRegistered(userCredential.user);
             console.log('Email/password sign-in successful, checking password change requirement...');
             // Check if password change is required
             const requiresChange = await checkRequiresPasswordChange(userCredential.user);
@@ -78,9 +80,15 @@ form.addEventListener('submit', async (e) => {
                 setLoading(false);
                 showPasswordChangeModal(userCredential.user, password);
                 return; // Don't redirect
-            } else {
-                window.location.href = '/app';
             }
+            // Check if MFA is enabled
+            const mfaRequired = await checkMFAEnabled(userCredential.user);
+            if (mfaRequired) {
+                setLoading(false);
+                showMFAVerificationModal();
+                return;
+            }
+            window.location.href = '/app';
         }
     } catch (error) {
         errorDiv.textContent = getErrorMessage(error.code);
@@ -98,14 +106,20 @@ googleBtn.addEventListener('click', async () => {
         const user = result.user;
         const isNewUser = result.additionalUserInfo && result.additionalUserInfo.isNewUser;
 
-        // Register if new user
-        if (isNewUser) {
-            await registerUser(user);
-            // Set up mobile credentials via Cloud Function (for NEW users)
-            await setupMobileCredentials(user);
-        } else {
-            // Check if existing user needs mobile credentials set up
-            await checkAndSetupMobileCredentials(user);
+        // ALWAYS ensure users/{uid} doc exists — isNewUser can be unreliable
+        // (e.g., if first sign-in succeeded in Firebase Auth but registerUser failed)
+        await ensureUserRegistered(user);
+
+        // Set up mobile credentials if needed (works for both new and existing users)
+        await checkAndSetupMobileCredentials(user);
+
+        // Check if MFA is enabled for existing users
+        if (!isNewUser) {
+            const mfaRequired = await checkMFAEnabled(user);
+            if (mfaRequired) {
+                showMFAVerificationModal();
+                return;
+            }
         }
 
         window.location.href = '/app';
@@ -174,6 +188,132 @@ async function checkRequiresPasswordChange(user) {
         console.error('Error checking password change requirement:', error);
         return false;
     }
+}
+
+// Check if user has MFA enabled
+async function checkMFAEnabled(user) {
+    try {
+        const db = firebase.firestore();
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        return userDoc.exists && userDoc.data().mfaEnabled === true;
+    } catch (error) {
+        console.error('Error checking MFA status:', error);
+        return false;
+    }
+}
+
+// Show MFA verification modal
+function showMFAVerificationModal() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal-content" style="max-width:380px;">
+            <h2>🔐 Two-Factor Authentication</h2>
+            <p id="mfa-prompt-text">Enter the 6-digit code from your authenticator app.</p>
+            <div class="form-group" style="margin-top:16px;">
+                <input type="text" class="form-input" id="mfa-code-input"
+                    placeholder="000000" maxlength="6" autocomplete="one-time-code"
+                    inputmode="numeric" pattern="[0-9]*"
+                    style="text-align:center;font-size:24px;letter-spacing:8px;font-family:monospace;">
+            </div>
+            <div id="mfa-error" style="color:var(--red);font-size:13px;margin-bottom:12px;"></div>
+            <button class="btn btn-primary" id="mfa-verify-btn" style="width:100%;margin-bottom:12px;">Verify</button>
+            <button class="btn btn-secondary" id="mfa-recovery-toggle" style="width:100%;margin-bottom:12px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);">Use Recovery Code</button>
+            <button class="btn btn-secondary" id="mfa-cancel-btn" style="width:100%;background:transparent;border:none;color:var(--text-secondary);font-size:13px;">Sign Out</button>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const codeInput = document.getElementById('mfa-code-input');
+    const mfaError = document.getElementById('mfa-error');
+    const verifyBtn = document.getElementById('mfa-verify-btn');
+    const recoveryToggle = document.getElementById('mfa-recovery-toggle');
+    const cancelBtn = document.getElementById('mfa-cancel-btn');
+    const promptText = document.getElementById('mfa-prompt-text');
+
+    let isRecoveryMode = false;
+
+    codeInput.focus();
+
+    // Auto-submit when 6 digits entered
+    codeInput.addEventListener('input', () => {
+        mfaError.textContent = '';
+        if (!isRecoveryMode && codeInput.value.length === 6) {
+            verifyBtn.click();
+        }
+    });
+
+    // Enter key to submit
+    codeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') verifyBtn.click();
+    });
+
+    recoveryToggle.addEventListener('click', () => {
+        isRecoveryMode = !isRecoveryMode;
+        if (isRecoveryMode) {
+            promptText.textContent = 'Enter one of your 8-character recovery codes.';
+            codeInput.placeholder = 'ABCD1234';
+            codeInput.maxLength = 8;
+            codeInput.inputMode = 'text';
+            codeInput.pattern = '';
+            codeInput.style.letterSpacing = '4px';
+            codeInput.style.fontSize = '20px';
+            recoveryToggle.textContent = 'Use Authenticator Code';
+        } else {
+            promptText.textContent = 'Enter the 6-digit code from your authenticator app.';
+            codeInput.placeholder = '000000';
+            codeInput.maxLength = 6;
+            codeInput.inputMode = 'numeric';
+            codeInput.pattern = '[0-9]*';
+            codeInput.style.letterSpacing = '8px';
+            codeInput.style.fontSize = '24px';
+            recoveryToggle.textContent = 'Use Recovery Code';
+        }
+        codeInput.value = '';
+        mfaError.textContent = '';
+        codeInput.focus();
+    });
+
+    cancelBtn.addEventListener('click', async () => {
+        await auth.signOut();
+        overlay.remove();
+        isLoggingIn = false;
+    });
+
+    verifyBtn.addEventListener('click', async () => {
+        const code = codeInput.value.trim();
+        if (!code) {
+            mfaError.textContent = 'Please enter a code.';
+            return;
+        }
+        if (!isRecoveryMode && code.length !== 6) {
+            mfaError.textContent = 'Please enter all 6 digits.';
+            return;
+        }
+
+        verifyBtn.disabled = true;
+        verifyBtn.textContent = 'Verifying...';
+        mfaError.textContent = '';
+
+        try {
+            const verifyMFALogin = functions.httpsCallable('verifyMFALogin');
+            await verifyMFALogin({
+                code: code,
+                isRecoveryCode: isRecoveryMode,
+            });
+
+            // Success — redirect to app
+            overlay.remove();
+            window.location.href = '/app';
+        } catch (error) {
+            console.error('MFA verification error:', error);
+            verifyBtn.disabled = false;
+            verifyBtn.textContent = 'Verify';
+            mfaError.textContent = error.message || 'Invalid code. Please try again.';
+            codeInput.value = '';
+            codeInput.focus();
+        }
+    });
 }
 
 // Show password change modal
@@ -259,7 +399,7 @@ function showMobileCredentialsModal(email) {
             <p>Your mobile app login credentials have been sent to:</p>
             <div class="credentials-box">
                 <div class="credential-row">
-                    <span class="credential-value" style="text-align:center;width:100%;">${email}</span>
+                    <span class="credential-value" style="text-align:center;width:100%;" id="mobile-cred-email"></span>
                 </div>
             </div>
             <p class="modal-note" style="color: var(--orange);">
@@ -274,6 +414,9 @@ function showMobileCredentialsModal(email) {
         </div>
     `;
     document.body.appendChild(overlay);
+    // Set email via textContent to prevent XSS
+    const emailEl = document.getElementById('mobile-cred-email');
+    if (emailEl) emailEl.textContent = email;
 }
 
 // Register new user in Firestore (creates trial record)
@@ -289,6 +432,40 @@ async function registerUser(firebaseUser) {
         });
     } catch (e) {
         console.error('Failed to register user in Firestore:', e);
+    }
+}
+
+// Ensure users/{uid} doc exists — creates it if missing (safety net for Google Sign-In)
+// Uses set with merge so it never overwrites existing subscription data
+async function ensureUserRegistered(firebaseUser) {
+    try {
+        const db = firebase.firestore();
+        const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+        if (!userDoc.exists) {
+            console.log('users doc missing for', firebaseUser.uid, '— creating now');
+            await db.collection('users').doc(firebaseUser.uid).set({
+                email: firebaseUser.email || '',
+                displayName: firebaseUser.displayName || '',
+                trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
+                subscriptionStatus: 'trial',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            // Doc exists — update email/displayName if they changed (Google can update these)
+            const data = userDoc.data();
+            const updates = {};
+            if (firebaseUser.email && firebaseUser.email !== data.email) {
+                updates.email = firebaseUser.email;
+            }
+            if (firebaseUser.displayName && firebaseUser.displayName !== data.displayName) {
+                updates.displayName = firebaseUser.displayName;
+            }
+            if (Object.keys(updates).length > 0) {
+                await db.collection('users').doc(firebaseUser.uid).set(updates, { merge: true });
+            }
+        }
+    } catch (e) {
+        console.error('Failed to ensure user registered in Firestore:', e);
     }
 }
 

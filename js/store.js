@@ -28,7 +28,7 @@ const defaultData = {
         frequency: 'biweekly'    // biweekly, weekly, semimonthly, monthly
     },
     paidHistory: {}, // { "2026-01": { "bill-id": true } }
-    accounts: [], // { id, name, type, balance, amountOwed?, lastUpdated } — type: checking|savings|credit|investment|retirement|property
+    accounts: [], // { id, name, type, balance, amountOwed?, lastUpdated } — type: checking|savings|credit|investment|retirement|property|vehicle|equipment|other-asset
     taxDocuments: [], // { id, taxYear, filename, mimeType, size, category, notes, uploadDate, owner: 'user'|'dependent' }
     taxYears: [], // explicitly created years (numbers)
     creditScores: {
@@ -42,6 +42,15 @@ const defaultData = {
     savingsGoals: [], // { id, name, targetAmount, currentAmount, targetDate, category, linkedAccountId, notes, createdDate }
     invites: [], // { id, email, type: 'partner'|'financial-planner'|'cpa', status: 'pending'|'accepted'|'declined', permissions: 'view'|'edit', invitedAt, acceptedAt?, inviteeUid? }
     sharedWith: [], // { uid, email, type, permissions, sharedAt } — people who have access to this account
+    customCategories: [], // { id, name, color, createdAt } — user-defined bill categories
+    vehicleMileage: [], // { id, vehicleAccountId, mileage, date, notes }
+    vehicleTrips: [], // { id, vehicleAccountId, startMileage, endMileage, distance, date, purpose, notes }
+    notificationPreferences: {
+        enabled: false,
+        reminderDays: 1,
+        preferredTime: '09:00',
+        includeAutoPay: false
+    },
     setupComplete: false // set to true after first-run welcome screen
 };
 
@@ -297,14 +306,16 @@ class Store {
         // Migrate dependent bills into main bills array with owner field
         if (d.dependentBills && d.dependentBills.length > 0) {
             d.dependentBills.forEach(depBill => {
-                // Add to main bills with owner: 'dependent'
-                d.bills.push({
-                    ...depBill,
-                    owner: 'dependent',
-                    category: depBill.category || 'Dependent Bill',
-                    frequency: depBill.frequency || 'monthly',
-                    paymentSource: depBill.paymentSource || ''
-                });
+                // Deduplicate: only add if not already migrated (prevents duplication on retry)
+                if (!d.bills.find(b => b.id === depBill.id)) {
+                    d.bills.push({
+                        ...depBill,
+                        owner: 'dependent',
+                        category: depBill.category || 'Dependent Bill',
+                        frequency: depBill.frequency || 'monthly',
+                        paymentSource: depBill.paymentSource || ''
+                    });
+                }
             });
             d.dependentBills = []; // Clear after migration
             changed = true;
@@ -348,6 +359,7 @@ class Store {
             'auto-loan': 'Car',
             'student-loan': 'Loan',
             'personal-loan': 'Loan',
+            'equipment-loan': 'Loan',
             'medical': 'Medical',
             'other': 'Debt Payment'
         };
@@ -421,6 +433,75 @@ class Store {
                 }
                 this._syncDebtToBill(debt);
                 this._save();
+
+            } else if (account.type === 'vehicle' && account.amountOwed > 0) {
+                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
+                if (!debt) {
+                    debt = {
+                        id: crypto.randomUUID(),
+                        name: account.name + ' Auto Loan',
+                        type: 'auto-loan',
+                        currentBalance: account.amountOwed,
+                        originalBalance: account.amountOwed,
+                        interestRate: 0,
+                        minimumPayment: 0,
+                        linkedAccountId: account.id,
+                        createdDate: new Date().toISOString(),
+                        notes: ''
+                    };
+                    data.debts.push(debt);
+                    account.linkedDebtId = debt.id;
+                } else {
+                    debt.currentBalance = account.amountOwed;
+                }
+                this._syncDebtToBill(debt);
+                this._save();
+
+            } else if (account.type === 'equipment' && account.amountOwed > 0) {
+                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
+                if (!debt) {
+                    debt = {
+                        id: crypto.randomUUID(),
+                        name: account.name + ' Loan',
+                        type: 'equipment-loan',
+                        currentBalance: account.amountOwed,
+                        originalBalance: account.amountOwed,
+                        interestRate: 0,
+                        minimumPayment: 0,
+                        linkedAccountId: account.id,
+                        createdDate: new Date().toISOString(),
+                        notes: ''
+                    };
+                    data.debts.push(debt);
+                    account.linkedDebtId = debt.id;
+                } else {
+                    debt.currentBalance = account.amountOwed;
+                }
+                this._syncDebtToBill(debt);
+                this._save();
+
+            } else if (account.type === 'other-asset' && account.amountOwed > 0) {
+                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
+                if (!debt) {
+                    debt = {
+                        id: crypto.randomUUID(),
+                        name: account.name + ' Loan',
+                        type: 'other',
+                        currentBalance: account.amountOwed,
+                        originalBalance: account.amountOwed,
+                        interestRate: 0,
+                        minimumPayment: 0,
+                        linkedAccountId: account.id,
+                        createdDate: new Date().toISOString(),
+                        notes: ''
+                    };
+                    data.debts.push(debt);
+                    account.linkedDebtId = debt.id;
+                } else {
+                    debt.currentBalance = account.amountOwed;
+                }
+                this._syncDebtToBill(debt);
+                this._save();
             }
         } finally {
             this._syncing = false;
@@ -449,7 +530,7 @@ class Store {
                     targetAccount.linkedDebtId = debt.id;
                     debt.linkedAccountId = targetAccount.id;
                     // Sync balances based on type
-                    if (targetAccount.type === 'property') {
+                    if (targetAccount.type === 'property' || targetAccount.type === 'vehicle' || targetAccount.type === 'equipment' || targetAccount.type === 'other-asset') {
                         targetAccount.amountOwed = debt.currentBalance;
                     } else if (targetAccount.type === 'credit') {
                         targetAccount.balance = debt.currentBalance;
@@ -487,6 +568,18 @@ class Store {
             } else if (debt.type === 'mortgage') {
                 let account = debt.linkedAccountId ? data.accounts.find(a => a.id === debt.linkedAccountId) : null;
                 if (account && account.type === 'property') {
+                    account.amountOwed = debt.currentBalance;
+                    account.lastUpdated = new Date().toISOString();
+                }
+            } else if (debt.type === 'auto-loan') {
+                let account = debt.linkedAccountId ? data.accounts.find(a => a.id === debt.linkedAccountId) : null;
+                if (account && account.type === 'vehicle') {
+                    account.amountOwed = debt.currentBalance;
+                    account.lastUpdated = new Date().toISOString();
+                }
+            } else if (debt.type === 'equipment-loan') {
+                let account = debt.linkedAccountId ? data.accounts.find(a => a.id === debt.linkedAccountId) : null;
+                if (account && account.type === 'equipment') {
                     account.amountOwed = debt.currentBalance;
                     account.lastUpdated = new Date().toISOString();
                 }
@@ -676,6 +769,21 @@ class Store {
             }
         });
 
+        // 2b. Link auto-loan debts ↔ vehicle accounts by name
+        data.debts.filter(d => d.type === 'auto-loan' && !d.linkedAccountId).forEach(debt => {
+            const match = data.accounts.find(a =>
+                a.type === 'vehicle' && !a.linkedDebtId &&
+                (normalize(a.name) === normalize(debt.name) ||
+                 normalize(debt.name).includes(normalize(a.name)))
+            );
+            if (match) {
+                debt.linkedAccountId = match.id;
+                match.linkedDebtId = debt.id;
+                match.amountOwed = debt.currentBalance;
+                changed = true;
+            }
+        });
+
         // 3. Link credit card bills ↔ debts by name
         data.bills.filter(b => b.category === 'Credit Card' && !b.linkedDebtId).forEach(bill => {
             const match = data.debts.find(d =>
@@ -755,10 +863,23 @@ class Store {
     // Write data to Firestore (cloud mode)
     async _syncToFirestore() {
         try {
-            await this._dataDocRef.set({
+            // Use merge: true to preserve sharedWithUids and sharedWithEdit arrays
+            // that are maintained by Cloud Functions for security rule access checks.
+            // Also rebuild these arrays from the sharedWith data if it exists.
+            const writeData = {
                 data: JSON.stringify(this._data),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            };
+
+            // Always rebuild sharing arrays for security rules (including empty arrays for revocation)
+            if (this._data.sharedWith && Array.isArray(this._data.sharedWith)) {
+                writeData.sharedWithUids = this._data.sharedWith.map(s => s.uid);
+                writeData.sharedWithEdit = this._data.sharedWith
+                    .filter(s => s.permissions === 'edit')
+                    .map(s => s.uid);
+            }
+
+            await this._dataDocRef.set(writeData, { merge: true });
         } catch (e) {
             console.error('Failed to sync to Firestore:', e);
         }
@@ -843,6 +964,59 @@ class Store {
     completeSetup() {
         const data = this._load();
         data.setupComplete = true;
+        this._save();
+    }
+
+    // Custom Categories CRUD
+    getCustomCategories() {
+        const data = this._load();
+        if (!data.customCategories) data.customCategories = [];
+        return data.customCategories;
+    }
+
+    addCustomCategory(category) {
+        const data = this._load();
+        if (!data.customCategories) data.customCategories = [];
+
+        // Check for duplicate name (case-insensitive)
+        const exists = data.customCategories.find(c =>
+            c.name.toLowerCase() === category.name.toLowerCase()
+        );
+        if (exists) {
+            throw new Error('A category with this name already exists');
+        }
+
+        category.id = crypto.randomUUID();
+        category.createdAt = new Date().toISOString();
+        data.customCategories.push(category);
+        this._save();
+        return category;
+    }
+
+    updateCustomCategory(id, updates) {
+        const data = this._load();
+        if (!data.customCategories) return;
+
+        const idx = data.customCategories.findIndex(c => c.id === id);
+        if (idx !== -1) {
+            // If name is being changed, check for duplicates
+            if (updates.name && updates.name.toLowerCase() !== data.customCategories[idx].name.toLowerCase()) {
+                const exists = data.customCategories.find(c =>
+                    c.id !== id && c.name.toLowerCase() === updates.name.toLowerCase()
+                );
+                if (exists) {
+                    throw new Error('A category with this name already exists');
+                }
+            }
+            data.customCategories[idx] = { ...data.customCategories[idx], ...updates };
+            this._save();
+        }
+    }
+
+    deleteCustomCategory(id) {
+        const data = this._load();
+        if (!data.customCategories) return;
+        data.customCategories = data.customCategories.filter(c => c.id !== id);
         this._save();
     }
 
@@ -1147,6 +1321,80 @@ class Store {
         const data = this._load();
         if (!data.accounts) return;
         data.accounts = data.accounts.filter(a => a.id !== id);
+        this._save();
+    }
+
+    // Vehicle Mileage
+    getVehicleMileage(vehicleAccountId) {
+        const data = this._load();
+        if (!data.vehicleMileage) data.vehicleMileage = [];
+        return data.vehicleMileage
+            .filter(m => m.vehicleAccountId === vehicleAccountId)
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
+    }
+
+    addVehicleMileage(entry) {
+        const data = this._load();
+        if (!data.vehicleMileage) data.vehicleMileage = [];
+        entry.id = crypto.randomUUID();
+        data.vehicleMileage.push(entry);
+        this._save();
+        return entry;
+    }
+
+    updateVehicleMileage(id, updates) {
+        const data = this._load();
+        if (!data.vehicleMileage) return;
+        const idx = data.vehicleMileage.findIndex(m => m.id === id);
+        if (idx !== -1) {
+            data.vehicleMileage[idx] = { ...data.vehicleMileage[idx], ...updates };
+            this._save();
+        }
+    }
+
+    deleteVehicleMileage(id) {
+        const data = this._load();
+        if (!data.vehicleMileage) return;
+        data.vehicleMileage = data.vehicleMileage.filter(m => m.id !== id);
+        this._save();
+    }
+
+    // Vehicle Trips
+    getVehicleTrips(vehicleAccountId) {
+        const data = this._load();
+        if (!data.vehicleTrips) data.vehicleTrips = [];
+        return data.vehicleTrips
+            .filter(t => t.vehicleAccountId === vehicleAccountId)
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
+    }
+
+    addVehicleTrip(trip) {
+        const data = this._load();
+        if (!data.vehicleTrips) data.vehicleTrips = [];
+        trip.id = crypto.randomUUID();
+        trip.distance = (trip.endMileage || 0) - (trip.startMileage || 0);
+        data.vehicleTrips.push(trip);
+        this._save();
+        return trip;
+    }
+
+    updateVehicleTrip(id, updates) {
+        const data = this._load();
+        if (!data.vehicleTrips) return;
+        const idx = data.vehicleTrips.findIndex(t => t.id === id);
+        if (idx !== -1) {
+            data.vehicleTrips[idx] = { ...data.vehicleTrips[idx], ...updates };
+            if (data.vehicleTrips[idx].endMileage && data.vehicleTrips[idx].startMileage) {
+                data.vehicleTrips[idx].distance = data.vehicleTrips[idx].endMileage - data.vehicleTrips[idx].startMileage;
+            }
+            this._save();
+        }
+    }
+
+    deleteVehicleTrip(id) {
+        const data = this._load();
+        if (!data.vehicleTrips) return;
+        data.vehicleTrips = data.vehicleTrips.filter(t => t.id !== id);
         this._save();
     }
 

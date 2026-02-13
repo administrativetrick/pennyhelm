@@ -2,6 +2,72 @@ import { getMonthName, getDaysInMonth, getFirstDayOfMonth, formatCurrency, getCa
 
 let viewYear, viewMonth;
 
+// Expand a recurring bill into individual dated occurrences within a date range
+// (mirrors expandBillOccurrences from bills.js for calendar use)
+function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = []) {
+    const occurrences = [];
+    const freq = bill.frequency;
+
+    if (freq === 'weekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        let cursor = new Date(rangeStart);
+        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
+        while (cursor <= rangeEnd) {
+            occurrences.push({ ...bill, _occurrenceDate: new Date(cursor) });
+            cursor = new Date(cursor.getTime() + 7 * 86400000);
+        }
+    } else if (freq === 'biweekly') {
+        const targetDay = (bill.dueDay || 0) % 7;
+        let cursor = new Date(rangeStart);
+        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
+        while (cursor <= rangeEnd) {
+            occurrences.push({ ...bill, _occurrenceDate: new Date(cursor) });
+            cursor = new Date(cursor.getTime() + 14 * 86400000);
+        }
+    } else if (freq === 'per-paycheck') {
+        payDatesInRange.forEach(pd => {
+            const payDate = new Date(pd);
+            if (payDate >= rangeStart && payDate <= rangeEnd) {
+                occurrences.push({ ...bill, _occurrenceDate: payDate });
+            }
+        });
+    } else if (freq === 'twice-monthly') {
+        // Place on 1st and 15th of month (common semi-monthly pattern)
+        const byMonth = {};
+        payDatesInRange.forEach(pd => {
+            const d = new Date(pd);
+            const key = `${d.getFullYear()}-${d.getMonth()}`;
+            if (!byMonth[key]) byMonth[key] = [];
+            byMonth[key].push(d);
+        });
+        Object.values(byMonth).forEach(monthDates => {
+            monthDates.sort((a, b) => a - b);
+            const first = monthDates[0];
+            const last = monthDates[monthDates.length - 1];
+            if (first >= rangeStart && first <= rangeEnd) {
+                occurrences.push({ ...bill, _occurrenceDate: first });
+            }
+            if (last.getTime() !== first.getTime() && last >= rangeStart && last <= rangeEnd) {
+                occurrences.push({ ...bill, _occurrenceDate: last });
+            }
+        });
+    } else {
+        return null; // monthly, yearly, semi-annual — no expansion needed
+    }
+    return occurrences;
+}
+
+// Check if a yearly/semi-annual bill is due in a specific month
+function isPeriodicBillDueInMonth(bill, checkMonth) {
+    if (bill.dueMonth == null) return false;
+    if (bill.frequency === 'yearly') return bill.dueMonth === checkMonth;
+    if (bill.frequency === 'semi-annual') {
+        const secondMonth = (bill.dueMonth + 6) % 12;
+        return bill.dueMonth === checkMonth || secondMonth === checkMonth;
+    }
+    return false;
+}
+
 export function renderCalendar(container, store) {
     const now = new Date();
     if (viewYear === undefined) {
@@ -9,7 +75,7 @@ export function renderCalendar(container, store) {
         viewMonth = now.getMonth();
     }
 
-    const bills = store.getBills().filter(b => !b.frozen);
+    const allBills = store.getBills().filter(b => !b.frozen);
     // Get pay dates for this month from schedule
     const firstOfMonth = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`;
     const lastDay = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -18,17 +84,56 @@ export function renderCalendar(container, store) {
     const daysInMonth = getDaysInMonth(viewYear, viewMonth);
     const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
 
+    // Separate bills by type
+    const monthlyBills = allBills.filter(b =>
+        !b.frequency || b.frequency === 'monthly'
+    );
+    const periodicBills = allBills.filter(b =>
+        b.frequency === 'yearly' || b.frequency === 'semi-annual'
+    );
+    const recurringBills = allBills.filter(b =>
+        b.frequency === 'weekly' || b.frequency === 'biweekly' ||
+        b.frequency === 'per-paycheck' || b.frequency === 'twice-monthly'
+    );
+
     // Build day data
     const dayData = {};
     for (let d = 1; d <= daysInMonth; d++) {
         dayData[d] = { bills: [], isPayday: false };
     }
 
-    bills.forEach(bill => {
+    // 1. Place monthly bills on their dueDay
+    monthlyBills.forEach(bill => {
         let dueDay = bill.dueDay;
         if (dueDay > daysInMonth) dueDay = daysInMonth;
         if (dayData[dueDay]) {
             dayData[dueDay].bills.push(bill);
+        }
+    });
+
+    // 2. Place yearly/semi-annual bills only if due this month
+    periodicBills.forEach(bill => {
+        if (isPeriodicBillDueInMonth(bill, viewMonth)) {
+            let dueDay = bill.dueDay;
+            if (dueDay > daysInMonth) dueDay = daysInMonth;
+            if (dayData[dueDay]) {
+                dayData[dueDay].bills.push(bill);
+            }
+        }
+    });
+
+    // 3. Expand weekly/biweekly/per-paycheck/twice-monthly into occurrences
+    const rangeStart = new Date(viewYear, viewMonth, 1);
+    const rangeEnd = new Date(viewYear, viewMonth, daysInMonth, 23, 59, 59);
+    recurringBills.forEach(bill => {
+        const occurrences = expandBillOccurrences(bill, rangeStart, rangeEnd, payDates);
+        if (occurrences) {
+            occurrences.forEach(occ => {
+                const d = occ._occurrenceDate.getDate();
+                if (dayData[d]) {
+                    dayData[d].bills.push(occ);
+                }
+            });
         }
     });
 
@@ -147,7 +252,11 @@ function renderCalendarDays(firstDay, daysInMonth, dayData, isCurrentMonth, toda
         html += '<div class="day-bills">';
 
         if (data.isPayday) {
+            const payAmount = store.getIncome().user.payAmount || 0;
             html += '<div class="calendar-payday">PAYDAY</div>';
+            if (payAmount > 0) {
+                html += `<div class="calendar-payday-amount">+${formatCurrency(payAmount)}</div>`;
+            }
         }
 
         data.bills.slice(0, 3).forEach(bill => {
@@ -158,6 +267,11 @@ function renderCalendarDays(firstDay, daysInMonth, dayData, isCurrentMonth, toda
 
         if (data.bills.length > 3) {
             html += `<div class="calendar-bill-dot" style="background:var(--bg-secondary);color:var(--text-muted);">+${data.bills.length - 3} more</div>`;
+        }
+
+        if (data.bills.length > 0) {
+            const dayTotal = data.bills.reduce((s, b) => s + b.amount, 0);
+            html += `<div class="calendar-day-total">-${formatCurrency(dayTotal)}</div>`;
         }
 
         html += '</div></div>';
@@ -176,21 +290,33 @@ function renderCalendarDays(firstDay, daysInMonth, dayData, isCurrentMonth, toda
 }
 
 function getBillColor(category) {
+    if (!category) return 'var(--bg-secondary)';
     const map = {
-        'Housing': 'var(--green-bg)',
-        'HOUSING': 'var(--green-bg)',
-        'Mortgage': 'var(--green-bg)',
-        'Car': 'var(--orange-bg)',
-        'Subscription': 'var(--blue-bg)',
-        'Necessity': 'var(--purple-bg)',
-        'Credit Card': 'var(--red-bg)',
-        'UTILITIES': 'var(--yellow-bg)',
-        'Utilities': 'var(--yellow-bg)',
-        'Storage': 'var(--cyan-bg)',
-        'INTERNET': 'var(--blue-bg)',
-        'Insurance': 'rgba(236,72,153,0.12)'
+        'housing': 'var(--green-bg)',
+        'mortgage': 'var(--green-bg)',
+        'rent': 'var(--green-bg)',
+        'car': 'var(--orange-bg)',
+        'auto loan': 'var(--orange-bg)',
+        'car insurance': 'var(--orange-bg)',
+        'subscription': 'var(--blue-bg)',
+        'internet': 'var(--blue-bg)',
+        'streaming': 'var(--blue-bg)',
+        'phone': 'var(--blue-bg)',
+        'necessity': 'var(--purple-bg)',
+        'credit card': 'var(--red-bg)',
+        'loan': 'var(--red-bg)',
+        'debt payment': 'var(--red-bg)',
+        'utilities': 'var(--yellow-bg)',
+        'electric': 'var(--yellow-bg)',
+        'gas': 'var(--yellow-bg)',
+        'water': 'var(--yellow-bg)',
+        'storage': 'var(--cyan-bg)',
+        'insurance': 'var(--pink-bg)',
+        'health insurance': 'var(--pink-bg)',
+        'medical': 'var(--red-bg)',
+        'healthcare': 'var(--red-bg)',
     };
-    return map[category] || 'var(--bg-secondary)';
+    return map[category.toLowerCase()] || 'var(--bg-secondary)';
 }
 
 function showDayDetail(container, day, data, store, year, month) {

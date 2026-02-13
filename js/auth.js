@@ -9,6 +9,7 @@ class AuthManager {
         this._mode = 'selfhost';
         this._refreshInterval = null;
         this._isAdmin = false;
+        this._mfaEnabled = false;
     }
 
     async init() {
@@ -53,6 +54,7 @@ class AuthManager {
                             this._idToken = await user.getIdToken(true);
                         } catch (e) {
                             console.error('Token refresh failed:', e);
+                            clearInterval(this._refreshInterval);
                             window.location.href = '/login';
                         }
                     }, 10 * 60 * 1000);
@@ -69,6 +71,15 @@ class AuthManager {
 
     isCloud() {
         return this._mode === 'cloud';
+    }
+
+    isMFAEnabled() {
+        if (this._mode === 'selfhost') return true; // no MFA in self-host, don't block
+        return this._mfaEnabled;
+    }
+
+    setMFAEnabled(val) {
+        this._mfaEnabled = !!val;
     }
 
     isAdmin() {
@@ -99,14 +110,32 @@ class AuthManager {
         }
 
         const db = firebase.firestore();
-        const userDoc = await db.collection('users').doc(this._user.uid).get();
+        let userDoc = await db.collection('users').doc(this._user.uid).get();
 
         if (!userDoc.exists) {
-            return { mode: 'cloud', status: 'new', trialDaysRemaining: 30 };
+            // Safety net: create the users doc if it's missing (fixes Google Sign-In bug)
+            console.warn('users doc missing for', this._user.uid, '— auto-creating');
+            try {
+                await db.collection('users').doc(this._user.uid).set({
+                    email: this._user.email || '',
+                    displayName: this._user.displayName || '',
+                    trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
+                    subscriptionStatus: 'trial',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                // Re-read after creation
+                userDoc = await db.collection('users').doc(this._user.uid).get();
+            } catch (e) {
+                console.error('Failed to auto-create users doc:', e);
+                return { mode: 'cloud', status: 'trial', trialDaysRemaining: 30, trialLength: 30, isUnlimited: false };
+            }
         }
 
         const data = userDoc.data();
-        const trialStart = data.trialStartDate.toDate();
+        this._mfaEnabled = data.mfaEnabled === true;
+
+        // Guard against missing trialStartDate (shouldn't happen, but be safe)
+        const trialStart = data.trialStartDate ? data.trialStartDate.toDate() : new Date();
         const daysSinceStart = (Date.now() - trialStart.getTime()) / (1000 * 60 * 60 * 24);
 
         // Support custom trial length; 0 = unlimited
@@ -115,7 +144,8 @@ class AuthManager {
 
         const trialDaysRemaining = isUnlimited ? Infinity : Math.max(0, trialLength - Math.floor(daysSinceStart));
 
-        let status = data.subscriptionStatus;
+        let status = data.subscriptionStatus || 'trial';
+        // Active subscribers and past_due keep their status (handled by Stripe webhooks)
         if (status === 'trial' && !isUnlimited && daysSinceStart > trialLength) {
             status = 'expired';
         }
@@ -127,8 +157,28 @@ class AuthManager {
             trialLength,
             isUnlimited,
             email: data.email,
-            displayName: data.displayName
+            displayName: data.displayName,
+            stripeCustomerId: data.stripeCustomerId || null,
+            stripeSubscriptionId: data.stripeSubscriptionId || null,
         };
+    }
+
+    // Create a Stripe Checkout session and redirect
+    async createCheckoutSession(plan) {
+        if (this._mode !== 'cloud') return;
+        const functions = firebase.functions();
+        const createCheckout = functions.httpsCallable('createCheckoutSession');
+        const result = await createCheckout({ plan });
+        return result.data; // { sessionId, url }
+    }
+
+    // Create a Stripe Customer Portal session
+    async createPortalSession() {
+        if (this._mode !== 'cloud') return;
+        const functions = firebase.functions();
+        const createPortal = functions.httpsCallable('createPortalSession');
+        const result = await createPortal();
+        return result.data; // { url }
     }
 
     async signOut() {
