@@ -1,4 +1,7 @@
-const STORAGE_KEY = 'personal_finances_data';
+import { StorageAdapter } from './services/storage-adapter.js';
+import { migrateKeyNames, migrateBalanceHistory } from './services/migration-manager.js';
+import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
+import { generatePayDates, createBalanceSnapshot } from './services/financial-service.js';
 
 const defaultData = {
     userName: 'User',
@@ -37,6 +40,7 @@ const defaultData = {
     },
     debts: [], // { id, name, type, currentBalance, originalBalance, interestRate, minimumPayment, createdDate, notes }
     debtBudget: { totalMonthlyBudget: 0, strategy: 'avalanche' },
+    expenses: [], // { id, name, amount, category, date, vendor, notes, createdDate, expenseType: 'personal'|'business', businessName?, plaidTransactionId?, source: 'manual'|'plaid' }
     taxDeductions: [], // { id, taxYear, category, description, amount, date, vendor, receiptDocId, notes }
     otherIncome: [], // { id, name, amount, frequency, category, notes } — category: rental|dividend|freelance|side-hustle|gift|other
     savingsGoals: [], // { id, name, targetAmount, currentAmount, targetDate, category, linkedAccountId, notes, createdDate }
@@ -45,12 +49,17 @@ const defaultData = {
     customCategories: [], // { id, name, color, createdAt } — user-defined bill categories
     vehicleMileage: [], // { id, vehicleAccountId, mileage, date, notes }
     vehicleTrips: [], // { id, vehicleAccountId, startMileage, endMileage, distance, date, purpose, notes }
+    balanceHistory: [], // { date: "2026-01-15", checking, savings, investment, netWorth }
     notificationPreferences: {
         enabled: false,
         reminderDays: 1,
         preferredTime: '09:00',
         includeAutoPay: false
     },
+    dashboardLayout: null, // { order: [...widgetIds], hidden: [...widgetIds] }
+    usageType: null, // 'personal' | 'business' | 'both' — set during onboarding
+    businessNames: [], // ['Acme Corp', 'Side Hustle LLC'] — user-defined business names
+    lastTransactionSync: null, // ISO date string of last Plaid transaction import
     setupComplete: false // set to true after first-run welcome screen
 };
 
@@ -58,849 +67,75 @@ class Store {
     constructor() {
         this._data = null;
         this._listeners = [];
-        this._syncTimer = null;
-        this._serverAvailable = false;
-        this._syncing = false; // Guard flag to prevent infinite sync loops
-        this._authProvider = null; // Function that returns auth headers
-        this._mode = 'selfhost'; // 'selfhost' or 'cloud'
-        this._db = null; // Firestore instance (cloud mode)
-        this._dataDocRef = null; // Firestore doc ref for userData/{uid}
-        this._impersonatingUid = null; // UID being impersonated (admin only)
-        this._realUid = null; // Admin's real UID (saved during impersonation)
+        this._storage = new StorageAdapter();
     }
 
-    // Set mode (called by app.js after auth.init())
-    setMode(mode) {
-        this._mode = mode;
-    }
+    // ─── Configuration (delegates to StorageAdapter) ──────────
 
-    // Initialize Firestore references (cloud mode only)
-    initFirestore(uid) {
-        this._db = firebase.firestore();
-        this._dataDocRef = this._db.collection('userData').doc(uid);
-    }
+    setMode(mode) { this._storage.setMode(mode); }
+    initFirestore(uid) { this._storage.initFirestore(uid); }
+    setAuthProvider(fn) { this._storage.setAuthProvider(fn); }
+    startImpersonation(targetUid) { this._storage.startImpersonation(targetUid); }
+    stopImpersonation() { this._storage.stopImpersonation(); }
+    isImpersonating() { return this._storage.isImpersonating(); }
+    getImpersonatedUid() { return this._storage.getImpersonatedUid(); }
 
-    // Set auth provider (called by app.js for selfhost mode)
-    setAuthProvider(fn) {
-        this._authProvider = fn;
-    }
+    // ─── Initialization ──────────────────────────────────────
 
-    // Start impersonating a user (admin only — Firestore rules enforce access)
-    startImpersonation(targetUid) {
-        if (!this._realUid) {
-            this._realUid = this._dataDocRef.id;
-        }
-        this._impersonatingUid = targetUid;
-        this._dataDocRef = this._db.collection('userData').doc(targetUid);
-    }
-
-    // Stop impersonating and restore admin's own data reference
-    stopImpersonation() {
-        if (this._realUid) {
-            this._impersonatingUid = null;
-            this._dataDocRef = this._db.collection('userData').doc(this._realUid);
-            this._realUid = null;
-        }
-    }
-
-    // Check if currently impersonating another user
-    isImpersonating() {
-        return this._impersonatingUid !== null;
-    }
-
-    // Get the UID being impersonated
-    getImpersonatedUid() {
-        return this._impersonatingUid;
-    }
-
-    _getAuthHeaders() {
-        if (this._authProvider) {
-            return this._authProvider();
-        }
-        return {};
-    }
-
-    // Called once at startup before app renders
     async initFromServer() {
-        if (this._mode === 'cloud') {
-            await this._initFromFirestore();
-        } else {
-            await this._initFromExpressServer();
-        }
+        this._data = await this._storage.load();
 
         if (!this._data) {
             this._data = JSON.parse(JSON.stringify(defaultData));
         }
 
-        // Migrate old key names (legacy → user/dependent)
-        this._migrateKeyNames();
+        // Run migrations
+        const keysMigrated = migrateKeyNames(this._data);
+        if (keysMigrated) this._syncToServer();
 
         // If data was loaded/migrated and has bills, mark setup as complete
-        // (handles existing users whose data predates the setupComplete flag)
         if (this._data.bills && this._data.bills.length > 0 && !this._data.setupComplete) {
             this._data.setupComplete = true;
             this._syncToServer();
         }
 
-        // Migrate: link accounts ↔ debts ↔ bills
-        this._migrateEntityLinks();
+        // Migrate entity links (accounts ↔ debts ↔ bills)
+        const linksMigrated = migrateEntityLinks(this._data);
+        if (linksMigrated) this._syncToServer();
+
         return this._data;
     }
 
-    // Load data from Firestore (cloud mode)
-    async _initFromFirestore() {
-        try {
-            console.log('[Store] Loading from Firestore, docRef:', this._dataDocRef?.path);
-            const docSnap = await this._dataDocRef.get();
-            console.log('[Store] Doc exists:', docSnap.exists);
-            if (docSnap.exists) {
-                const raw = docSnap.data().data;
-                console.log('[Store] Raw data type:', typeof raw, 'length:', raw?.length || 'N/A');
-                const serverData = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                console.log('[Store] Parsed data has bills:', 'bills' in serverData, 'bills count:', serverData?.bills?.length);
-                if (serverData && typeof serverData === 'object' && 'bills' in serverData) {
-                    this._data = serverData;
-                    this._serverAvailable = true;
-                    console.log('[Store] Data loaded successfully');
-                } else {
-                    this._serverAvailable = true;
-                    console.warn('[Store] Data exists but failed validation');
-                }
-            } else {
-                this._serverAvailable = true;
-                console.log('[Store] No document found in Firestore');
-                // Check localStorage for migration
-                try {
-                    const raw = localStorage.getItem(STORAGE_KEY);
-                    if (raw) {
-                        console.log('Migrating data from localStorage to Firestore...');
-                        this._data = JSON.parse(raw);
-                        await this._syncToServerImmediate();
-                        localStorage.removeItem(STORAGE_KEY);
-                        console.log('Migration complete. localStorage cleared.');
-                    }
-                } catch (e) {
-                    console.warn('No localStorage data to migrate:', e);
-                }
-            }
-        } catch (e) {
-            console.warn('Firestore not available, falling back to localStorage:', e);
-            try {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (raw) {
-                    this._data = JSON.parse(raw);
-                }
-            } catch (e2) {
-                console.error('Failed to load from localStorage:', e2);
-            }
+    async reloadFromServer() {
+        if (this._storage.isCloud()) {
+            this._data = await this._storage.load({ forceServer: true });
+        } else {
+            this._data = await this._storage.load();
         }
-    }
-
-    // Load data from Express server (selfhost mode)
-    async _initFromExpressServer() {
-        try {
-            const res = await fetch('/api/data', {
-                headers: this._getAuthHeaders()
-            });
-            if (res.status === 401) {
-                window.location.href = '/login';
-                return;
-            }
-            const serverData = await res.json();
-
-            if (serverData && typeof serverData === 'object' && 'bills' in serverData) {
-                this._data = serverData;
-                this._serverAvailable = true;
-            } else {
-                this._serverAvailable = true;
-                try {
-                    const raw = localStorage.getItem(STORAGE_KEY);
-                    if (raw) {
-                        console.log('Migrating data from localStorage to server...');
-                        this._data = JSON.parse(raw);
-                        await this._syncToServerImmediate();
-                        localStorage.removeItem(STORAGE_KEY);
-                        console.log('Migration complete. localStorage cleared.');
-                    }
-                } catch (e) {
-                    console.warn('No localStorage data to migrate:', e);
-                }
-            }
-        } catch (e) {
-            console.warn('Server not available, falling back to localStorage:', e);
-            try {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (raw) {
-                    this._data = raw ? JSON.parse(raw) : null;
-                }
-            } catch (e2) {
-                console.error('Failed to load from localStorage:', e2);
-            }
+        if (!this._data) {
+            this._data = JSON.parse(JSON.stringify(defaultData));
         }
     }
 
     _load() {
         if (this._data) return this._data;
-        // Fallback if initFromServer hasn't been called yet
         this._data = JSON.parse(JSON.stringify(defaultData));
         return this._data;
     }
 
-    _migrateKeyNames() {
-        let changed = false;
-        const d = this._data;
-
-        // Migrate legacy income keys to generic user/dependent
-        const legacyUserKeys = ['curtis'];
-        const legacyDepKeys = ['ivy'];
-
-        legacyUserKeys.forEach(key => {
-            if (d.income && d.income[key] && !d.income.user) {
-                d.income.user = d.income[key];
-                delete d.income[key];
-                changed = true;
-            }
-            if (d.creditScores && d.creditScores[key] && !d.creditScores.user) {
-                d.creditScores.user = d.creditScores[key];
-                delete d.creditScores[key];
-                changed = true;
-            }
-        });
-
-        legacyDepKeys.forEach(key => {
-            if (d.income && d.income[key] && !d.income.dependent) {
-                d.income.dependent = d.income[key];
-                delete d.income[key];
-                changed = true;
-            }
-            if (d.creditScores && d.creditScores[key] && !d.creditScores.dependent) {
-                d.creditScores.dependent = d.creditScores[key];
-                delete d.creditScores[key];
-                changed = true;
-            }
-        });
-
-        // Migrate legacy dependent bills array name
-        const legacyBillArrays = ['ivyBills'];
-        legacyBillArrays.forEach(key => {
-            if (d[key] && !d.dependentBills) {
-                d.dependentBills = d[key];
-                delete d[key];
-                changed = true;
-            }
-        });
-
-        // Migrate legacy covering field on dependent bills
-        const depBills = d.dependentBills || [];
-        const legacyCoveringKeys = ['curtisCovering'];
-        depBills.forEach(bill => {
-            legacyCoveringKeys.forEach(key => {
-                if (key in bill) {
-                    bill.userCovering = bill[key];
-                    delete bill[key];
-                    changed = true;
-                }
-            });
-        });
-
-        // Migrate dependent bills into main bills array with owner field
-        if (d.dependentBills && d.dependentBills.length > 0) {
-            d.dependentBills.forEach(depBill => {
-                // Deduplicate: only add if not already migrated (prevents duplication on retry)
-                if (!d.bills.find(b => b.id === depBill.id)) {
-                    d.bills.push({
-                        ...depBill,
-                        owner: 'dependent',
-                        category: depBill.category || 'Dependent Bill',
-                        frequency: depBill.frequency || 'monthly',
-                        paymentSource: depBill.paymentSource || ''
-                    });
-                }
-            });
-            d.dependentBills = []; // Clear after migration
-            changed = true;
-        }
-
-        // Ensure all bills have an owner field
-        d.bills.forEach(bill => {
-            if (!bill.owner) {
-                bill.owner = 'user';
-                changed = true;
-            }
-        });
-
-        if (changed) {
-            this._syncToServer();
-        }
-    }
-
-    // ===== Entity Sync Engine =====
-
-    // Helpers to find linked entities
-    _findDebtByLinkedAccountId(accountId) {
-        const debts = this._data.debts || [];
-        return debts.find(d => d.linkedAccountId === accountId);
-    }
-
-    _findAccountByLinkedDebtId(debtId) {
-        const accounts = this._data.accounts || [];
-        return accounts.find(a => a.linkedDebtId === debtId);
-    }
-
-    _findBillByLinkedDebtId(debtId) {
-        const bills = this._data.bills || [];
-        return bills.find(b => b.linkedDebtId === debtId);
-    }
-
-    _debtCategoryForBill(debtType) {
-        const map = {
-            'credit-card': 'Credit Card',
-            'mortgage': 'Mortgage',
-            'auto-loan': 'Car',
-            'student-loan': 'Loan',
-            'personal-loan': 'Loan',
-            'equipment-loan': 'Loan',
-            'medical': 'Medical',
-            'other': 'Debt Payment'
-        };
-        return map[debtType] || 'Debt Payment';
-    }
-
-    // Sync: Account was created or updated → update/create linked debt + bill
-    _syncFromAccount(account) {
-        if (this._syncing) return;
-        this._syncing = true;
-        try {
-            const data = this._data;
-            if (!data.debts) data.debts = [];
-            if (!data.bills) data.bills = [];
-
-            if (account.type === 'credit') {
-                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
-                if (!debt) {
-                    // Create linked debt
-                    debt = {
-                        id: crypto.randomUUID(),
-                        name: account.name,
-                        type: 'credit-card',
-                        currentBalance: account.balance,
-                        originalBalance: account.balance,
-                        interestRate: account._interestRate || 0,
-                        minimumPayment: account._minimumPayment || 0,
-                        linkedAccountId: account.id,
-                        createdDate: new Date().toISOString(),
-                        notes: ''
-                    };
-                    data.debts.push(debt);
-                    // Link back
-                    account.linkedDebtId = debt.id;
-                } else {
-                    // Update linked debt
-                    debt.currentBalance = account.balance;
-                    debt.name = account.name;
-                    if (account._interestRate !== undefined) debt.interestRate = account._interestRate;
-                    if (account._minimumPayment !== undefined) debt.minimumPayment = account._minimumPayment;
-                    // Charge card: min payment always equals balance
-                    if (debt.chargeCard) debt.minimumPayment = account.balance;
-                }
-                // Clean up transient fields
-                delete account._interestRate;
-                delete account._minimumPayment;
-
-                // Now sync debt → bill
-                this._syncDebtToBill(debt);
-                this._save();
-
-            } else if (account.type === 'property' && account.amountOwed > 0) {
-                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
-                if (!debt) {
-                    debt = {
-                        id: crypto.randomUUID(),
-                        name: account.name + ' Mortgage',
-                        type: 'mortgage',
-                        currentBalance: account.amountOwed,
-                        originalBalance: account.amountOwed,
-                        interestRate: 0,
-                        minimumPayment: 0,
-                        linkedAccountId: account.id,
-                        createdDate: new Date().toISOString(),
-                        notes: ''
-                    };
-                    data.debts.push(debt);
-                    account.linkedDebtId = debt.id;
-                } else {
-                    debt.currentBalance = account.amountOwed;
-                }
-                this._syncDebtToBill(debt);
-                this._save();
-
-            } else if (account.type === 'vehicle' && account.amountOwed > 0) {
-                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
-                if (!debt) {
-                    debt = {
-                        id: crypto.randomUUID(),
-                        name: account.name + ' Auto Loan',
-                        type: 'auto-loan',
-                        currentBalance: account.amountOwed,
-                        originalBalance: account.amountOwed,
-                        interestRate: 0,
-                        minimumPayment: 0,
-                        linkedAccountId: account.id,
-                        createdDate: new Date().toISOString(),
-                        notes: ''
-                    };
-                    data.debts.push(debt);
-                    account.linkedDebtId = debt.id;
-                } else {
-                    debt.currentBalance = account.amountOwed;
-                }
-                this._syncDebtToBill(debt);
-                this._save();
-
-            } else if (account.type === 'equipment' && account.amountOwed > 0) {
-                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
-                if (!debt) {
-                    debt = {
-                        id: crypto.randomUUID(),
-                        name: account.name + ' Loan',
-                        type: 'equipment-loan',
-                        currentBalance: account.amountOwed,
-                        originalBalance: account.amountOwed,
-                        interestRate: 0,
-                        minimumPayment: 0,
-                        linkedAccountId: account.id,
-                        createdDate: new Date().toISOString(),
-                        notes: ''
-                    };
-                    data.debts.push(debt);
-                    account.linkedDebtId = debt.id;
-                } else {
-                    debt.currentBalance = account.amountOwed;
-                }
-                this._syncDebtToBill(debt);
-                this._save();
-
-            } else if (account.type === 'other-asset' && account.amountOwed > 0) {
-                let debt = account.linkedDebtId ? data.debts.find(d => d.id === account.linkedDebtId) : null;
-                if (!debt) {
-                    debt = {
-                        id: crypto.randomUUID(),
-                        name: account.name + ' Loan',
-                        type: 'other',
-                        currentBalance: account.amountOwed,
-                        originalBalance: account.amountOwed,
-                        interestRate: 0,
-                        minimumPayment: 0,
-                        linkedAccountId: account.id,
-                        createdDate: new Date().toISOString(),
-                        notes: ''
-                    };
-                    data.debts.push(debt);
-                    account.linkedDebtId = debt.id;
-                } else {
-                    debt.currentBalance = account.amountOwed;
-                }
-                this._syncDebtToBill(debt);
-                this._save();
-            }
-        } finally {
-            this._syncing = false;
-        }
-    }
-
-    // Sync: Debt was created or updated → update/create linked account + bill
-    _syncFromDebt(debt) {
-        if (this._syncing) return;
-        this._syncing = true;
-        try {
-            const data = this._data;
-            if (!data.accounts) data.accounts = [];
-            if (!data.bills) data.bills = [];
-
-            // Handle transient _linkedAccountId (manual linking from form)
-            if (debt._linkedAccountId) {
-                const targetAccount = data.accounts.find(a => a.id === debt._linkedAccountId);
-                if (targetAccount) {
-                    // Unlink old account if there was a different one
-                    if (debt.linkedAccountId && debt.linkedAccountId !== targetAccount.id) {
-                        const oldAccount = data.accounts.find(a => a.id === debt.linkedAccountId);
-                        if (oldAccount) oldAccount.linkedDebtId = null;
-                    }
-                    // Create bidirectional link
-                    targetAccount.linkedDebtId = debt.id;
-                    debt.linkedAccountId = targetAccount.id;
-                    // Sync balances based on type
-                    if (targetAccount.type === 'property' || targetAccount.type === 'vehicle' || targetAccount.type === 'equipment' || targetAccount.type === 'other-asset') {
-                        targetAccount.amountOwed = debt.currentBalance;
-                    } else if (targetAccount.type === 'credit') {
-                        targetAccount.balance = debt.currentBalance;
-                    }
-                    targetAccount.lastUpdated = new Date().toISOString();
-                }
-                delete debt._linkedAccountId;
-            } else if (debt._unlinkAccount) {
-                // Explicit unlink request
-                if (debt.linkedAccountId) {
-                    const oldAccount = data.accounts.find(a => a.id === debt.linkedAccountId);
-                    if (oldAccount) oldAccount.linkedDebtId = null;
-                    debt.linkedAccountId = null;
-                }
-                delete debt._unlinkAccount;
-            } else if (debt.type === 'credit-card') {
-                let account = debt.linkedAccountId ? data.accounts.find(a => a.id === debt.linkedAccountId) : null;
-                if (!account) {
-                    // Create linked account
-                    account = {
-                        id: crypto.randomUUID(),
-                        name: debt.name,
-                        type: 'credit',
-                        balance: debt.currentBalance,
-                        linkedDebtId: debt.id,
-                        lastUpdated: new Date().toISOString()
-                    };
-                    data.accounts.push(account);
-                    debt.linkedAccountId = account.id;
-                } else {
-                    account.balance = debt.currentBalance;
-                    account.name = debt.name;
-                    account.lastUpdated = new Date().toISOString();
-                }
-            } else if (debt.type === 'mortgage') {
-                let account = debt.linkedAccountId ? data.accounts.find(a => a.id === debt.linkedAccountId) : null;
-                if (account && account.type === 'property') {
-                    account.amountOwed = debt.currentBalance;
-                    account.lastUpdated = new Date().toISOString();
-                }
-            } else if (debt.type === 'auto-loan') {
-                let account = debt.linkedAccountId ? data.accounts.find(a => a.id === debt.linkedAccountId) : null;
-                if (account && account.type === 'vehicle') {
-                    account.amountOwed = debt.currentBalance;
-                    account.lastUpdated = new Date().toISOString();
-                }
-            } else if (debt.type === 'equipment-loan') {
-                let account = debt.linkedAccountId ? data.accounts.find(a => a.id === debt.linkedAccountId) : null;
-                if (account && account.type === 'equipment') {
-                    account.amountOwed = debt.currentBalance;
-                    account.lastUpdated = new Date().toISOString();
-                }
-            }
-
-            // Charge card: min payment always equals balance
-            if (debt.chargeCard) debt.minimumPayment = debt.currentBalance;
-
-            // All debt types: sync minimum payment → bill
-            this._syncDebtToBill(debt);
-            this._save();
-        } finally {
-            this._syncing = false;
-        }
-    }
-
-    // Sync: debt's minimum payment → linked bill
-    _syncDebtToBill(debt) {
-        const data = this._data;
-        if (!data.bills) data.bills = [];
-        let bill = this._findBillByLinkedDebtId(debt.id);
-
-        // If the debt has a transient _linkedBillId, link to that existing bill
-        if (debt._linkedBillId) {
-            const targetBill = data.bills.find(b => b.id === debt._linkedBillId);
-            if (targetBill) {
-                // Unlink old bill if there was one (and it's different)
-                if (bill && bill.id !== targetBill.id) {
-                    bill.linkedDebtId = null;
-                }
-                // Link the target bill
-                targetBill.linkedDebtId = debt.id;
-                targetBill.amount = debt.minimumPayment || targetBill.amount;
-                bill = targetBill;
-            }
-            delete debt._linkedBillId;
-        } else if (debt._unlinkBill) {
-            // Explicit unlink request
-            if (bill) {
-                bill.linkedDebtId = null;
-            }
-            delete debt._unlinkBill;
-            return;
-        }
-
-        if (debt.minimumPayment > 0) {
-            if (!bill) {
-                // Find a sensible payment source
-                const checkingAcct = (data.accounts || []).find(a => a.type === 'checking');
-                const paymentSource = checkingAcct ? checkingAcct.name : 'Checking Account';
-                bill = {
-                    id: crypto.randomUUID(),
-                    name: debt.name + ' Payment',
-                    amount: debt.minimumPayment,
-                    category: this._debtCategoryForBill(debt.type),
-                    dueDay: 25,
-                    frequency: 'monthly',
-                    paymentSource: paymentSource,
-                    frozen: false,
-                    autoPay: false,
-                    linkedDebtId: debt.id,
-                    notes: 'Auto-synced from debt'
-                };
-                data.bills.push(bill);
-            } else {
-                bill.amount = debt.minimumPayment;
-            }
-        } else if (bill) {
-            // Minimum payment is 0 — remove the linked bill
-            data.bills = data.bills.filter(b => b.id !== bill.id);
-        }
-    }
-
-    // Sync: Bill was updated → push amount back to debt's minimumPayment
-    _syncFromBill(bill) {
-        if (this._syncing || !bill.linkedDebtId) return;
-        this._syncing = true;
-        try {
-            const data = this._data;
-            const debt = (data.debts || []).find(d => d.id === bill.linkedDebtId);
-            if (debt) {
-                debt.minimumPayment = bill.amount;
-                this._save();
-            }
-        } finally {
-            this._syncing = false;
-        }
-    }
-
-    // Cascade delete: account deleted → remove linked debt + bill
-    _syncDeleteAccount(accountId) {
-        if (this._syncing) return;
-        this._syncing = true;
-        try {
-            const data = this._data;
-            const account = (data.accounts || []).find(a => a.id === accountId);
-            if (!account || !account.linkedDebtId) return;
-
-            const debtId = account.linkedDebtId;
-            // Delete linked bill first
-            const bill = this._findBillByLinkedDebtId(debtId);
-            if (bill) {
-                data.bills = data.bills.filter(b => b.id !== bill.id);
-            }
-            // Delete linked debt
-            data.debts = (data.debts || []).filter(d => d.id !== debtId);
-        } finally {
-            this._syncing = false;
-        }
-    }
-
-    // Cascade delete: debt deleted → remove linked account + bill
-    _syncDeleteDebt(debtId) {
-        if (this._syncing) return;
-        this._syncing = true;
-        try {
-            const data = this._data;
-            const debt = (data.debts || []).find(d => d.id === debtId);
-
-            // Delete linked bill
-            const bill = this._findBillByLinkedDebtId(debtId);
-            if (bill) {
-                data.bills = data.bills.filter(b => b.id !== bill.id);
-            }
-
-            // Delete linked account
-            if (debt && debt.linkedAccountId) {
-                data.accounts = (data.accounts || []).filter(a => a.id !== debt.linkedAccountId);
-            }
-        } finally {
-            this._syncing = false;
-        }
-    }
-
-    // Delete bill: unlink from debt but don't delete debt
-    _syncDeleteBill(billId) {
-        if (this._syncing) return;
-        const data = this._data;
-        const bill = (data.bills || []).find(b => b.id === billId);
-        if (bill && bill.linkedDebtId) {
-            // Just clear the link — debt keeps its minimumPayment value
-            bill.linkedDebtId = null;
-        }
-    }
-
-    // Migration: link existing unlinked entities by name matching
-    _migrateEntityLinks() {
-        const data = this._data;
-        if (!data.accounts) data.accounts = [];
-        if (!data.debts) data.debts = [];
-        if (!data.bills) data.bills = [];
-        let changed = false;
-
-        const normalize = (name) => (name || '').toLowerCase().trim()
-            .replace(/\s+payment$/i, '')
-            .replace(/\s+card$/i, '')
-            .replace(/\s+account$/i, '');
-
-        // 1. Link credit-card debts ↔ credit accounts by name
-        data.debts.filter(d => d.type === 'credit-card' && !d.linkedAccountId).forEach(debt => {
-            const match = data.accounts.find(a =>
-                a.type === 'credit' && !a.linkedDebtId &&
-                normalize(a.name) === normalize(debt.name)
-            );
-            if (match) {
-                debt.linkedAccountId = match.id;
-                match.linkedDebtId = debt.id;
-                // Debt balance is source of truth
-                match.balance = debt.currentBalance;
-                match.lastUpdated = new Date().toISOString();
-                changed = true;
-            }
-        });
-
-        // 2. Link mortgage debts ↔ property accounts by name
-        data.debts.filter(d => d.type === 'mortgage' && !d.linkedAccountId).forEach(debt => {
-            const match = data.accounts.find(a =>
-                a.type === 'property' && !a.linkedDebtId &&
-                (normalize(a.name) === normalize(debt.name) ||
-                 normalize(debt.name).includes(normalize(a.name)))
-            );
-            if (match) {
-                debt.linkedAccountId = match.id;
-                match.linkedDebtId = debt.id;
-                match.amountOwed = debt.currentBalance;
-                changed = true;
-            }
-        });
-
-        // 2b. Link auto-loan debts ↔ vehicle accounts by name
-        data.debts.filter(d => d.type === 'auto-loan' && !d.linkedAccountId).forEach(debt => {
-            const match = data.accounts.find(a =>
-                a.type === 'vehicle' && !a.linkedDebtId &&
-                (normalize(a.name) === normalize(debt.name) ||
-                 normalize(debt.name).includes(normalize(a.name)))
-            );
-            if (match) {
-                debt.linkedAccountId = match.id;
-                match.linkedDebtId = debt.id;
-                match.amountOwed = debt.currentBalance;
-                changed = true;
-            }
-        });
-
-        // 3. Link credit card bills ↔ debts by name
-        data.bills.filter(b => b.category === 'Credit Card' && !b.linkedDebtId).forEach(bill => {
-            const match = data.debts.find(d =>
-                d.type === 'credit-card' && !this._findBillByLinkedDebtId(d.id) &&
-                (normalize(bill.name) === normalize(d.name) ||
-                 normalize(bill.name).replace(/\s+payment$/i, '') === normalize(d.name))
-            );
-            if (match) {
-                bill.linkedDebtId = match.id;
-                bill.amount = match.minimumPayment || bill.amount;
-                changed = true;
-            }
-        });
-
-        // 4. Create missing credit accounts for unlinked credit-card debts
-        data.debts.filter(d => d.type === 'credit-card' && !d.linkedAccountId).forEach(debt => {
-            const account = {
-                id: crypto.randomUUID(),
-                name: debt.name,
-                type: 'credit',
-                balance: debt.currentBalance,
-                linkedDebtId: debt.id,
-                lastUpdated: new Date().toISOString()
-            };
-            data.accounts.push(account);
-            debt.linkedAccountId = account.id;
-            changed = true;
-        });
-
-        // 5. Create missing bills for debts with minimum payments
-        data.debts.filter(d => d.minimumPayment > 0 && !this._findBillByLinkedDebtId(d.id)).forEach(debt => {
-            const checkingAcct = data.accounts.find(a => a.type === 'checking');
-            const bill = {
-                id: crypto.randomUUID(),
-                name: debt.name + ' Payment',
-                amount: debt.minimumPayment,
-                category: this._debtCategoryForBill(debt.type),
-                dueDay: 25,
-                frequency: 'monthly',
-                paymentSource: checkingAcct ? checkingAcct.name : 'Checking Account',
-                frozen: false,
-                autoPay: false,
-                linkedDebtId: debt.id,
-                notes: 'Auto-synced from debt'
-            };
-            data.bills.push(bill);
-            changed = true;
-        });
-
-        if (changed) {
-            this._syncToServer();
-        }
-    }
+    // ─── Persistence ─────────────────────────────────────────
 
     _save() {
         this._notify();
         this._syncToServer();
     }
 
-    // Debounced fire-and-forget sync to server
     _syncToServer() {
-        if (!this._serverAvailable) return;
-        clearTimeout(this._syncTimer);
-        this._syncTimer = setTimeout(() => {
-            this._syncToServerImmediate();
-        }, 100);
+        this._storage.scheduleSave(this._data);
     }
 
-    // Immediate sync (used for migration and import)
-    async _syncToServerImmediate() {
-        if (this._mode === 'cloud') {
-            return this._syncToFirestore();
-        }
-        return this._syncToExpressServer();
-    }
-
-    // Write data to Firestore (cloud mode)
-    async _syncToFirestore() {
-        try {
-            // Use merge: true to preserve sharedWithUids and sharedWithEdit arrays
-            // that are maintained by Cloud Functions for security rule access checks.
-            // Also rebuild these arrays from the sharedWith data if it exists.
-            const writeData = {
-                data: JSON.stringify(this._data),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            // Always rebuild sharing arrays for security rules (including empty arrays for revocation)
-            if (this._data.sharedWith && Array.isArray(this._data.sharedWith)) {
-                writeData.sharedWithUids = this._data.sharedWith.map(s => s.uid);
-                writeData.sharedWithEdit = this._data.sharedWith
-                    .filter(s => s.permissions === 'edit')
-                    .map(s => s.uid);
-            }
-
-            await this._dataDocRef.set(writeData, { merge: true });
-        } catch (e) {
-            console.error('Failed to sync to Firestore:', e);
-        }
-    }
-
-    // Write data to Express server (selfhost mode)
-    async _syncToExpressServer() {
-        try {
-            const authHeaders = this._getAuthHeaders();
-            const response = await fetch('/api/data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...authHeaders },
-                body: JSON.stringify(this._data)
-            });
-            if (response.status === 401) {
-                window.location.href = '/login';
-                return;
-            }
-        } catch (e) {
-            console.error('Failed to sync to server:', e);
-        }
+    async forceSyncNow() {
+        return this._storage.forceSave(this._data);
     }
 
     _notify() {
@@ -914,60 +149,52 @@ class Store {
         };
     }
 
-    getData() {
-        return this._load();
-    }
+    // ─── Generic Accessors ───────────────────────────────────
+
+    getData() { return this._load(); }
 
     getUserName() {
-        const data = this._load();
-        return data.userName || 'User';
+        return this._load().userName || 'User';
     }
 
     setUserName(name) {
-        const data = this._load();
-        data.userName = name;
+        this._load().userName = name;
         this._save();
     }
 
     getDependentName() {
-        const data = this._load();
-        return data.dependentName || 'Dependent';
+        return this._load().dependentName || 'Dependent';
     }
 
     setDependentName(name) {
-        const data = this._load();
-        data.dependentName = name;
+        this._load().dependentName = name;
         this._save();
     }
 
     isDependentEnabled() {
-        const data = this._load();
-        return data.dependentEnabled !== false; // default true for backward compat
+        return this._load().dependentEnabled !== false;
     }
 
     setDependentEnabled(enabled) {
-        const data = this._load();
-        data.dependentEnabled = enabled;
+        this._load().dependentEnabled = enabled;
         this._save();
     }
 
     isSeeded() {
-        const data = this._load();
-        return data.bills.length > 0;
+        return this._load().bills.length > 0;
     }
 
     isSetupComplete() {
-        const data = this._load();
-        return data.setupComplete === true;
+        return this._load().setupComplete === true;
     }
 
     completeSetup() {
-        const data = this._load();
-        data.setupComplete = true;
+        this._load().setupComplete = true;
         this._save();
     }
 
-    // Custom Categories CRUD
+    // ─── Custom Categories CRUD ──────────────────────────────
+
     getCustomCategories() {
         const data = this._load();
         if (!data.customCategories) data.customCategories = [];
@@ -977,15 +204,10 @@ class Store {
     addCustomCategory(category) {
         const data = this._load();
         if (!data.customCategories) data.customCategories = [];
-
-        // Check for duplicate name (case-insensitive)
         const exists = data.customCategories.find(c =>
             c.name.toLowerCase() === category.name.toLowerCase()
         );
-        if (exists) {
-            throw new Error('A category with this name already exists');
-        }
-
+        if (exists) throw new Error('A category with this name already exists');
         category.id = crypto.randomUUID();
         category.createdAt = new Date().toISOString();
         data.customCategories.push(category);
@@ -996,17 +218,13 @@ class Store {
     updateCustomCategory(id, updates) {
         const data = this._load();
         if (!data.customCategories) return;
-
         const idx = data.customCategories.findIndex(c => c.id === id);
         if (idx !== -1) {
-            // If name is being changed, check for duplicates
             if (updates.name && updates.name.toLowerCase() !== data.customCategories[idx].name.toLowerCase()) {
                 const exists = data.customCategories.find(c =>
                     c.id !== id && c.name.toLowerCase() === updates.name.toLowerCase()
                 );
-                if (exists) {
-                    throw new Error('A category with this name already exists');
-                }
+                if (exists) throw new Error('A category with this name already exists');
             }
             data.customCategories[idx] = { ...data.customCategories[idx], ...updates };
             this._save();
@@ -1020,7 +238,8 @@ class Store {
         this._save();
     }
 
-    // Bills CRUD
+    // ─── Bills CRUD ──────────────────────────────────────────
+
     getBills() {
         return this._load().bills;
     }
@@ -1039,13 +258,12 @@ class Store {
         if (idx !== -1) {
             data.bills[idx] = { ...data.bills[idx], ...updates };
             this._save();
-            // Sync: if this bill is linked to a debt, push amount changes back
-            this._syncFromBill(data.bills[idx]);
+            syncFromBill(data.bills[idx], data, () => this._save());
         }
     }
 
     deleteBill(id) {
-        this._syncDeleteBill(id);
+        syncDeleteBill(id, this._data);
         const data = this._load();
         data.bills = data.bills.filter(b => b.id !== id);
         this._save();
@@ -1071,10 +289,10 @@ class Store {
         return data.paidHistory[key][billId];
     }
 
-    // Dependent Bills CRUD
+    // ─── Dependent Bills CRUD ────────────────────────────────
+
     getDependentBills() {
-        const data = this._load();
-        return data.dependentBills || [];
+        return this._load().dependentBills || [];
     }
 
     addDependentBill(bill) {
@@ -1115,7 +333,8 @@ class Store {
         return false;
     }
 
-    // Income
+    // ─── Income ──────────────────────────────────────────────
+
     getIncome() {
         return this._load().income;
     }
@@ -1125,13 +344,13 @@ class Store {
         if (who) {
             data.income[who] = { ...data.income[who], ...updates };
         } else {
-            // Top-level income properties (e.g., combineDependentIncome)
             Object.assign(data.income, updates);
         }
         this._save();
     }
 
-    // Payment Sources
+    // ─── Payment Sources ─────────────────────────────────────
+
     getPaymentSources() {
         return this._load().paymentSources;
     }
@@ -1149,7 +368,6 @@ class Store {
         const idx = data.paymentSources.indexOf(oldName);
         if (idx === -1 || !newName) return;
         data.paymentSources[idx] = newName;
-        // Update all bills referencing this source
         (data.bills || []).forEach(b => {
             if (b.paymentSource === oldName) b.paymentSource = newName;
         });
@@ -1165,7 +383,8 @@ class Store {
         this._save();
     }
 
-    // Pay Schedule
+    // ─── Pay Schedule ────────────────────────────────────────
+
     getPaySchedule() {
         const data = this._load();
         if (!data.paySchedule) {
@@ -1183,98 +402,21 @@ class Store {
         this._save();
     }
 
-    // Generate pay dates for a given date range based on schedule
     getPayDates(rangeStartStr, rangeEndStr) {
-        const schedule = this.getPaySchedule();
-        if (!schedule.startDate) return [];
-
-        const anchor = new Date(schedule.startDate + 'T00:00:00');
-        const now = new Date();
-        // Default range: 2 months back to 4 months ahead
-        const rangeStart = rangeStartStr
-            ? new Date(rangeStartStr + 'T00:00:00')
-            : new Date(now.getFullYear(), now.getMonth() - 2, 1);
-        const rangeEnd = rangeEndStr
-            ? new Date(rangeEndStr + 'T00:00:00')
-            : new Date(now.getFullYear(), now.getMonth() + 4, 0);
-
-        const dates = [];
-        const freq = schedule.frequency;
-
-        if (freq === 'biweekly') {
-            // Walk from anchor in 14-day steps to cover the range
-            let cursor = new Date(anchor);
-            // Rewind to before rangeStart
-            while (cursor > rangeStart) {
-                cursor = new Date(cursor.getTime() - 14 * 86400000);
-            }
-            // Walk forward
-            while (cursor <= rangeEnd) {
-                if (cursor >= rangeStart) {
-                    dates.push(new Date(cursor));
-                }
-                cursor = new Date(cursor.getTime() + 14 * 86400000);
-            }
-        } else if (freq === 'weekly') {
-            let cursor = new Date(anchor);
-            while (cursor > rangeStart) {
-                cursor = new Date(cursor.getTime() - 7 * 86400000);
-            }
-            while (cursor <= rangeEnd) {
-                if (cursor >= rangeStart) {
-                    dates.push(new Date(cursor));
-                }
-                cursor = new Date(cursor.getTime() + 7 * 86400000);
-            }
-        } else if (freq === 'semimonthly') {
-            // 1st and 15th of each month (or use anchor day and anchor day + 15)
-            const day1 = anchor.getDate();
-            const day2 = day1 <= 15 ? day1 + 15 : day1 - 15;
-            let curYear = rangeStart.getFullYear();
-            let curMonth = rangeStart.getMonth();
-            while (true) {
-                const d1 = new Date(curYear, curMonth, Math.min(day1, 28));
-                const d2 = new Date(curYear, curMonth, Math.min(day2, 28));
-                if (d1 > rangeEnd && d2 > rangeEnd) break;
-                if (d1 >= rangeStart && d1 <= rangeEnd) dates.push(d1);
-                if (d2 >= rangeStart && d2 <= rangeEnd) dates.push(d2);
-                curMonth++;
-                if (curMonth > 11) { curMonth = 0; curYear++; }
-            }
-            dates.sort((a, b) => a - b);
-        } else if (freq === 'monthly') {
-            const day = anchor.getDate();
-            let curYear = rangeStart.getFullYear();
-            let curMonth = rangeStart.getMonth();
-            while (true) {
-                const d = new Date(curYear, curMonth, Math.min(day, 28));
-                if (d > rangeEnd) break;
-                if (d >= rangeStart) dates.push(d);
-                curMonth++;
-                if (curMonth > 11) { curMonth = 0; curYear++; }
-            }
-        }
-
-        return dates;
+        return generatePayDates(this.getPaySchedule(), rangeStartStr, rangeEndStr);
     }
 
-    // Get pay dates as ISO strings (for backward compat)
     getPayDateStrings(rangeStart, rangeEnd) {
         return this.getPayDates(rangeStart, rangeEnd).map(d => d.toISOString().slice(0, 10));
     }
 
-    // Credit Scores
+    // ─── Credit Scores ───────────────────────────────────────
+
     getCreditScores() {
         const data = this._load();
-        if (!data.creditScores) {
-            data.creditScores = {};
-        }
-        if (!data.creditScores.user) {
-            data.creditScores.user = { score: null, lastUpdated: null };
-        }
-        if (!data.creditScores.dependent) {
-            data.creditScores.dependent = { score: null, lastUpdated: null };
-        }
+        if (!data.creditScores) data.creditScores = {};
+        if (!data.creditScores.user) data.creditScores.user = { score: null, lastUpdated: null };
+        if (!data.creditScores.dependent) data.creditScores.dependent = { score: null, lastUpdated: null };
         return data.creditScores;
     }
 
@@ -1287,7 +429,8 @@ class Store {
         this._save();
     }
 
-    // Accounts
+    // ─── Accounts ────────────────────────────────────────────
+
     getAccounts() {
         const data = this._load();
         if (!data.accounts) data.accounts = [];
@@ -1301,7 +444,7 @@ class Store {
         account.lastUpdated = new Date().toISOString();
         data.accounts.push(account);
         this._save();
-        this._syncFromAccount(account);
+        syncFromAccount(account, data, () => this._save());
         return account;
     }
 
@@ -1312,19 +455,20 @@ class Store {
         if (idx !== -1) {
             data.accounts[idx] = { ...data.accounts[idx], ...updates, lastUpdated: new Date().toISOString() };
             this._save();
-            this._syncFromAccount(data.accounts[idx]);
+            syncFromAccount(data.accounts[idx], data, () => this._save());
         }
     }
 
     deleteAccount(id) {
-        this._syncDeleteAccount(id);
+        syncDeleteAccount(id, this._data);
         const data = this._load();
         if (!data.accounts) return;
         data.accounts = data.accounts.filter(a => a.id !== id);
         this._save();
     }
 
-    // Vehicle Mileage
+    // ─── Vehicle Mileage ─────────────────────────────────────
+
     getVehicleMileage(vehicleAccountId) {
         const data = this._load();
         if (!data.vehicleMileage) data.vehicleMileage = [];
@@ -1359,7 +503,8 @@ class Store {
         this._save();
     }
 
-    // Vehicle Trips
+    // ─── Vehicle Trips ───────────────────────────────────────
+
     getVehicleTrips(vehicleAccountId) {
         const data = this._load();
         if (!data.vehicleTrips) data.vehicleTrips = [];
@@ -1398,7 +543,43 @@ class Store {
         this._save();
     }
 
-    // Tax Documents (metadata — blobs stored in IndexedDB)
+    // ─── Balance History ─────────────────────────────────────
+
+    getBalanceHistory() {
+        const data = this._load();
+        if (!data.balanceHistory) data.balanceHistory = [];
+        migrateBalanceHistory(data.balanceHistory);
+        return data.balanceHistory.sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    snapshotBalances() {
+        const data = this._load();
+        if (!data.balanceHistory) data.balanceHistory = [];
+        if (!data.accounts) data.accounts = [];
+
+        migrateBalanceHistory(data.balanceHistory);
+
+        const snapshot = createBalanceSnapshot(data.accounts, data.debts);
+
+        const existingIdx = data.balanceHistory.findIndex(h => h.date === snapshot.date);
+        if (existingIdx !== -1) {
+            data.balanceHistory[existingIdx] = snapshot;
+        } else {
+            data.balanceHistory.push(snapshot);
+        }
+
+        // Keep only last 365 days
+        data.balanceHistory.sort((a, b) => a.date.localeCompare(b.date));
+        if (data.balanceHistory.length > 365) {
+            data.balanceHistory = data.balanceHistory.slice(-365);
+        }
+
+        this._save();
+        return snapshot;
+    }
+
+    // ─── Tax Documents ───────────────────────────────────────
+
     getTaxYears() {
         const data = this._load();
         if (!data.taxDocuments) data.taxDocuments = [];
@@ -1436,7 +617,7 @@ class Store {
         if (!data.taxDocuments) data.taxDocuments = [];
         doc.id = crypto.randomUUID();
         doc.uploadDate = new Date().toISOString();
-        doc.owner = doc.owner || 'user'; // default to user
+        doc.owner = doc.owner || 'user';
         data.taxDocuments.push(doc);
         this._save();
         return doc;
@@ -1459,7 +640,8 @@ class Store {
         this._save();
     }
 
-    // Debts
+    // ─── Debts ───────────────────────────────────────────────
+
     getDebts() {
         const data = this._load();
         if (!data.debts) data.debts = [];
@@ -1473,7 +655,7 @@ class Store {
         debt.createdDate = new Date().toISOString();
         data.debts.push(debt);
         this._save();
-        this._syncFromDebt(debt);
+        syncFromDebt(debt, data, () => this._save());
         return debt;
     }
 
@@ -1484,12 +666,12 @@ class Store {
         if (idx !== -1) {
             data.debts[idx] = { ...data.debts[idx], ...updates };
             this._save();
-            this._syncFromDebt(data.debts[idx]);
+            syncFromDebt(data.debts[idx], data, () => this._save());
         }
     }
 
     deleteDebt(id) {
-        this._syncDeleteDebt(id);
+        syncDeleteDebt(id, this._data);
         const data = this._load();
         if (!data.debts) return;
         data.debts = data.debts.filter(d => d.id !== id);
@@ -1498,22 +680,19 @@ class Store {
 
     getDebtBudget() {
         const data = this._load();
-        if (!data.debtBudget) {
-            data.debtBudget = { totalMonthlyBudget: 0, strategy: 'avalanche' };
-        }
+        if (!data.debtBudget) data.debtBudget = { totalMonthlyBudget: 0, strategy: 'avalanche' };
         return data.debtBudget;
     }
 
     updateDebtBudget(updates) {
         const data = this._load();
-        if (!data.debtBudget) {
-            data.debtBudget = { totalMonthlyBudget: 0, strategy: 'avalanche' };
-        }
+        if (!data.debtBudget) data.debtBudget = { totalMonthlyBudget: 0, strategy: 'avalanche' };
         data.debtBudget = { ...data.debtBudget, ...updates };
         this._save();
     }
 
-    // Tax Deductions
+    // ─── Tax Deductions ──────────────────────────────────────
+
     getTaxDeductions(taxYear) {
         const data = this._load();
         if (!data.taxDeductions) data.taxDeductions = [];
@@ -1548,10 +727,19 @@ class Store {
         this._save();
     }
 
-    // Other Income Sources
+    // ─── Other Income Sources ────────────────────────────────
+
     getOtherIncome() {
         const data = this._load();
         if (!data.otherIncome) data.otherIncome = [];
+        let needsSave = false;
+        data.otherIncome.forEach(item => {
+            if (!item.id) {
+                item.id = crypto.randomUUID();
+                needsSave = true;
+            }
+        });
+        if (needsSave) this._save();
         return data.otherIncome;
     }
 
@@ -1581,7 +769,141 @@ class Store {
         this._save();
     }
 
-    // Savings Goals
+    // ─── Expenses ────────────────────────────────────────────
+
+    getExpenses() {
+        const data = this._load();
+        if (!data.expenses) data.expenses = [];
+        let needsSave = false;
+        data.expenses.forEach(item => {
+            if (!item.id) {
+                item.id = crypto.randomUUID();
+                needsSave = true;
+            }
+        });
+        if (needsSave) this._save();
+        return data.expenses;
+    }
+
+    addExpense(expense) {
+        const data = this._load();
+        if (!data.expenses) data.expenses = [];
+        expense.id = crypto.randomUUID();
+        expense.createdDate = new Date().toISOString();
+        data.expenses.push(expense);
+        this._save();
+        return expense;
+    }
+
+    updateExpense(id, updates) {
+        const data = this._load();
+        if (!data.expenses) return;
+        const idx = data.expenses.findIndex(e => e.id === id);
+        if (idx !== -1) {
+            data.expenses[idx] = { ...data.expenses[idx], ...updates };
+            this._save();
+        }
+    }
+
+    deleteExpense(id) {
+        const data = this._load();
+        if (!data.expenses) return;
+        data.expenses = data.expenses.filter(e => e.id !== id);
+        this._save();
+    }
+
+    // ─── Business Names ──────────────────────────────────────
+
+    getBusinessNames() {
+        const data = this._load();
+        if (!data.businessNames) data.businessNames = [];
+        return data.businessNames;
+    }
+
+    addBusinessName(name) {
+        const data = this._load();
+        if (!data.businessNames) data.businessNames = [];
+        if (!data.businessNames.includes(name)) {
+            data.businessNames.push(name);
+            this._save();
+        }
+        return data.businessNames;
+    }
+
+    removeBusinessName(name) {
+        const data = this._load();
+        if (!data.businessNames) return;
+        data.businessNames = data.businessNames.filter(n => n !== name);
+        this._save();
+    }
+
+    renameBusinessName(oldName, newName) {
+        const data = this._load();
+        if (!data.businessNames) return;
+        const idx = data.businessNames.indexOf(oldName);
+        if (idx !== -1) {
+            data.businessNames[idx] = newName;
+            if (data.expenses) {
+                data.expenses.forEach(e => {
+                    if (e.businessName === oldName) e.businessName = newName;
+                });
+            }
+            this._save();
+        }
+    }
+
+    // ─── Usage Type ──────────────────────────────────────────
+
+    getUsageType() {
+        return this._load().usageType || null;
+    }
+
+    setUsageType(type) {
+        this._load().usageType = type;
+        this._save();
+    }
+
+    // ─── Transaction Sync ────────────────────────────────────
+
+    getLastTransactionSync() {
+        return this._load().lastTransactionSync || null;
+    }
+
+    setLastTransactionSync(dateStr) {
+        this._load().lastTransactionSync = dateStr;
+        this._save();
+    }
+
+    importPlaidTransactions(transactions) {
+        const data = this._load();
+        if (!data.expenses) data.expenses = [];
+        let imported = 0;
+        for (const txn of transactions) {
+            if (data.expenses.some(e => e.plaidTransactionId === txn.plaidTransactionId)) continue;
+            const expense = {
+                id: crypto.randomUUID(),
+                name: txn.name,
+                amount: txn.amount,
+                category: txn.category || 'other',
+                date: txn.date,
+                vendor: txn.merchantName || '',
+                notes: '',
+                createdDate: new Date().toISOString(),
+                expenseType: 'personal',
+                businessName: null,
+                plaidTransactionId: txn.plaidTransactionId,
+                plaidAccountId: txn.plaidAccountId,
+                source: 'plaid'
+            };
+            data.expenses.push(expense);
+            imported++;
+        }
+        if (imported > 0) this._save();
+        return imported;
+    }
+
+    // ─── Savings Goals ───────────────────────────────────────
+
     getSavingsGoals() {
         const data = this._load();
         if (!data.savingsGoals) data.savingsGoals = [];
@@ -1615,7 +937,37 @@ class Store {
         this._save();
     }
 
-    // Invites & Sharing
+    // ─── Dashboard Layout ────────────────────────────────────
+
+    getDashboardLayout() {
+        const data = this._load();
+        const defaultOrder = ['stats-grid', 'pay-periods', 'monthly-progress', 'upcoming-bills', 'spending-category', 'payment-sources', 'savings-goals'];
+        if (!data.dashboardLayout) {
+            return { order: [...defaultOrder], hidden: [] };
+        }
+        const layout = data.dashboardLayout;
+        if (!layout.order) layout.order = [...defaultOrder];
+        if (!layout.hidden) layout.hidden = [];
+        for (const id of defaultOrder) {
+            if (!layout.order.includes(id) && !layout.hidden.includes(id)) {
+                layout.order.push(id);
+            }
+        }
+        return layout;
+    }
+
+    updateDashboardLayout(layout) {
+        this._load().dashboardLayout = layout;
+        this._save();
+    }
+
+    resetDashboardLayout() {
+        this._load().dashboardLayout = null;
+        this._save();
+    }
+
+    // ─── Invites & Sharing ───────────────────────────────────
+
     getInvites() {
         const data = this._load();
         if (!data.invites) data.invites = [];
@@ -1656,19 +1008,14 @@ class Store {
         this._save();
     }
 
-    // Called when an invite is accepted — moves to sharedWith
     acceptInvite(inviteId, inviteeUid, inviteeEmail) {
         const data = this._load();
         if (!data.invites) return null;
         const invite = data.invites.find(i => i.id === inviteId);
         if (!invite) return null;
-
-        // Update invite status
         invite.status = 'accepted';
         invite.acceptedAt = new Date().toISOString();
         invite.inviteeUid = inviteeUid;
-
-        // Add to sharedWith
         if (!data.sharedWith) data.sharedWith = [];
         const existing = data.sharedWith.find(s => s.uid === inviteeUid);
         if (!existing) {
@@ -1684,54 +1031,43 @@ class Store {
         return invite;
     }
 
-    // Remove someone's access
     revokeAccess(uid) {
         const data = this._load();
         if (!data.sharedWith) return;
         data.sharedWith = data.sharedWith.filter(s => s.uid !== uid);
-        // Also mark any related invites as revoked
         if (data.invites) {
             data.invites.forEach(i => {
-                if (i.inviteeUid === uid) {
-                    i.status = 'revoked';
-                }
+                if (i.inviteeUid === uid) i.status = 'revoked';
             });
         }
         this._save();
     }
 
-    // Plaid helpers — get all unique Plaid item IDs from accounts
+    // ─── Plaid Helpers ───────────────────────────────────────
+
     getPlaidItemIds() {
         const accounts = this.getAccounts();
         const ids = new Set();
-        accounts.forEach(a => {
-            if (a.plaidItemId) ids.add(a.plaidItemId);
-        });
-        // Also check debts for Plaid-linked items
+        accounts.forEach(a => { if (a.plaidItemId) ids.add(a.plaidItemId); });
         const debts = this.getDebts();
-        debts.forEach(d => {
-            if (d.plaidItemId) ids.add(d.plaidItemId);
-        });
+        debts.forEach(d => { if (d.plaidItemId) ids.add(d.plaidItemId); });
         return [...ids];
     }
 
-    // Get all accounts linked to a specific Plaid item
     getAccountsByPlaidItem(itemId) {
-        const accounts = this.getAccounts();
-        return accounts.filter(a => a.plaidItemId === itemId);
+        return this.getAccounts().filter(a => a.plaidItemId === itemId);
     }
 
-    // Reset
+    // ─── Reset & Import/Export ────────────────────────────────
+
     resetData() {
         this._data = JSON.parse(JSON.stringify(defaultData));
         this._notify();
-        this._syncToServerImmediate(); // Immediate sync for reset
+        this._storage.forceSave(this._data);
     }
 
-    // Clear sample/all data while keeping settings
     clearSampleData() {
         const data = this._load();
-        // Clear all data arrays but keep user preferences/settings
         data.bills = [];
         data.dependentBills = [];
         data.accounts = [];
@@ -1740,30 +1076,46 @@ class Store {
         data.taxYears = [];
         data.taxDeductions = [];
         data.otherIncome = [];
+        data.expenses = [];
         data.paidHistory = {};
         data.debtBudget = { totalMonthlyBudget: 0, strategy: 'avalanche' };
-        // Keep: userName, dependentName, dependentEnabled, income, paymentSources, paySchedule, creditScores
         this._save();
     }
 
-    // Export
     exportJSON() {
         return JSON.stringify(this._load(), null, 2);
     }
 
-    // Import
     importJSON(jsonStr) {
         try {
             const parsed = JSON.parse(jsonStr);
             this._data = parsed;
-            this._migrateEntityLinks(); // Link entities after import
+            const linksMigrated = migrateEntityLinks(this._data);
             this._notify();
-            this._syncToServerImmediate(); // Immediate sync for imports
+            this._storage.forceSave(this._data);
             return true;
         } catch (e) {
             console.error('Invalid JSON:', e);
             return false;
         }
+    }
+
+    // ─── Notification Preferences ────────────────────────────
+
+    getNotificationPreferences() {
+        const data = this._load();
+        return data.notificationPreferences || {
+            enabled: false,
+            reminderDays: 1,
+            preferredTime: '09:00',
+            includeAutoPay: false
+        };
+    }
+
+    updateNotificationPreferences(updates) {
+        const data = this._load();
+        data.notificationPreferences = { ...data.notificationPreferences, ...updates };
+        this._save();
     }
 }
 

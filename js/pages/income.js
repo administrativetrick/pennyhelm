@@ -20,13 +20,38 @@ const FREQ_LABELS = {
 
 const OTHER_INCOME_CATEGORIES = {
     rental: 'Rental Income',
-    dividend: 'Dividends',
+    dividend: 'Dividends / Investments',
     freelance: 'Freelance',
     'side-hustle': 'Side Hustle',
     interest: 'Interest',
     gift: 'Gift / Support',
+    bonus: 'Bonus',
+    refund: 'Refund',
     other: 'Other'
 };
+
+// Normalize legacy category values (e.g., mobile used labels like 'Side Hustle' instead of keys)
+const LEGACY_CATEGORY_MAP = {
+    'Side Hustle': 'side-hustle',
+    'Investment': 'dividend',
+    'Rental': 'rental',
+    'Gift': 'gift',
+    'Bonus': 'bonus',
+    'Refund': 'refund',
+    'Other': 'other',
+    'Freelance': 'freelance',
+    'Interest': 'interest',
+    'Dividends': 'dividend',
+    'Rental Income': 'rental',
+    'Gift / Support': 'gift',
+};
+
+function normalizeCategoryKey(cat) {
+    if (!cat) return 'other';
+    if (OTHER_INCOME_CATEGORIES[cat]) return cat; // already a valid key
+    if (LEGACY_CATEGORY_MAP[cat]) return LEGACY_CATEGORY_MAP[cat];
+    return 'other';
+}
 
 const OTHER_INCOME_FREQ = {
     monthly: 'Monthly',
@@ -61,6 +86,152 @@ function getOrdinal(n) {
     const s = ['th', 'st', 'nd', 'rd'];
     const v = n % 100;
     return s[(v - 20) % 10] || s[v] || s[0];
+}
+
+let balanceHistoryView = 'monthly'; // 'daily' | 'monthly' | 'yearly'
+
+function aggregateHistory(allHistory, view) {
+    if (view === 'daily') {
+        // Last 30 days
+        return allHistory.slice(-30);
+    }
+    if (view === 'yearly') {
+        // Group by year, take last entry per year
+        const byYear = {};
+        for (const h of allHistory) {
+            const year = h.date.slice(0, 4);
+            byYear[year] = h; // last entry wins
+        }
+        return Object.values(byYear).sort((a, b) => a.date.localeCompare(b.date));
+    }
+    // Monthly — group by month, take last entry per month
+    const byMonth = {};
+    for (const h of allHistory) {
+        const month = h.date.slice(0, 7);
+        byMonth[month] = h; // last entry wins
+    }
+    return Object.values(byMonth).sort((a, b) => a.date.localeCompare(b.date)).slice(-12);
+}
+
+function getBarLabel(h, view) {
+    const d = new Date(h.date + 'T00:00:00');
+    if (view === 'daily') {
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    if (view === 'yearly') {
+        return d.getFullYear().toString();
+    }
+    // monthly
+    return d.toLocaleDateString('en-US', { month: 'short' }) + " '" + h.date.slice(2, 4);
+}
+
+function getChangeLabel(view) {
+    if (view === 'daily') return 'vs Yesterday';
+    if (view === 'yearly') return 'vs Last Year';
+    return 'vs Last Month';
+}
+
+function buildBalanceHistoryHtml(store) {
+    const allHistory = store.getBalanceHistory();
+    if (allHistory.length === 0) {
+        return '<div class="card mb-24" style="margin-top:24px;">' +
+            '<h3 style="margin-bottom:8px;">Balance History</h3>' +
+            '<p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Monthly snapshots of your account balances over time</p>' +
+            '<div style="text-align:center;padding:24px 16px;color:var(--text-muted);">' +
+            '<div style="font-size:32px;margin-bottom:8px;">&#128200;</div>' +
+            '<div style="font-size:13px;">No balance history yet.</div>' +
+            '<div style="font-size:12px;margin-top:4px;">History will build automatically each day as you use PennyHelm. Add your accounts on the Assets tab to start tracking.</div>' +
+            '</div></div>';
+    }
+
+    const view = balanceHistoryView;
+    const history = aggregateHistory(allHistory, view);
+    const latest = history[history.length - 1];
+
+    // Find max value across all bars for scaling
+    const maxVal = Math.max(...history.map(h => Math.max(h.checking || 0, h.savings || 0, h.investment || 0)), 1);
+
+    // Build bar chart HTML
+    let barsHtml = '';
+    for (const h of history) {
+        const chkH = ((h.checking || 0) / maxVal * 100).toFixed(1);
+        const savH = ((h.savings || 0) / maxVal * 100).toFixed(1);
+        const invH = ((h.investment || 0) / maxVal * 100).toFixed(1);
+        const label = getBarLabel(h, view);
+        const total = (h.checking || 0) + (h.savings || 0) + (h.investment || 0);
+        barsHtml += '<div class="bh-month">' +
+            '<div class="bh-values">' +
+            '<div class="bh-value text-green" style="font-size:10px;">' + formatCurrency(total) + '</div>' +
+            '</div>' +
+            '<div class="bh-bar-group">' +
+            (h.checking ? '<div class="bh-bar checking" style="height:' + chkH + '%;" title="Checking: ' + formatCurrency(h.checking) + '"></div>' : '') +
+            (h.savings ? '<div class="bh-bar savings" style="height:' + savH + '%;" title="Savings: ' + formatCurrency(h.savings) + '"></div>' : '') +
+            (h.investment ? '<div class="bh-bar investment" style="height:' + invH + '%;" title="Investments: ' + formatCurrency(h.investment) + '"></div>' : '') +
+            '</div>' +
+            '<div class="bh-label">' + label + '</div>' +
+            '</div>';
+    }
+
+    // Period-over-period net worth change
+    let changeHtml = '';
+    if (history.length >= 2) {
+        const previous = history[history.length - 2];
+        const nwChange = latest.netWorth - previous.netWorth;
+        const nwColor = nwChange >= 0 ? 'var(--green)' : 'var(--red)';
+        changeHtml = '<div style="text-align:center;padding:8px;border-radius:var(--radius-sm);background:var(--bg-secondary);margin-top:8px;">' +
+            '<div style="font-size:10px;color:var(--text-muted);">Net Worth ' + getChangeLabel(view) + '</div>' +
+            '<div style="font-size:13px;font-weight:700;color:' + nwColor + ';">' + (nwChange >= 0 ? '+' : '') + formatCurrency(nwChange) + '</div>' +
+            '</div>';
+    }
+
+    // Build legend — only show types that have values
+    let legendHtml = '';
+    if (latest.checking) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Checking</span>';
+    if (latest.savings) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--accent);border-radius:2px;display:inline-block;"></span> Savings</span>';
+    if (latest.investment) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--purple);border-radius:2px;display:inline-block;"></span> Investments</span>';
+
+    const nwColor = latest.netWorth >= 0 ? 'var(--green)' : 'var(--red)';
+
+    // Summary cards
+    let summaryHtml = '';
+    const summaryItems = [];
+    if (latest.checking) summaryItems.push({ label: 'Checking', value: latest.checking, color: 'var(--green)' });
+    if (latest.savings) summaryItems.push({ label: 'Savings', value: latest.savings, color: 'var(--accent)' });
+    if (latest.investment) summaryItems.push({ label: 'Investments', value: latest.investment, color: 'var(--purple)' });
+    summaryItems.push({ label: 'Net Worth', value: latest.netWorth, color: nwColor });
+
+    const cols = summaryItems.length;
+    summaryHtml = '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:12px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">';
+    for (const item of summaryItems) {
+        summaryHtml += '<div style="text-align:center;">' +
+            '<div style="font-size:11px;color:var(--text-muted);">' + item.label + '</div>' +
+            '<div style="font-size:15px;font-weight:700;color:' + item.color + ';">' + formatCurrency(item.value) + '</div>' +
+            '</div>';
+    }
+    summaryHtml += '</div>';
+
+    // View toggle chips
+    const toggleHtml = '<div style="display:flex;gap:6px;margin-bottom:16px;">' +
+        '<button class="filter-chip bh-view-chip' + (view === 'daily' ? ' active' : '') + '" data-bh-view="daily">Daily</button>' +
+        '<button class="filter-chip bh-view-chip' + (view === 'monthly' ? ' active' : '') + '" data-bh-view="monthly">Monthly</button>' +
+        '<button class="filter-chip bh-view-chip' + (view === 'yearly' ? ' active' : '') + '" data-bh-view="yearly">Yearly</button>' +
+        '</div>';
+
+    const periodLabel = view === 'daily' ? history.length + ' days' : view === 'yearly' ? history.length + ' years' : history.length + ' months';
+
+    return '<div class="card mb-24" style="margin-top:24px;">' +
+        '<div class="flex-between mb-16">' +
+        '<div>' +
+        '<h3 style="margin-bottom:4px;">Balance History</h3>' +
+        '<p style="font-size:12px;color:var(--text-muted);margin:0;">' + periodLabel + ' of account balances</p>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:12px;font-size:11px;flex-wrap:wrap;">' + legendHtml + '</div>' +
+        '</div>' +
+        toggleHtml +
+        '<div class="balance-history-chart">' + barsHtml + '</div>' +
+        summaryHtml +
+        changeHtml +
+        '</div>';
 }
 
 export function renderIncome(container, store, subTab = null) {
@@ -153,6 +324,9 @@ export function renderIncome(container, store, subTab = null) {
                 <div class="stat-sub">/month${depEnabled && !combineDepIncome ? ' (yours only)' : ''}</div>
             </div>
         </div>
+
+        <!-- 12-Month Balance History -->
+        ${buildBalanceHistoryHtml(store)}
 
         <!-- Primary Pay Schedule -->
         <div class="card mb-24" style="margin-top:24px;">
@@ -257,7 +431,8 @@ export function renderIncome(container, store, subTab = null) {
                     <button class="btn btn-primary btn-sm" id="add-other-income">+ Add</button>
                 </div>
                 ${otherIncome.length > 0 ? `
-                <div class="table-wrapper">
+                <!-- Desktop: Table view -->
+                <div class="table-wrapper other-income-desktop">
                     <table>
                         <thead>
                             <tr>
@@ -273,7 +448,7 @@ export function renderIncome(container, store, subTab = null) {
                         <tbody>
                             ${otherIncome.map(src => {
                                 const monthlyEquiv = getOtherIncomeMonthly(src);
-                                const catLabel = OTHER_INCOME_CATEGORIES[src.category] || src.category;
+                                const catLabel = OTHER_INCOME_CATEGORIES[normalizeCategoryKey(src.category)] || src.category;
                                 const freqLbl = OTHER_INCOME_FREQ[src.frequency] || src.frequency;
                                 return `
                                     <tr>
@@ -302,6 +477,42 @@ export function renderIncome(container, store, subTab = null) {
                         </tbody>
                     </table>
                 </div>
+                <!-- Mobile: Card view with visible edit/delete -->
+                <div class="other-income-mobile">
+                    ${otherIncome.map(src => {
+                        const monthlyEquiv = getOtherIncomeMonthly(src);
+                        const catLabel = OTHER_INCOME_CATEGORIES[normalizeCategoryKey(src.category)] || src.category;
+                        const freqLbl = OTHER_INCOME_FREQ[src.frequency] || src.frequency;
+                        return `
+                            <div class="other-income-card">
+                                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                                    <div style="flex:1;min-width:0;">
+                                        <div style="font-weight:600;font-size:14px;">${escapeHtml(src.name)}</div>
+                                        <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap;">
+                                            <span class="badge" style="background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;font-size:11px;">${catLabel}</span>
+                                            <span style="font-size:12px;color:var(--text-secondary);">${freqLbl}</span>
+                                        </div>
+                                        ${src.notes ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${escapeHtml(src.notes)}</div>` : ''}
+                                    </div>
+                                    <div style="text-align:right;flex-shrink:0;">
+                                        <div class="font-bold text-green" style="font-size:15px;">${formatCurrency(src.amount)}</div>
+                                        <div style="font-size:11px;color:var(--text-secondary);">${monthlyEquiv > 0 ? formatCurrency(monthlyEquiv) + '/mo' : 'One-time'}</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+                                    <button class="btn btn-secondary btn-sm edit-other-income" data-id="${src.id}" style="flex:1;font-size:12px;">
+                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        Edit
+                                    </button>
+                                    <button class="btn btn-sm delete-other-income" data-id="${src.id}" style="flex:1;font-size:12px;background:transparent;border:1px solid var(--red);color:var(--red);">
+                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
                 <div class="card mt-16" style="background:var(--bg-secondary);">
                     <div class="flex-between">
                         <span style="font-size:13px;color:var(--text-secondary);">Total Other Income (monthly)</span>
@@ -320,6 +531,14 @@ export function renderIncome(container, store, subTab = null) {
     `;
 
     // === Event Handlers ===
+
+    // Balance history view toggle (daily/monthly/yearly)
+    container.querySelectorAll('.bh-view-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            balanceHistoryView = chip.dataset.bhView;
+            renderIncome(container, store);
+        });
+    });
 
     // Tab switching
     container.querySelectorAll('.filters .filter-chip[data-tab]').forEach(chip => {
@@ -488,7 +707,9 @@ export function renderIncome(container, store, subTab = null) {
 
 function showOtherIncomeForm(store, existing = null) {
     const isEdit = !!existing;
-    const src = existing || { name: '', amount: 0, frequency: 'monthly', category: 'other', payDay: 1, notes: '' };
+    const raw = existing || { name: '', amount: 0, frequency: 'monthly', category: 'other', payDay: 1, notes: '' };
+    // Normalize category for proper dropdown selection
+    const src = { ...raw, category: normalizeCategoryKey(raw.category) };
 
     const formHtml = `
         <div class="form-group">

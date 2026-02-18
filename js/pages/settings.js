@@ -2,11 +2,9 @@ import { formatCurrency, escapeHtml, getScoreRating, estimateScoreImpact } from 
 import { openModal, closeModal, refreshPage, updateDependentNav } from '../app.js';
 import { auth } from '../auth.js';
 import { CATEGORY_COLORS } from '../categories.js';
-import { showAccountForm, handleOcrImport } from './accounts.js';
-import { connectBank, refreshPlaidBalances, hasPlaidConnections, updateBankConsent } from '../plaid.js';
-import { showVehicleDetail } from './vehicle-detail.js';
-import { requireMFAForUpload } from '../mfa-guard.js';
+import { hasPlaidConnections } from '../plaid.js';
 import { getThemePreference, setThemePreference } from '../theme.js';
+import { resetOnboarding, startOnboarding } from '../onboarding.js';
 
 export function renderSettings(container, store) {
     const userName = store.getUserName();
@@ -52,6 +50,19 @@ export function renderSettings(container, store) {
                         <button class="theme-option${pref === 'light' ? ' active' : ''}" data-theme="light" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'light' ? 'var(--accent)' : 'none'};color:${pref === 'light' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">Light</button>
                         <button class="theme-option${pref === 'dark' ? ' active' : ''}" data-theme="dark" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'dark' ? 'var(--accent)' : 'none'};color:${pref === 'dark' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">Dark</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-24">
+            <div class="settings-section">
+                <h3>Help</h3>
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label">App Tour</div>
+                        <div class="setting-desc">Replay the onboarding guide to learn about PennyHelm's features</div>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="replay-onboarding-btn">Replay Tour</button>
                 </div>
             </div>
         </div>
@@ -240,6 +251,49 @@ export function renderSettings(container, store) {
 
         <div class="card mb-24">
             <div class="settings-section">
+                <h3>Business Names</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                    Manage business names for categorizing expenses. Set your usage type and add businesses to track business expenses separately.
+                </p>
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label">Usage Type</div>
+                        <div class="setting-desc">How do you use PennyHelm?</div>
+                    </div>
+                    <select class="form-select" id="usage-type-select" style="width:auto;min-width:120px;">
+                        <option value="" ${!store.getUsageType() ? 'selected' : ''}>Not set</option>
+                        <option value="personal" ${store.getUsageType() === 'personal' ? 'selected' : ''}>Personal</option>
+                        <option value="business" ${store.getUsageType() === 'business' ? 'selected' : ''}>Business</option>
+                        <option value="both" ${store.getUsageType() === 'both' ? 'selected' : ''}>Both</option>
+                    </select>
+                </div>
+                <div id="business-names-section" style="${store.getUsageType() === 'business' || store.getUsageType() === 'both' ? '' : 'display:none;'}">
+                    <div id="business-names-list">
+                        ${store.getBusinessNames().map(bn => `
+                            <div class="settings-row">
+                                <div class="setting-label">${escapeHtml(bn)}</div>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <span class="text-muted" style="font-size:12px;">${store.getExpenses().filter(e => e.businessName === bn).length} expense(s)</span>
+                                    <button class="btn-icon edit-business-name" data-name="${escapeHtml(bn)}" title="Rename">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    </button>
+                                    <button class="btn-icon remove-business-name" data-name="${escapeHtml(bn)}" title="Remove" style="color:var(--red);">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div style="margin-top:12px;display:flex;gap:8px;">
+                        <input type="text" class="form-input" id="new-business-name-input" placeholder="New business name..." style="flex:1;">
+                        <button class="btn btn-primary btn-sm" id="add-business-name-btn">Add</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-24">
+            <div class="settings-section">
                 <h3>Custom Categories</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
                     Create custom categories for organizing your bills. These appear alongside the default categories.
@@ -316,6 +370,20 @@ export function renderSettings(container, store) {
         </div>
         ` : ''}
 
+        ${auth.isCloud() ? `
+        <div class="card mb-24">
+            <div class="settings-section">
+                <h3>🎟️ Your Invite Codes</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                    Share these codes with friends to invite them to PennyHelm. Each code can be used once.
+                </p>
+                <div id="registration-codes-list">
+                    <p style="color:var(--text-secondary);font-size:13px;">Loading codes...</p>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
         <div class="card">
             <div class="settings-section">
                 <h3>Summary</h3>
@@ -346,6 +414,12 @@ export function renderSettings(container, store) {
 
         <input type="file" id="import-file-input" accept=".json" style="display:none;">
     `;
+
+    // Replay onboarding tour
+    container.querySelector('#replay-onboarding-btn').addEventListener('click', () => {
+        resetOnboarding();
+        startOnboarding();
+    });
 
     // Edit user name
     container.querySelector('#edit-user-name').addEventListener('click', () => {
@@ -385,8 +459,9 @@ export function renderSettings(container, store) {
         });
     });
 
-    // === Accounts Section Event Handlers ===
-    wireAccountsEvents(container, store);
+    // Accounts summary link
+    const acctLink = container.querySelector('#settings-go-to-accounts');
+    if (acctLink) acctLink.addEventListener('click', (e) => { e.preventDefault(); window.location.hash = 'accounts'; });
 
     // Subscription status (cloud mode only)
     if (auth.isCloud()) {
@@ -956,6 +1031,73 @@ export function renderSettings(container, store) {
         }
     }
 
+    // Registration invite codes (cloud only)
+    const regCodesList = container.querySelector('#registration-codes-list');
+    if (regCodesList && auth.isCloud()) {
+        (async () => {
+            try {
+                const db = firebase.firestore();
+                const userDoc = await db.collection('users').doc(auth.getUserId()).get();
+                let codes = userDoc.exists ? (userDoc.data().registrationCodes || []) : [];
+
+                // Generate codes on first view if not yet generated
+                if (codes.length === 0) {
+                    try {
+                        const genCodes = firebase.functions().httpsCallable('generateRegistrationCodes');
+                        const result = await genCodes({});
+                        codes = result.data.codes || [];
+                    } catch (err) {
+                        regCodesList.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load invite codes.</p>';
+                        return;
+                    }
+                }
+
+                // Fetch status of each code
+                const codeStatuses = await Promise.all(codes.map(async (code) => {
+                    try {
+                        const doc = await db.collection('registrationCodes').doc(code).get();
+                        return { code, ...(doc.exists ? doc.data() : { status: 'unknown' }) };
+                    } catch { return { code, status: 'unknown' }; }
+                }));
+
+                const available = codeStatuses.filter(c => c.status === 'available').length;
+                const used = codeStatuses.filter(c => c.status === 'redeemed').length;
+
+                regCodesList.innerHTML = `
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
+                        ${available} available · ${used} used
+                    </div>
+                    ${codeStatuses.map(c => `
+                        <div class="settings-row" style="opacity:${c.status === 'redeemed' ? 0.5 : 1};padding:6px 0;">
+                            <div>
+                                <span style="font-family:monospace;letter-spacing:1px;font-size:14px;font-weight:600;">${escapeHtml(c.code)}</span>
+                                <span style="font-size:11px;margin-left:8px;color:${c.status === 'redeemed' ? 'var(--text-secondary)' : 'var(--green)'};">
+                                    ${c.status === 'redeemed' ? 'Used' : 'Available'}
+                                </span>
+                            </div>
+                            ${c.status !== 'redeemed' ? `
+                                <button class="btn btn-secondary btn-sm copy-reg-code" data-code="${escapeHtml(c.code)}" style="padding:4px 10px;font-size:11px;">
+                                    Copy
+                                </button>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                `;
+
+                regCodesList.querySelectorAll('.copy-reg-code').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        navigator.clipboard.writeText(btn.dataset.code);
+                        btn.textContent = 'Copied!';
+                        setTimeout(() => btn.textContent = 'Copy', 2000);
+                    });
+                });
+            } catch (err) {
+                console.error('Error loading registration codes:', err);
+                regCodesList.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load invite codes.</p>';
+            }
+        })();
+    }
+
     // Credit score - user
     container.querySelector('#update-user-score').addEventListener('click', () => {
         openModal(`Update ${escapeHtml(userName)}'s Credit Score`, `
@@ -1148,6 +1290,72 @@ export function renderSettings(container, store) {
         btn.addEventListener('click', () => {
             if (confirm(`Remove payment source "${btn.dataset.source}"?`)) {
                 store.removePaymentSource(btn.dataset.source);
+                refreshPage();
+            }
+        });
+    });
+
+    // === Business Names ===
+
+    // Usage type selector
+    const usageTypeSelect = container.querySelector('#usage-type-select');
+    if (usageTypeSelect) {
+        usageTypeSelect.addEventListener('change', () => {
+            const val = usageTypeSelect.value || null;
+            store.setUsageType(val);
+            const section = container.querySelector('#business-names-section');
+            if (section) {
+                section.style.display = (val === 'business' || val === 'both') ? '' : 'none';
+            }
+        });
+    }
+
+    // Add business name
+    const addBizBtn = container.querySelector('#add-business-name-btn');
+    if (addBizBtn) {
+        addBizBtn.addEventListener('click', () => {
+            const input = container.querySelector('#new-business-name-input');
+            const name = input.value.trim();
+            if (!name) return;
+            if (store.getBusinessNames().includes(name)) {
+                alert('This business name already exists.');
+                return;
+            }
+            store.addBusinessName(name);
+            refreshPage();
+        });
+
+        const bizInput = container.querySelector('#new-business-name-input');
+        if (bizInput) {
+            bizInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') addBizBtn.click();
+            });
+        }
+    }
+
+    // Edit business name
+    container.querySelectorAll('.edit-business-name').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const oldName = btn.dataset.name;
+            const newName = prompt('Rename business:', oldName);
+            if (newName && newName.trim() && newName.trim() !== oldName) {
+                store.renameBusinessName(oldName, newName.trim());
+                refreshPage();
+            }
+        });
+    });
+
+    // Remove business name
+    container.querySelectorAll('.remove-business-name').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const name = btn.dataset.name;
+            const expCount = store.getExpenses().filter(e => e.businessName === name).length;
+            let msg = `Remove business "${name}"?`;
+            if (expCount > 0) {
+                msg += ` ${expCount} expense(s) will keep their business tag but it won't appear in dropdowns.`;
+            }
+            if (confirm(msg)) {
+                store.removeBusinessName(name);
                 refreshPage();
             }
         });
@@ -1377,368 +1585,38 @@ function renderColorPicker(selectedColor = 'purple') {
     `).join('');
 }
 
-// === Accounts Section Event Handlers ===
+// (Account management moved to dedicated Accounts page)
 
-function wireAccountsEvents(container, store) {
-    const accounts = store.getAccounts();
-
-    // Add Account button
-    const addBtn = container.querySelector('#settings-add-account-btn');
-    if (addBtn) addBtn.addEventListener('click', () => showAccountForm(store));
-
-    // Empty state add button
-    const emptyAddBtn = container.querySelector('#settings-empty-add-account');
-    if (emptyAddBtn) emptyAddBtn.addEventListener('click', () => showAccountForm(store));
-
-    // Connect Bank buttons (cloud only)
-    const connectBankBtn = container.querySelector('#settings-connect-bank-btn');
-    if (connectBankBtn) connectBankBtn.addEventListener('click', () => connectBank(store, () => refreshPage()));
-
-    const emptyConnectBtn = container.querySelector('#settings-empty-connect-bank');
-    if (emptyConnectBtn) emptyConnectBtn.addEventListener('click', () => connectBank(store, () => refreshPage()));
-
-    // Refresh Connected Balances
-    const refreshPlaidBtn = container.querySelector('#settings-refresh-plaid-btn');
-    if (refreshPlaidBtn) {
-        refreshPlaidBtn.addEventListener('click', async () => {
-            refreshPlaidBtn.disabled = true;
-            refreshPlaidBtn.innerHTML = `
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                Refreshing...
-            `;
-            try {
-                const result = await refreshPlaidBalances(store);
-                if (result.errors > 0) {
-                    alert(`Refreshed ${result.updated} account(s), but ${result.errors} connection(s) had errors.`);
-                }
-                refreshPage();
-            } catch (err) {
-                console.error('Refresh error:', err);
-                alert('Failed to refresh balances. Please try again.');
-                refreshPlaidBtn.disabled = false;
-                refreshPlaidBtn.innerHTML = `
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                    Refresh Connected Balances
-                `;
-            }
-        });
-    }
-
-    // Scan Statement
-    const scanBtn = container.querySelector('#settings-scan-statement-btn');
-    const ocrInput = container.querySelector('#settings-ocr-file-input');
-    if (scanBtn && ocrInput) {
-        scanBtn.addEventListener('click', () => requireMFAForUpload(() => ocrInput.click()));
-        ocrInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) handleOcrImport(file, store, accounts);
-            e.target.value = '';
-        });
-    }
-
-    // Update balance (quick)
-    container.querySelectorAll('.settings-update-balance-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const account = accounts.find(a => a.id === btn.dataset.accountId);
-            if (!account) return;
-            const isAssetAcct = account.type === 'property' || account.type === 'vehicle';
-            const isCredit = account.type === 'credit';
-            const linkedDebt = isCredit && account.linkedDebtId ? store.getDebts().find(d => d.id === account.linkedDebtId) : null;
-            const owedLabel = account.type === 'vehicle' ? 'Amount Owed (Auto Loan)' : 'Amount Owed (Mortgage)';
-            openModal(`Update ${escapeHtml(account.name)}`, `
-                <div class="form-group">
-                    <label>${isAssetAcct ? 'Estimated Value' : 'Current Balance'}</label>
-                    <input type="number" class="form-input" id="quick-balance-input" step="0.01" value="${account.balance}">
-                </div>
-                ${isAssetAcct ? `
-                <div class="form-group">
-                    <label>${owedLabel}</label>
-                    <input type="number" class="form-input" id="quick-owed-input" step="0.01" value="${account.amountOwed || 0}">
-                </div>
-                ` : ''}
-                ${isCredit && linkedDebt ? `
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>APR %</label>
-                        <input type="number" class="form-input" id="quick-apr-input" step="0.01" value="${linkedDebt.interestRate || 0}">
-                    </div>
-                    <div class="form-group">
-                        <label>Min Payment</label>
-                        <input type="number" class="form-input" id="quick-min-input" step="0.01" value="${linkedDebt.minimumPayment || 0}">
-                    </div>
-                </div>
-                ` : ''}
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Update</button>
-                </div>
-            `);
-            document.getElementById('quick-balance-input').select();
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const val = parseFloat(document.getElementById('quick-balance-input').value);
-                if (!isNaN(val)) {
-                    const updates = { balance: val };
-                    if (isAssetAcct) {
-                        const owedVal = parseFloat(document.getElementById('quick-owed-input').value);
-                        if (!isNaN(owedVal)) updates.amountOwed = owedVal;
-                    }
-                    if (isCredit && linkedDebt) {
-                        const aprEl = document.getElementById('quick-apr-input');
-                        const minEl = document.getElementById('quick-min-input');
-                        if (aprEl) updates._interestRate = parseFloat(aprEl.value) || 0;
-                        if (minEl) updates._minimumPayment = parseFloat(minEl.value) || 0;
-                    }
-                    store.updateAccount(account.id, updates);
-                    closeModal();
-                    refreshPage();
-                }
-            });
-        });
-    });
-
-    // Edit account
-    container.querySelectorAll('.settings-edit-account-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const account = accounts.find(a => a.id === btn.dataset.accountId);
-            if (account) showAccountForm(store, account);
-        });
-    });
-
-    // Delete account
-    container.querySelectorAll('.settings-delete-account-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const account = accounts.find(a => a.id === btn.dataset.accountId);
-            const hasLink = account && account.linkedDebtId;
-            const msg = hasLink
-                ? 'Delete this account? This will also remove the linked debt and its payment bill.'
-                : 'Delete this account?';
-            if (confirm(msg)) {
-                store.deleteAccount(btn.dataset.accountId);
-                refreshPage();
-            }
-        });
-    });
-
-    // Vehicle detail click
-    container.querySelectorAll('.vehicle-link').forEach(link => {
-        link.addEventListener('click', (e) => {
-            e.stopPropagation();
-            showVehicleDetail(store, link.dataset.vehicleId);
-        });
-    });
-
-    // Toggle investment holdings panels
-    container.querySelectorAll('.settings-toggle-holdings').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const panel = document.getElementById(`settings-holdings-${btn.dataset.accountId}`);
-            if (panel) {
-                const isHidden = panel.style.display === 'none';
-                panel.style.display = isHidden ? '' : 'none';
-                btn.style.background = isHidden ? 'var(--accent)' : 'var(--accent-bg)';
-                btn.style.color = isHidden ? 'var(--bg)' : 'var(--accent)';
-            }
-        });
-    });
-
-    // Update consent for investment accounts (enable holdings)
-    container.querySelectorAll('.settings-update-consent-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const itemId = btn.dataset.itemId;
-            if (!itemId) return;
-            btn.textContent = '⏳ Opening...';
-            btn.style.pointerEvents = 'none';
-            try {
-                await updateBankConsent(store, itemId, () => refreshPage());
-            } catch (err) {
-                console.error('Update consent error:', err);
-                btn.textContent = '⚠ Enable Holdings';
-                btn.style.pointerEvents = '';
-            }
-        });
-    });
-}
-
-// === Accounts Section (embedded in Settings) ===
+// === Accounts Summary (links to dedicated Accounts page) ===
 
 function renderAccountsSection(store) {
     const accounts = store.getAccounts();
-    const isCloud = auth.isCloud();
     const hasPlaid = hasPlaidConnections(store);
 
     const cashTotal = accounts.filter(a => a.type === 'checking' || a.type === 'savings').reduce((s, a) => s + a.balance, 0);
     const creditTotal = accounts.filter(a => a.type === 'credit').reduce((s, a) => s + a.balance, 0);
     const investTotal = accounts.filter(a => a.type === 'investment' || a.type === 'retirement').reduce((s, a) => s + a.balance, 0);
-    const propEquity = accounts.filter(a => a.type === 'property').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
-    const propCount = accounts.filter(a => a.type === 'property').length;
-    const vehicleEquity = accounts.filter(a => a.type === 'vehicle').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
-    const vehicleCount = accounts.filter(a => a.type === 'vehicle').length;
-    const netTotal = cashTotal + investTotal + propEquity + vehicleEquity - creditTotal;
-
-    const typeLabels = { credit: 'Credit Card', savings: 'Savings', checking: 'Checking', investment: 'Brokerage/Investment', retirement: '401(k) / Retirement', property: 'Property', vehicle: 'Vehicle' };
+    const assetEquity = accounts.filter(a => a.type === 'property' || a.type === 'vehicle' || a.type === 'equipment' || a.type === 'other-asset').reduce((s, a) => s + (a.balance - (a.amountOwed || 0)), 0);
+    const netTotal = cashTotal + investTotal + assetEquity - creditTotal;
 
     return `
         <div class="card mb-24">
             <div class="settings-section">
-                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
                     <div>
                         <h3 style="margin:0;">Accounts & Investments</h3>
-                        <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${accounts.length} account${accounts.length !== 1 ? 's' : ''} &middot; Net: ${formatCurrency(netTotal)}</div>
-                    </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        ${isCloud ? '<button class="btn btn-secondary btn-sm" id="settings-connect-bank-btn" style="display:flex;align-items:center;gap:4px;"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
-                        <button class="btn btn-secondary btn-sm" id="settings-scan-statement-btn">Scan Statement</button>
-                        <button class="btn btn-primary btn-sm" id="settings-add-account-btn">+ Add Account</button>
-                    </div>
-                </div>
-
-                ${accounts.length > 0 ? `
-                <div class="card-grid" style="margin-bottom:16px;">
-                    ${cashTotal !== 0 || accounts.some(a => a.type === 'checking' || a.type === 'savings') ? `
-                    <div class="stat-card ${cashTotal >= 0 ? 'green' : 'red'}">
-                        <div class="label">Cash / Savings</div>
-                        <div class="value">${formatCurrency(cashTotal)}</div>
-                        <div class="sub">${accounts.filter(a => a.type === 'checking' || a.type === 'savings').length} account${accounts.filter(a => a.type === 'checking' || a.type === 'savings').length !== 1 ? 's' : ''}</div>
-                    </div>
-                    ` : ''}
-                    ${investTotal > 0 ? `
-                    <div class="stat-card green">
-                        <div class="label">Investments / Retirement</div>
-                        <div class="value">${formatCurrency(investTotal)}</div>
-                        <div class="sub">${accounts.filter(a => a.type === 'investment' || a.type === 'retirement').length} account${accounts.filter(a => a.type === 'investment' || a.type === 'retirement').length !== 1 ? 's' : ''}</div>
-                    </div>
-                    ` : ''}
-                    ${propCount > 0 ? `
-                    <div class="stat-card ${propEquity >= 0 ? 'green' : 'red'}">
-                        <div class="label">Property Equity</div>
-                        <div class="value">${formatCurrency(propEquity)}</div>
-                        <div class="sub">${propCount} propert${propCount !== 1 ? 'ies' : 'y'}</div>
-                    </div>
-                    ` : ''}
-                    ${vehicleCount > 0 ? `
-                    <div class="stat-card ${vehicleEquity >= 0 ? 'green' : 'red'}">
-                        <div class="label">Vehicle Equity</div>
-                        <div class="value">${formatCurrency(vehicleEquity)}</div>
-                        <div class="sub">${vehicleCount} vehicle${vehicleCount !== 1 ? 's' : ''}</div>
-                    </div>
-                    ` : ''}
-                    ${creditTotal > 0 ? `
-                    <div class="stat-card red">
-                        <div class="label">Credit Owed</div>
-                        <div class="value">${formatCurrency(creditTotal)}</div>
-                        <div class="sub">${accounts.filter(a => a.type === 'credit').length} card${accounts.filter(a => a.type === 'credit').length !== 1 ? 's' : ''}</div>
-                    </div>
-                    ` : ''}
-                    <div class="stat-card ${netTotal >= 0 ? 'blue' : 'red'}">
-                        <div class="label">Net Total</div>
-                        <div class="value">${formatCurrency(netTotal)}</div>
-                        <div class="sub">${accounts.length} account${accounts.length !== 1 ? 's' : ''} total</div>
-                    </div>
-                </div>
-
-                ${hasPlaid ? `
-                <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
-                    <button class="btn btn-secondary btn-sm" id="settings-refresh-plaid-btn" style="display:flex;align-items:center;gap:4px;font-size:11px;">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                        Refresh Connected Balances
-                    </button>
-                </div>
-                ` : ''}
-
-                <div id="settings-accounts-list">
-                    ${accounts.map(a => {
-                        const updated = a.lastUpdated ? new Date(a.lastUpdated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never';
-                        const typeLabel = typeLabels[a.type] || 'Checking';
-                        const balanceClass = a.type === 'credit' ? 'text-red' : 'text-green';
-                        const isLinked = !!a.linkedDebtId;
-                        const isPlaidAcct = !!a.plaidAccountId;
-                        const linkedDebt = isLinked ? store.getDebts().find(d => d.id === a.linkedDebtId) : null;
-                        const isAssetWithLoan = a.type === 'property' || a.type === 'vehicle';
-                        const isInvestment = a.type === 'investment' || a.type === 'retirement';
-                        const needsConsent = isInvestment && isPlaidAcct && !(a.holdings && a.holdings.length > 0);
-                        const balanceHtml = isAssetWithLoan ? (() => {
-                            const owed = a.amountOwed || 0;
-                            const equity = a.balance - owed;
-                            return `<div style="text-align:right;">
-                                <div class="text-green" style="font-size:16px;font-weight:700;">${formatCurrency(a.balance)}</div>
-                                ${owed > 0 ? `<div class="text-red" style="font-size:12px;">Owed: ${formatCurrency(owed)}</div>` : ''}
-                                <div class="${equity >= 0 ? 'text-green' : 'text-red'}" style="font-size:13px;font-weight:600;">Equity: ${formatCurrency(equity)}</div>
-                            </div>`;
-                        })() : `<span class="${balanceClass}" style="font-size:16px;font-weight:700;">${a.type === 'credit' ? '-' : ''}${formatCurrency(Math.abs(a.balance))}</span>`;
-                        return `
-                        <div class="settings-row" style="flex-wrap:wrap;">
-                            <div style="flex:1;min-width:150px;">
-                                <div class="setting-label">
-                                    ${a.type === 'vehicle' ? `<span class="vehicle-link" data-vehicle-id="${a.id}">${escapeHtml(a.name)}</span>` : escapeHtml(a.name)}
-                                    ${isPlaidAcct ? `<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--green-bg);color:var(--green);border:1px solid var(--green);border-radius:4px;vertical-align:middle;" title="${escapeHtml(a.plaidInstitution || 'Bank')} &middot; ****${a.plaidMask || ''}">&#127974; ${escapeHtml(a.plaidInstitution || 'Bank')}</span>` : ''}
-                                    ${isLinked ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;border-radius:4px;vertical-align:middle;" title="Linked to debt">&#128279; Linked</span>' : ''}
-                                    ${isInvestment && a.holdings && a.holdings.length > 0 ? `<span class="settings-toggle-holdings" data-account-id="${a.id}" style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent);border-radius:4px;cursor:pointer;vertical-align:middle;" title="Click to show/hide holdings">📊 ${a.holdings.length} holdings</span>` : ''}
-                                    ${needsConsent ? `<span class="settings-update-consent-btn" data-item-id="${a.plaidItemId}" style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--yellow-bg, #fef3c7);color:var(--yellow, #d97706);border:1px solid var(--yellow, #d97706);border-radius:4px;cursor:pointer;vertical-align:middle;" title="Grant additional permissions to see holdings data">⚠ Enable Holdings</span>` : ''}
-                                </div>
-                                <div class="setting-desc">${typeLabel} &middot; Updated ${updated}${linkedDebt ? ` &middot; ${linkedDebt.interestRate.toFixed(1)}% APR &middot; ${formatCurrency(linkedDebt.minimumPayment)} min` : ''}</div>
-                            </div>
-                            <div style="display:flex;align-items:center;gap:8px;">
-                                ${balanceHtml}
-                                <button class="btn btn-secondary btn-sm settings-update-balance-btn" data-account-id="${a.id}" style="font-size:11px;padding:2px 8px;">Update</button>
-                                <button class="btn-icon settings-edit-account-btn" data-account-id="${a.id}" title="Edit">
-                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                </button>
-                                <button class="btn-icon settings-delete-account-btn" data-account-id="${a.id}" title="Delete" style="color:var(--red);">
-                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                </button>
-                            </div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                            ${accounts.length} account${accounts.length !== 1 ? 's' : ''}
+                            &middot; Net: <strong style="color:${netTotal >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCurrency(netTotal)}</strong>
+                            ${hasPlaid ? ' &middot; <span style="color:var(--green);">Bank connected</span>' : ''}
                         </div>
-                        ${isInvestment && a.holdings && a.holdings.length > 0 ? `
-                        <div class="settings-holdings-panel" id="settings-holdings-${a.id}" style="display:none;padding:0 0 12px 0;border-bottom:1px solid var(--border);">
-                            <table style="width:100%;font-size:12px;">
-                                <thead>
-                                    <tr style="text-align:left;">
-                                        <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;">Name</th>
-                                        <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;">Ticker</th>
-                                        <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;">Type</th>
-                                        <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Shares</th>
-                                        <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Price</th>
-                                        <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Value</th>
-                                        <th style="padding:6px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:right;">Gain/Loss</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${a.holdings.map(h => {
-                                        const gain = (h.value != null && h.costBasis != null) ? h.value - h.costBasis : null;
-                                        const gainPct = (gain != null && h.costBasis > 0) ? (gain / h.costBasis * 100) : null;
-                                        return `<tr style="border-top:1px solid var(--border);">
-                                            <td style="padding:6px 10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(h.name)}">${escapeHtml(h.name)}</td>
-                                            <td style="padding:6px 10px;font-weight:600;color:var(--accent);">${h.ticker || '—'}</td>
-                                            <td style="padding:6px 10px;color:var(--text-muted);text-transform:capitalize;">${h.type || '—'}</td>
-                                            <td style="padding:6px 10px;text-align:right;">${h.quantity != null ? h.quantity.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 4}) : '—'}</td>
-                                            <td style="padding:6px 10px;text-align:right;">${h.price != null ? formatCurrency(h.price) : '—'}</td>
-                                            <td style="padding:6px 10px;text-align:right;font-weight:600;">${h.value != null ? formatCurrency(h.value) : '—'}</td>
-                                            <td style="padding:6px 10px;text-align:right;font-weight:600;color:${gain != null ? (gain >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--text-muted)'};">
-                                                ${gain != null ? `${gain >= 0 ? '+' : ''}${formatCurrency(gain)}` : '—'}
-                                                ${gainPct != null ? `<div style="font-size:10px;font-weight:normal;">${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}%</div>` : ''}
-                                            </td>
-                                        </tr>`;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                        ` : ''}
-                        `;
-                    }).join('')}
-                </div>
-                ` : `
-                <div style="text-align:center;padding:24px 16px;">
-                    <div style="font-size:36px;margin-bottom:12px;">&#127974;</div>
-                    <p style="color:var(--text-muted);margin-bottom:16px;font-size:13px;">No accounts tracked yet. Add your bank accounts, investments, and property to track your net worth.</p>
-                    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-                        ${isCloud ? '<button class="btn btn-primary btn-sm" id="settings-empty-connect-bank" style="display:flex;align-items:center;gap:4px;"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
-                        <button class="btn ${isCloud ? 'btn-secondary' : 'btn-primary'} btn-sm" id="settings-empty-add-account">+ Add Manually</button>
                     </div>
+                    <a href="#accounts" id="settings-go-to-accounts" class="btn btn-secondary btn-sm" style="display:flex;align-items:center;gap:6px;">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg>
+                        Manage Accounts
+                    </a>
                 </div>
-                `}
             </div>
         </div>
-
-        <input type="file" id="settings-ocr-file-input" accept=".jpg,.jpeg,.png,.webp" style="display:none;">
     `;
 }

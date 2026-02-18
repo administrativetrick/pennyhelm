@@ -1,74 +1,10 @@
 import { formatCurrency, getCategoryBadgeClass, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
+import { expandBillOccurrences } from '../services/financial-service.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
-// Expand a recurring bill into individual dated occurrences within a date range
-function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = []) {
-    const occurrences = [];
-    const freq = bill.frequency;
-
-    if (freq === 'weekly') {
-        const targetDay = (bill.dueDay || 0) % 7;
-        let cursor = new Date(rangeStart);
-        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
-        while (cursor <= rangeEnd) {
-            occurrences.push({
-                ...bill,
-                _occurrenceDate: new Date(cursor),
-                _occurrenceKey: `${bill.id}_w_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
-            });
-            cursor = new Date(cursor.getTime() + 7 * 86400000);
-        }
-    } else if (freq === 'biweekly') {
-        const targetDay = (bill.dueDay || 0) % 7;
-        let cursor = new Date(rangeStart);
-        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
-        while (cursor <= rangeEnd) {
-            occurrences.push({
-                ...bill,
-                _occurrenceDate: new Date(cursor),
-                _occurrenceKey: `${bill.id}_bw_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
-            });
-            cursor = new Date(cursor.getTime() + 14 * 86400000);
-        }
-    } else if (freq === 'per-paycheck') {
-        payDatesInRange.forEach((pd, idx) => {
-            const payDate = new Date(pd);
-            if (payDate >= rangeStart && payDate <= rangeEnd) {
-                occurrences.push({
-                    ...bill,
-                    _occurrenceDate: payDate,
-                    _occurrenceKey: `${bill.id}_pp_${idx}_${payDate.getTime()}`,
-                });
-            }
-        });
-    } else if (freq === 'twice-monthly') {
-        const byMonth = {};
-        payDatesInRange.forEach(pd => {
-            const d = new Date(pd);
-            const key = `${d.getFullYear()}-${d.getMonth()}`;
-            if (!byMonth[key]) byMonth[key] = [];
-            byMonth[key].push(d);
-        });
-        Object.values(byMonth).forEach(monthDates => {
-            monthDates.sort((a, b) => a - b);
-            const first = monthDates[0];
-            const last = monthDates[monthDates.length - 1];
-            if (first >= rangeStart && first <= rangeEnd) {
-                occurrences.push({ ...bill, _occurrenceDate: first, _occurrenceKey: `${bill.id}_tm_first_${first.getTime()}` });
-            }
-            if (last.getTime() !== first.getTime() && last >= rangeStart && last <= rangeEnd) {
-                occurrences.push({ ...bill, _occurrenceDate: last, _occurrenceKey: `${bill.id}_tm_last_${last.getTime()}` });
-            }
-        });
-    } else {
-        return null; // monthly, yearly, semi-annual — no expansion
-    }
-    return occurrences;
-}
 
 let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
 let cfPeriodOffset = 0; // For cashflow view pay period navigation
@@ -239,7 +175,7 @@ export function renderBills(container, store) {
             ${billsViewMode === 'month' ? '<button class="filter-chip" data-filter="frozen" style="border-color:var(--blue);color:var(--blue);">Frozen</button>' : ''}
         </div>
 
-        <div class="table-wrapper">
+        <div class="table-wrapper bills-table">
             <table>
                 <thead>
                     <tr>
@@ -266,7 +202,7 @@ export function renderBills(container, store) {
                 ${billsViewMode === 'paycheck' && periodicBills.length > 0 ? '<span style="font-size:11px;font-weight:400;margin-left:8px;color:var(--accent);">Due this period</span>' : ''}
                 ${billsViewMode === 'month' ? `<span style="font-size:11px;font-weight:400;margin-left:8px;color:var(--text-muted);">${allPeriodicBills.filter(b => !b.frozen).length} total</span>` : ''}
             </h3>
-            <div class="table-wrapper">
+            <div class="table-wrapper bills-table">
                 <table>
                     <thead>
                         <tr>

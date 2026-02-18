@@ -29,7 +29,8 @@ service cloud.firestore {
                           && !request.resource.data.diff(resource.data).affectedKeys()
                               .hasAny(['subscriptionStatus', 'trialStartDate', 'createdAt',
                                        'stripeCustomerId', 'stripeSubscriptionId', 'subscribedAt',
-                                       'subscriptionPeriodEnd', 'mfaEnabled', 'lastMFAVerification']))
+                                       'subscriptionPeriodEnd', 'mfaEnabled', 'lastMFAVerification',
+                                       'invitedBy', 'registrationCodes', 'registrationCodesGenerated']))
                       || (request.auth.uid == userId
                           && request.resource.data.subscriptionStatus == 'trial'
                           && 'trialCode' in request.resource.data
@@ -130,6 +131,20 @@ service cloud.firestore {
                     && request.resource.data.uid == request.auth.uid;
       // Only admin can read (for troubleshooting) and delete (cleanup)
       allow read, delete: if isAdmin();
+    }
+
+    // Registration invite codes — authenticated users can read (to check status),
+    // only Cloud Functions (admin SDK) can write
+    match /registrationCodes/{codeString} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Waitlist — Cloud Functions handle all writes via admin SDK
+    // No client reads needed (status checked via Cloud Function)
+    match /waitlist/{email} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     // Deny everything else

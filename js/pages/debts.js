@@ -1,6 +1,34 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { showVehicleDetail } from './vehicle-detail.js';
+import { auth } from '../auth.js';
+import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
+
+let activeDebtsTab = 'debts';
+
+const EXPENSE_CATEGORIES = {
+    'groceries': { label: 'Groceries', color: '#22c55e' },
+    'dining': { label: 'Dining', color: '#f97316' },
+    'gas': { label: 'Gas', color: '#6366f1' },
+    'transportation': { label: 'Transport', color: '#0ea5e9' },
+    'shopping': { label: 'Shopping', color: '#ec4899' },
+    'entertainment': { label: 'Entertainment', color: '#a855f7' },
+    'healthcare': { label: 'Healthcare', color: '#ef4444' },
+    'personal-care': { label: 'Personal Care', color: '#14b8a6' },
+    'home': { label: 'Home', color: '#8b5cf6' },
+    'utilities': { label: 'Utilities', color: '#eab308' },
+    'education': { label: 'Education', color: '#3b82f6' },
+    'travel': { label: 'Travel', color: '#06b6d4' },
+    'gifts': { label: 'Gifts', color: '#f43f5e' },
+    'subscriptions': { label: 'Subscriptions', color: '#64748b' },
+    'pets': { label: 'Pets', color: '#d97706' },
+    'other': { label: 'Other', color: '#94a3b8' }
+};
+
+function getExpenseCategoryBadge(category) {
+    const cat = EXPENSE_CATEGORIES[category] || EXPENSE_CATEGORIES['other'];
+    return `<span class="badge" style="background:${cat.color}20;color:${cat.color};border:1px solid ${cat.color}40;">${cat.label}</span>`;
+}
 
 const DEBT_TYPES = {
     'credit-card': { label: 'Credit Card', color: 'var(--red)' },
@@ -200,6 +228,16 @@ function getIndividualDebtFreeDate(months) {
 }
 
 export function renderDebts(container, store) {
+    // Check URL hash for sub-tab
+    const hash = window.location.hash;
+    if (hash === '#debts/expenses') activeDebtsTab = 'expenses';
+    else if (hash === '#debts' || hash === '#debts/debts') activeDebtsTab = 'debts';
+
+    if (activeDebtsTab === 'expenses') {
+        renderExpensesTab(container, store);
+        return;
+    }
+
     const debts = store.getDebts();
     const bills = store.getBills();
     const budget = store.getDebtBudget();
@@ -232,6 +270,11 @@ export function renderDebts(container, store) {
                 <button class="btn btn-secondary" id="set-budget-btn">Set Budget</button>
                 <button class="btn btn-primary" id="add-debt-btn">+ Add Debt</button>
             </div>
+        </div>
+
+        <div class="filter-chips" style="margin-bottom:20px;">
+            <button class="filter-chip active" data-tab="debts">Debts</button>
+            <button class="filter-chip" data-tab="expenses">Expenses</button>
         </div>
 
         <div class="stats-grid">
@@ -351,7 +394,7 @@ export function renderDebts(container, store) {
         ` : `
             <div class="card" style="margin-top:24px;">
                 <h3 style="margin-bottom:16px;">Your Debts</h3>
-                <div class="table-wrapper">
+                <div class="table-wrapper debts-table">
                     <table>
                         <thead>
                             <tr>
@@ -490,6 +533,15 @@ export function renderDebts(container, store) {
         ` : ''}
     `;
 
+    // Tab switching
+    container.querySelectorAll('.filter-chip[data-tab]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            activeDebtsTab = chip.dataset.tab;
+            window.location.hash = chip.dataset.tab === 'debts' ? '#debts' : '#debts/expenses';
+            refreshPage();
+        });
+    });
+
     // Event handlers
     container.querySelector('#add-debt-btn').addEventListener('click', () => showDebtForm(store));
     container.querySelector('#set-budget-btn').addEventListener('click', () => showBudgetForm(store, budget));
@@ -573,6 +625,359 @@ export function renderDebts(container, store) {
             e.stopPropagation();
             showVehicleDetail(store, link.dataset.vehicleId);
         });
+    });
+}
+
+function getExpenseTypeBadge(expense) {
+    if (expense.expenseType === 'business') {
+        var bName = expense.businessName ? escapeHtml(expense.businessName) : 'Business';
+        return '<span class="badge" style="background:#f59e0b20;color:#f59e0b;border:1px solid #f59e0b40;">' + bName + '</span>';
+    }
+    return '<span class="badge" style="background:#3b82f620;color:#3b82f6;border:1px solid #3b82f640;">Personal</span>';
+}
+
+function getSourceBadge(expense) {
+    if (expense.source === 'plaid') {
+        return '<span style="font-size:10px;color:var(--text-muted);display:inline-flex;align-items:center;gap:2px;" title="Imported from bank"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/></svg> Auto</span>';
+    }
+    return '';
+}
+
+function renderExpensesTab(container, store) {
+    const expenses = store.getExpenses();
+    const usageType = store.getUsageType();
+    const showTypeColumn = usageType === 'business' || usageType === 'both';
+    const showPlaidSync = auth.isCloud() && hasPlaidConnections(store);
+
+    // Summary calculations
+    const now = new Date();
+    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const thisMonthExpenses = expenses.filter(e => (e.date || '').startsWith(thisMonth));
+    const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const avgExpense = expenses.length > 0 ? expenses.reduce((sum, e) => sum + (e.amount || 0), 0) / expenses.length : 0;
+
+    // Business vs Personal totals
+    const personalTotal = thisMonthExpenses.filter(e => e.expenseType !== 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
+    const businessTotal = thisMonthExpenses.filter(e => e.expenseType === 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
+
+    // Top category
+    const catCounts = {};
+    expenses.forEach(e => {
+        const cat = e.category || 'other';
+        catCounts[cat] = (catCounts[cat] || 0) + (e.amount || 0);
+    });
+    const topCat = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0];
+    const topCategoryLabel = topCat ? (EXPENSE_CATEGORIES[topCat[0]]?.label || 'Other') : 'N/A';
+
+    // Sort expenses by date descending
+    const sorted = [...expenses].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    // Last sync info
+    const lastSync = store.getLastTransactionSync();
+    const lastSyncLabel = lastSync ? new Date(lastSync).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Never';
+
+    container.innerHTML = `
+        <div class="page-header">
+            <div>
+                <h2>Expenses</h2>
+                <div class="subtitle">${expenses.length} expense${expenses.length !== 1 ? 's' : ''} tracked</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                ${showPlaidSync ? `<button class="btn btn-secondary btn-sm" id="sync-transactions-btn" title="Import transactions from connected banks">Sync Transactions</button>` : ''}
+                <button class="btn btn-primary" id="add-expense-btn">+ Add Expense</button>
+            </div>
+        </div>
+
+        <div class="filter-chips" style="margin-bottom:20px;">
+            <button class="filter-chip" data-tab="debts">Debts</button>
+            <button class="filter-chip active" data-tab="expenses">Expenses</button>
+        </div>
+
+        ${showPlaidSync ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">Last synced: ${lastSyncLabel}</div>` : ''}
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">This Month</div>
+                <div class="stat-value" style="color:var(--red);">${formatCurrency(thisMonthTotal)}</div>
+            </div>
+            ${showTypeColumn ? `
+            <div class="stat-card">
+                <div class="stat-label">Personal</div>
+                <div class="stat-value" style="color:#3b82f6;">${formatCurrency(personalTotal)}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Business</div>
+                <div class="stat-value" style="color:#f59e0b;">${formatCurrency(businessTotal)}</div>
+            </div>
+            ` : `
+            <div class="stat-card">
+                <div class="stat-label">Avg Expense</div>
+                <div class="stat-value">${formatCurrency(avgExpense)}</div>
+            </div>
+            `}
+            <div class="stat-card">
+                <div class="stat-label">Top Category</div>
+                <div class="stat-value" style="font-size:16px;">${topCategoryLabel}</div>
+            </div>
+        </div>
+
+        ${sorted.length === 0 ? `
+            <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
+                <div style="font-size:48px;margin-bottom:16px;">&#128206;</div>
+                <h3 style="margin-bottom:8px;">No expenses tracked</h3>
+                <p style="color:var(--text-muted);margin-bottom:24px;">Start tracking your spending to see where your money goes${showPlaidSync ? ' or sync from your bank' : ''}</p>
+                <div style="display:flex;gap:8px;justify-content:center;">
+                    <button class="btn btn-primary" id="empty-add-expense">+ Add Your First Expense</button>
+                    ${showPlaidSync ? `<button class="btn btn-secondary" id="empty-sync-btn">Sync From Bank</button>` : ''}
+                </div>
+            </div>
+        ` : `
+            <div class="card" style="margin-top:24px;">
+                <h3 style="margin-bottom:16px;">Your Expenses</h3>
+                <div class="table-wrapper expenses-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Name</th>
+                                <th>Category</th>
+                                ${showTypeColumn ? '<th>Type</th>' : ''}
+                                <th>Vendor</th>
+                                <th>Amount</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${sorted.map(exp => `
+                                <tr>
+                                    <td style="white-space:nowrap;">${exp.date ? new Date(exp.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</td>
+                                    <td>
+                                        <div style="font-weight:600;">${escapeHtml(exp.name || '')} ${getSourceBadge(exp)}</div>
+                                        ${exp.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(exp.notes)}</div>` : ''}
+                                    </td>
+                                    <td>${getExpenseCategoryBadge(exp.category)}</td>
+                                    ${showTypeColumn ? `<td>${getExpenseTypeBadge(exp)}</td>` : ''}
+                                    <td style="color:var(--text-secondary);">${escapeHtml(exp.vendor || '')}</td>
+                                    <td><div class="font-bold" style="color:var(--red);">${formatCurrency(exp.amount || 0)}</div></td>
+                                    <td>
+                                        <div style="display:flex;gap:4px;">
+                                            <button class="btn-icon edit-expense" data-expense-id="${exp.id}" title="Edit">
+                                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                            </button>
+                                            <button class="btn-icon delete-expense" data-expense-id="${exp.id}" title="Delete" style="color:var(--red);">
+                                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `}
+    `;
+
+    // Tab switching
+    container.querySelectorAll('.filter-chip[data-tab]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            activeDebtsTab = chip.dataset.tab;
+            window.location.hash = chip.dataset.tab === 'debts' ? '#debts' : '#debts/expenses';
+            refreshPage();
+        });
+    });
+
+    // Add expense button
+    container.querySelector('#add-expense-btn').addEventListener('click', () => showExpenseForm(store));
+    const emptyAddBtn = container.querySelector('#empty-add-expense');
+    if (emptyAddBtn) {
+        emptyAddBtn.addEventListener('click', () => showExpenseForm(store));
+    }
+
+    // Sync transactions button
+    const syncBtn = container.querySelector('#sync-transactions-btn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', async () => {
+            syncBtn.disabled = true;
+            syncBtn.textContent = 'Syncing...';
+            try {
+                const result = await syncPlaidTransactions(store);
+                if (result.imported > 0) {
+                    alert(`Imported ${result.imported} new transaction(s) as expenses.`);
+                    refreshPage();
+                } else {
+                    alert('No new transactions to import.');
+                    refreshPage();
+                }
+            } catch (err) {
+                alert('Failed to sync transactions. Please try again.');
+                syncBtn.disabled = false;
+                syncBtn.textContent = 'Sync Transactions';
+            }
+        });
+    }
+
+    const emptySyncBtn = container.querySelector('#empty-sync-btn');
+    if (emptySyncBtn) {
+        emptySyncBtn.addEventListener('click', async () => {
+            emptySyncBtn.disabled = true;
+            emptySyncBtn.textContent = 'Syncing...';
+            try {
+                const result = await syncPlaidTransactions(store);
+                if (result.imported > 0) {
+                    alert(`Imported ${result.imported} new transaction(s) as expenses.`);
+                }
+                refreshPage();
+            } catch (err) {
+                alert('Failed to sync transactions. Please try again.');
+                refreshPage();
+            }
+        });
+    }
+
+    // Edit/Delete expense handlers
+    container.querySelectorAll('.edit-expense').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const expense = expenses.find(e => e.id === btn.dataset.expenseId);
+            if (expense) showExpenseForm(store, expense);
+        });
+    });
+
+    container.querySelectorAll('.delete-expense').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (confirm('Delete this expense?')) {
+                store.deleteExpense(btn.dataset.expenseId);
+                refreshPage();
+            }
+        });
+    });
+}
+
+function showExpenseForm(store, existingExpense = null) {
+    const isEdit = !!existingExpense;
+    const expense = existingExpense || {
+        name: '',
+        amount: 0,
+        category: 'other',
+        date: new Date().toISOString().split('T')[0],
+        vendor: '',
+        notes: '',
+        expenseType: 'personal',
+        businessName: null
+    };
+
+    const usageType = store.getUsageType();
+    const showTypeField = usageType === 'business' || usageType === 'both';
+    const businessNames = store.getBusinessNames();
+
+    const formHtml = `
+        <div class="form-group">
+            <label>Expense Name</label>
+            <input type="text" class="form-input" id="expense-name" value="${escapeHtml(expense.name || '')}" placeholder="e.g., Weekly groceries">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Amount</label>
+                <input type="number" class="form-input" id="expense-amount" step="0.01" value="${expense.amount || ''}" placeholder="0.00">
+            </div>
+            <div class="form-group">
+                <label>Date</label>
+                <input type="date" class="form-input" id="expense-date" value="${expense.date || new Date().toISOString().split('T')[0]}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Category</label>
+            <select class="form-select" id="expense-category">
+                ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
+                    `<option value="${key}" ${expense.category === key ? 'selected' : ''}>${val.label}</option>`
+                ).join('')}
+            </select>
+        </div>
+        ${showTypeField ? `
+        <div class="form-row">
+            <div class="form-group">
+                <label>Expense Type</label>
+                <select class="form-select" id="expense-type">
+                    <option value="personal" ${expense.expenseType !== 'business' ? 'selected' : ''}>Personal</option>
+                    <option value="business" ${expense.expenseType === 'business' ? 'selected' : ''}>Business</option>
+                </select>
+            </div>
+            <div class="form-group" id="business-name-group" style="${expense.expenseType !== 'business' ? 'display:none;' : ''}">
+                <label>Business Name</label>
+                <select class="form-select" id="expense-business-name">
+                    <option value="">Select business...</option>
+                    ${businessNames.map(bn =>
+                        `<option value="${escapeHtml(bn)}" ${expense.businessName === bn ? 'selected' : ''}>${escapeHtml(bn)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+        </div>
+        ` : ''}
+        <div class="form-group">
+            <label>Vendor (optional)</label>
+            <input type="text" class="form-input" id="expense-vendor" value="${escapeHtml(expense.vendor || '')}" placeholder="e.g., Costco">
+        </div>
+        <div class="form-group">
+            <label>Notes (optional)</label>
+            <input type="text" class="form-input" id="expense-notes" value="${escapeHtml(expense.notes || '')}">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+            <button class="btn btn-primary" id="modal-save">${isEdit ? 'Update' : 'Add'} Expense</button>
+        </div>
+    `;
+
+    openModal(isEdit ? 'Edit Expense' : 'Add Expense', formHtml);
+
+    // Show/hide business name based on expense type
+    const typeSelect = document.getElementById('expense-type');
+    if (typeSelect) {
+        typeSelect.addEventListener('change', () => {
+            const group = document.getElementById('business-name-group');
+            if (group) {
+                group.style.display = typeSelect.value === 'business' ? '' : 'none';
+            }
+        });
+    }
+
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+    document.getElementById('modal-save').addEventListener('click', () => {
+        const data = {
+            name: document.getElementById('expense-name').value.trim(),
+            amount: parseFloat(document.getElementById('expense-amount').value) || 0,
+            date: document.getElementById('expense-date').value,
+            category: document.getElementById('expense-category').value,
+            vendor: document.getElementById('expense-vendor').value.trim(),
+            notes: document.getElementById('expense-notes').value.trim()
+        };
+
+        // Expense type fields
+        if (showTypeField) {
+            data.expenseType = document.getElementById('expense-type').value;
+            if (data.expenseType === 'business') {
+                data.businessName = document.getElementById('expense-business-name').value || null;
+            } else {
+                data.businessName = null;
+            }
+        }
+
+        if (!data.name) {
+            alert('Please enter an expense name');
+            return;
+        }
+        if (data.amount <= 0) {
+            alert('Please enter a valid amount');
+            return;
+        }
+
+        if (isEdit) {
+            store.updateExpense(existingExpense.id, data);
+        } else {
+            store.addExpense(data);
+        }
+
+        closeModal();
+        refreshPage();
     });
 }
 
