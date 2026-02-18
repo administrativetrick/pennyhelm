@@ -6,6 +6,7 @@ data/
 
 # Firebase
 firebase-service-account.json
+auth_export.json
 .firebase/
 .firebaserc
 
