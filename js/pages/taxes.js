@@ -455,7 +455,7 @@ function renderDeductionsTab(container, store, allDeductions, year) {
         ` : `
             <div class="card">
                 <h3 style="margin-bottom:16px;">Deductions List</h3>
-                <div class="table-wrapper">
+                <div class="table-wrapper deductions-table">
                     <table>
                         <thead>
                             <tr>

@@ -216,10 +216,49 @@ export function renderAccounts(container, store) {
         });
     }
 
-    // Refresh Connected Balances button
+    // Refresh Connected Balances button (rate limited to once per 15 minutes)
     const refreshPlaidBtn = container.querySelector('#refresh-plaid-btn');
     if (refreshPlaidBtn) {
+        const REFRESH_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
+        const STORAGE_KEY = 'pennyhelm_last_plaid_refresh';
+        const refreshIcon = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+
+        function getRemainingCooldown() {
+            const last = parseInt(localStorage.getItem(STORAGE_KEY) || '0', 10);
+            const elapsed = Date.now() - last;
+            return elapsed < REFRESH_COOLDOWN_MS ? REFRESH_COOLDOWN_MS - elapsed : 0;
+        }
+
+        function formatCountdown(ms) {
+            const mins = Math.floor(ms / 60000);
+            const secs = Math.floor((ms % 60000) / 1000);
+            return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        }
+
+        let cooldownTimer = null;
+        function startCooldownTimer() {
+            function tick() {
+                const remaining = getRemainingCooldown();
+                if (remaining <= 0) {
+                    refreshPlaidBtn.disabled = false;
+                    refreshPlaidBtn.innerHTML = `${refreshIcon} Refresh Connected Balances`;
+                    cooldownTimer = null;
+                    return;
+                }
+                refreshPlaidBtn.disabled = true;
+                refreshPlaidBtn.innerHTML = `${refreshIcon} Retry in ${formatCountdown(remaining)}`;
+                cooldownTimer = setTimeout(tick, 1000);
+            }
+            tick();
+        }
+
+        // Check if still in cooldown on render
+        if (getRemainingCooldown() > 0) {
+            startCooldownTimer();
+        }
+
         refreshPlaidBtn.addEventListener('click', async () => {
+            if (getRemainingCooldown() > 0) return;
             refreshPlaidBtn.disabled = true;
             refreshPlaidBtn.innerHTML = `
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -227,6 +266,7 @@ export function renderAccounts(container, store) {
             `;
             try {
                 const result = await refreshPlaidBalances(store);
+                localStorage.setItem(STORAGE_KEY, Date.now().toString());
                 if (result.errors > 0) {
                     alert(`Refreshed ${result.updated} account(s), but ${result.errors} connection(s) had errors.`);
                 }
@@ -235,10 +275,7 @@ export function renderAccounts(container, store) {
                 console.error('Refresh error:', err);
                 alert('Failed to refresh balances. Please try again.');
                 refreshPlaidBtn.disabled = false;
-                refreshPlaidBtn.innerHTML = `
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                    Refresh Connected Balances
-                `;
+                refreshPlaidBtn.innerHTML = `${refreshIcon} Refresh Connected Balances`;
             }
         });
     }

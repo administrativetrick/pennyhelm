@@ -70,6 +70,80 @@ export async function renderAdmin(container, store) {
             </div>
         </div>
 
+        <!-- Registration Invite Codes -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+                    <h3>Registration Invite Codes</h3>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-primary btn-sm" id="generate-admin-codes">+ Generate Codes</button>
+                        <button class="btn btn-secondary btn-sm" id="grandfather-users">Grandfather Users</button>
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+                    Generate admin invite codes or grant existing users their invite codes.
+                </p>
+                <div id="admin-reg-codes-result"></div>
+            </div>
+        </div>
+
+        <!-- Send Invite Emails -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+                    <h3>Send Invite Emails</h3>
+                </div>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+                    Paste email addresses (one per line or comma-separated). Each recipient gets a unique invite code sent from no-reply@pennyhelm.com.
+                </p>
+                <textarea id="invite-email-list" class="form-input" rows="4" placeholder="friend@example.com&#10;family@example.com&#10;coworker@example.com" style="resize:vertical;font-family:monospace;font-size:13px;"></textarea>
+                <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+                    <button class="btn btn-primary btn-sm" id="send-invite-emails">📧 Send Invite Emails</button>
+                    <button class="btn btn-secondary btn-sm" id="copy-invite-template">📋 Copy Email Template</button>
+                </div>
+                <div id="invite-email-result" style="margin-top:12px;"></div>
+            </div>
+        </div>
+
+        <!-- Invite Code Tracker -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+                    <h3>Invite Code Tracker</h3>
+                    <button class="btn btn-secondary btn-sm" id="refresh-invite-tracker">↻ Refresh</button>
+                </div>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+                    All invite codes you've generated or sent. See who redeemed them and when.
+                </p>
+                <div id="invite-tracker-stats" style="margin-bottom:12px;"></div>
+                <div style="margin-bottom:12px;">
+                    <input type="text" id="invite-tracker-search" class="form-input" placeholder="Search by code, email, or user..." style="font-size:13px;">
+                </div>
+                <div id="invite-tracker-list">
+                    <p style="color:var(--text-secondary);font-size:13px;">Loading invite codes...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Waitlist Management -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+                    <h3>Waitlist</h3>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-primary btn-sm" id="approve-waitlist-ready">Approve Eligible (7+ days)</button>
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+                    People who joined the waitlist without an invite code. Entries are auto-eligible after 7 days.
+                </p>
+                <div id="waitlist-entries" style="margin-bottom:12px;">
+                    <p style="color:var(--text-secondary);font-size:13px;">Loading waitlist...</p>
+                </div>
+                <div id="waitlist-action-result"></div>
+            </div>
+        </div>
+
         <!-- Test Users -->
         <div class="card mb-24">
             <div class="settings-section">
@@ -88,7 +162,7 @@ export async function renderAdmin(container, store) {
             <div class="settings-section">
                 <h3>User Lookup</h3>
                 <div style="display:flex;gap:8px;margin-top:12px;">
-                    <input type="text" class="form-input" id="user-lookup-email" placeholder="Start typing email..." style="flex:1;" autocomplete="off">
+                    <input type="text" class="form-input" id="user-lookup-email" placeholder="Search by email, display name, or UID..." style="flex:1;" autocomplete="off">
                     <button class="btn btn-primary btn-sm" id="user-lookup-btn">Search</button>
                 </div>
                 <div id="user-lookup-result" style="margin-top:16px;"></div>
@@ -212,6 +286,423 @@ export async function renderAdmin(container, store) {
                 console.error('Failed to load usage:', e);
             }
         });
+    });
+
+    // === Registration Invite Code Handlers ===
+
+    document.getElementById('generate-admin-codes').addEventListener('click', async () => {
+        const btn = document.getElementById('generate-admin-codes');
+        const resultDiv = document.getElementById('admin-reg-codes-result');
+        btn.disabled = true;
+        btn.textContent = 'Generating...';
+        resultDiv.innerHTML = '<p style="color:var(--text-secondary);">Generating codes...</p>';
+        try {
+            const fn = firebase.functions().httpsCallable('generateAdminInviteCodes');
+            const result = await fn({ count: 10 });
+            const codes = result.data.codes;
+            let html = `<p style="color:var(--success-color);margin-bottom:8px;">Generated ${codes.length} admin invite codes:</p>`;
+            html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">';
+            codes.forEach(c => {
+                html += `<span style="font-family:monospace;background:var(--bg-tertiary);padding:4px 8px;border-radius:4px;font-size:13px;">${escapeHtml(c)}</span>`;
+            });
+            html += '</div>';
+            html += `<button class="btn btn-sm btn-secondary" id="copy-admin-reg-codes">Copy All</button>`;
+            resultDiv.innerHTML = html;
+            document.getElementById('copy-admin-reg-codes').addEventListener('click', () => {
+                navigator.clipboard.writeText(codes.join('\n'));
+                document.getElementById('copy-admin-reg-codes').textContent = 'Copied!';
+                setTimeout(() => { document.getElementById('copy-admin-reg-codes').textContent = 'Copy All'; }, 2000);
+            });
+        } catch (e) {
+            resultDiv.innerHTML = `<p style="color:var(--error-color);">Error: ${escapeHtml(e.message)}</p>`;
+        }
+        btn.disabled = false;
+        btn.textContent = '+ Generate Codes';
+    });
+
+    document.getElementById('grandfather-users').addEventListener('click', async () => {
+        const btn = document.getElementById('grandfather-users');
+        const resultDiv = document.getElementById('admin-reg-codes-result');
+        btn.disabled = true;
+        btn.textContent = 'Processing...';
+        resultDiv.innerHTML = '<p style="color:var(--text-secondary);">Grandfathering existing users (this may take a moment)...</p>';
+        try {
+            const fn = firebase.functions().httpsCallable('grandfatherExistingUsers');
+            const result = await fn();
+            const d = result.data;
+            resultDiv.innerHTML = `<p style="color:var(--success-color);">Done! Processed ${d.processed} users, skipped ${d.skipped} (already had codes).</p>`;
+        } catch (e) {
+            resultDiv.innerHTML = `<p style="color:var(--error-color);">Error: ${escapeHtml(e.message)}</p>`;
+        }
+        btn.disabled = false;
+        btn.textContent = 'Grandfather Users';
+    });
+
+    // === Send Invite Email Handlers ===
+
+    document.getElementById('send-invite-emails').addEventListener('click', async () => {
+        const btn = document.getElementById('send-invite-emails');
+        const resultDiv = document.getElementById('invite-email-result');
+        const raw = document.getElementById('invite-email-list').value.trim();
+        if (!raw) {
+            resultDiv.innerHTML = '<p style="color:var(--error-color);">Please enter at least one email address.</p>';
+            return;
+        }
+        // Parse emails: split on newlines, commas, semicolons
+        const emails = raw.split(/[\n,;]+/).map(e => e.trim()).filter(e => e);
+        if (emails.length === 0) {
+            resultDiv.innerHTML = '<p style="color:var(--error-color);">No valid email addresses found.</p>';
+            return;
+        }
+        if (emails.length > 50) {
+            resultDiv.innerHTML = '<p style="color:var(--error-color);">Maximum 50 emails per batch.</p>';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        resultDiv.innerHTML = `<p style="color:var(--text-secondary);">Sending ${emails.length} invite(s)...</p>`;
+
+        try {
+            const fn = firebase.functions().httpsCallable('sendRegistrationInviteEmail');
+            const result = await fn({ emails });
+            const d = result.data;
+            let html = `<p style="color:var(--success-color);margin-bottom:8px;">Sent ${d.sent} invite(s)${d.failed ? `, ${d.failed} failed` : ''}.</p>`;
+            if (d.results && d.results.length > 0) {
+                html += '<div style="font-size:12px;max-height:200px;overflow-y:auto;">';
+                d.results.forEach(r => {
+                    if (r.success) {
+                        html += `<div style="color:var(--success-color);padding:2px 0;">✓ ${escapeHtml(r.email)} — code: <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;">${escapeHtml(r.code)}</code></div>`;
+                    } else {
+                        html += `<div style="color:var(--error-color);padding:2px 0;">✗ ${escapeHtml(r.email)} — ${escapeHtml(r.error)}</div>`;
+                    }
+                });
+                html += '</div>';
+            }
+            resultDiv.innerHTML = html;
+            document.getElementById('invite-email-list').value = '';
+        } catch (e) {
+            resultDiv.innerHTML = `<p style="color:var(--error-color);">Error: ${escapeHtml(e.message)}</p>`;
+        }
+        btn.disabled = false;
+        btn.textContent = '📧 Send Invite Emails';
+    });
+
+    document.getElementById('copy-invite-template').addEventListener('click', async () => {
+        const btn = document.getElementById('copy-invite-template');
+        const resultDiv = document.getElementById('invite-email-result');
+
+        // Generate a single admin code to fill into the template
+        btn.disabled = true;
+        btn.textContent = 'Generating code...';
+        try {
+            const fn = firebase.functions().httpsCallable('generateAdminInviteCodes');
+            const result = await fn({ count: 1 });
+            const code = result.data.codes[0];
+
+            const template = `Subject: You're Invited to PennyHelm Cloud (Private Access)
+
+Hey,
+
+I've been using PennyHelm to manage my finances and wanted to share access with you. It's an invite-only budgeting platform right now — each user only gets 10 invite codes, so spots are limited.
+
+What PennyHelm does:
+- Track bills, income, debts, and accounts in one place
+- See upcoming bills mapped to your pay schedule so you always know what's due and when
+- Link bank accounts for real-time balances (Plaid integration)
+- Share finances with a partner — both of you can view and manage together
+- Works on web and mobile (Android app available)
+
+Why invite-only:
+We're keeping the user base small intentionally. Smaller community = faster feature development, direct access to the developer, and a product that actually gets shaped by early users. Once public access opens up, early members keep all their data, codes, and priority status.
+
+Your invite code: ${code}
+
+Sign up at: https://pennyhelm.com/login.html
+
+The code is single-use — once someone claims it, it's gone. You'll get your own 10 codes to share once you're in.
+
+Let me know if you have questions!`;
+
+            navigator.clipboard.writeText(template);
+            resultDiv.innerHTML = `<p style="color:var(--success-color);">Template copied with code <code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-family:monospace;">${escapeHtml(code)}</code></p>`;
+        } catch (e) {
+            resultDiv.innerHTML = `<p style="color:var(--error-color);">Error: ${escapeHtml(e.message)}</p>`;
+        }
+        btn.disabled = false;
+        btn.textContent = '📋 Copy Email Template';
+    });
+
+    // === Invite Code Tracker ===
+
+    let allInviteCodes = [];
+
+    async function loadInviteTracker() {
+        const listDiv = document.getElementById('invite-tracker-list');
+        const statsDiv = document.getElementById('invite-tracker-stats');
+        try {
+            const snap = await db.collection('registrationCodes').orderBy('createdAt', 'desc').get();
+            allInviteCodes = snap.docs.map(d => ({ code: d.id, ...d.data() }));
+
+            const total = allInviteCodes.length;
+            const redeemed = allInviteCodes.filter(c => c.status === 'redeemed');
+            const available = allInviteCodes.filter(c => c.status === 'available');
+            const adminCodes = allInviteCodes.filter(c => c.ownerUid === 'admin');
+            const sentCodes = allInviteCodes.filter(c => c.sentTo);
+
+            statsDiv.innerHTML = `
+                <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;">
+                    <span><strong>${total}</strong> total</span>
+                    <span style="color:var(--success-color);"><strong>${redeemed.length}</strong> redeemed</span>
+                    <span style="color:var(--accent-color);"><strong>${available.length}</strong> available</span>
+                    <span style="color:var(--text-secondary);"><strong>${adminCodes.length}</strong> admin-generated</span>
+                    <span style="color:var(--text-secondary);"><strong>${sentCodes.length}</strong> sent via email</span>
+                </div>
+            `;
+
+            renderInviteList(allInviteCodes);
+        } catch (e) {
+            console.error('Failed to load invite codes:', e);
+            listDiv.innerHTML = `<p style="color:var(--error-color);font-size:13px;">Failed to load invite codes: ${escapeHtml(e.message)}</p>`;
+        }
+    }
+
+    // Cache for user lookups
+    const userCache = {};
+    async function lookupUser(uid) {
+        if (!uid || uid === 'admin') return null;
+        if (userCache[uid]) return userCache[uid];
+        try {
+            const doc = await db.collection('users').doc(uid).get();
+            if (doc.exists) {
+                const data = doc.data();
+                userCache[uid] = { email: data.email || '', displayName: data.displayName || '' };
+                return userCache[uid];
+            }
+        } catch (_) {}
+        userCache[uid] = null;
+        return null;
+    }
+
+    async function renderInviteList(codes) {
+        const listDiv = document.getElementById('invite-tracker-list');
+
+        if (codes.length === 0) {
+            listDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No invite codes found.</p>';
+            return;
+        }
+
+        // Resolve all redeemer UIDs up front
+        const redeemerUids = [...new Set(codes.filter(c => c.redeemedBy).map(c => c.redeemedBy))];
+        await Promise.all(redeemerUids.map(uid => lookupUser(uid)));
+
+        let html = '<div style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">';
+        html += `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="background:var(--bg-tertiary);position:sticky;top:0;">
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);">Code</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);">Sent To</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);">Status</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);">Redeemed By</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);">Date</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        for (const c of codes) {
+            const isRedeemed = c.status === 'redeemed';
+            const statusColor = isRedeemed ? 'var(--success-color)' : 'var(--accent-color)';
+            const statusLabel = isRedeemed ? '✓ Redeemed' : '○ Available';
+
+            let redeemerDisplay = '—';
+            if (isRedeemed && c.redeemedBy) {
+                const user = userCache[c.redeemedBy];
+                if (user) {
+                    redeemerDisplay = escapeHtml(user.displayName || user.email || c.redeemedBy);
+                    if (user.displayName && user.email) {
+                        redeemerDisplay += ` <span style="color:var(--text-secondary);">(${escapeHtml(user.email)})</span>`;
+                    }
+                } else {
+                    redeemerDisplay = `<span style="color:var(--text-secondary);">${escapeHtml(c.redeemedBy)}</span>`;
+                }
+            }
+
+            const sentTo = c.sentTo ? escapeHtml(c.sentTo) : '<span style="color:var(--text-secondary);">—</span>';
+
+            let dateDisplay = '—';
+            if (isRedeemed && c.redeemedAt) {
+                const d = c.redeemedAt.toDate ? c.redeemedAt.toDate() : new Date(c.redeemedAt);
+                dateDisplay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            } else if (c.createdAt) {
+                const d = c.createdAt.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
+                dateDisplay = `<span style="color:var(--text-secondary);">Created ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>`;
+            }
+
+            html += `<tr style="border-bottom:1px solid var(--border);" data-code="${escapeHtml(c.code)}" data-sent="${escapeHtml(c.sentTo || '')}" data-redeemer="${escapeHtml(c.redeemedBy || '')}">
+                <td style="padding:6px 10px;font-family:monospace;font-weight:600;">${escapeHtml(c.code)}</td>
+                <td style="padding:6px 10px;">${sentTo}</td>
+                <td style="padding:6px 10px;color:${statusColor};font-weight:600;">${statusLabel}</td>
+                <td style="padding:6px 10px;">${redeemerDisplay}</td>
+                <td style="padding:6px 10px;white-space:nowrap;">${dateDisplay}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table></div>';
+        listDiv.innerHTML = html;
+    }
+
+    // Search/filter handler
+    const searchInput = document.getElementById('invite-tracker-search');
+    searchInput.addEventListener('input', debounce(() => {
+        const q = searchInput.value.trim().toLowerCase();
+        if (!q) {
+            renderInviteList(allInviteCodes);
+            return;
+        }
+        const filtered = allInviteCodes.filter(c => {
+            if (c.code.toLowerCase().includes(q)) return true;
+            if (c.sentTo && c.sentTo.toLowerCase().includes(q)) return true;
+            if (c.redeemedBy) {
+                const user = userCache[c.redeemedBy];
+                if (user) {
+                    if ((user.email || '').toLowerCase().includes(q)) return true;
+                    if ((user.displayName || '').toLowerCase().includes(q)) return true;
+                }
+                if (c.redeemedBy.toLowerCase().includes(q)) return true;
+            }
+            if (c.status.toLowerCase().includes(q)) return true;
+            return false;
+        });
+        renderInviteList(filtered);
+    }, 300));
+
+    // Refresh button
+    document.getElementById('refresh-invite-tracker').addEventListener('click', () => {
+        document.getElementById('invite-tracker-list').innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Loading invite codes...</p>';
+        loadInviteTracker();
+    });
+
+    // Initial load
+    loadInviteTracker();
+
+    // === Waitlist Handlers ===
+
+    // Load waitlist entries
+    async function loadWaitlist() {
+        const entriesDiv = document.getElementById('waitlist-entries');
+        try {
+            const snap = await db.collection('waitlist').orderBy('joinedAt', 'asc').get();
+            const entries = snap.docs.map(d => ({ email: d.id, ...d.data() }));
+            const waiting = entries.filter(e => e.status === 'waiting');
+            const approved = entries.filter(e => e.status === 'approved');
+
+            if (entries.length === 0) {
+                entriesDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No one on the waitlist yet.</p>';
+                return;
+            }
+
+            let html = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">
+                ${waiting.length} waiting &middot; ${approved.length} approved &middot; ${entries.length} total
+            </div>`;
+
+            if (waiting.length > 0) {
+                const now = Date.now();
+                html += '<div style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">';
+                waiting.forEach(e => {
+                    const joinedAt = e.joinedAt?.toDate ? e.joinedAt.toDate() : (e.joinedAt ? new Date(e.joinedAt) : null);
+                    const daysWaited = joinedAt ? Math.floor((now - joinedAt.getTime()) / 86400000) : 0;
+                    const eligible = daysWaited >= 7;
+                    html += `
+                        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);font-size:13px;">
+                            <div>
+                                <span style="font-weight:500;">${escapeHtml(e.email)}</span>
+                                <span style="color:var(--text-secondary);margin-left:8px;font-size:11px;">
+                                    #${e.position || '?'} &middot; ${daysWaited}d ago
+                                    ${eligible ? '<span style="color:var(--green);font-weight:600;"> &middot; Eligible</span>' : ''}
+                                </span>
+                            </div>
+                            <button class="btn btn-secondary btn-sm approve-single-waitlist" data-email="${escapeHtml(e.email)}" style="font-size:11px;padding:2px 8px;">
+                                Approve
+                            </button>
+                        </div>`;
+                });
+                html += '</div>';
+            }
+
+            if (approved.length > 0) {
+                html += `<details style="margin-top:8px;"><summary style="font-size:12px;color:var(--text-secondary);cursor:pointer;">Show ${approved.length} approved</summary>`;
+                html += '<div style="max-height:200px;overflow-y:auto;margin-top:4px;">';
+                approved.forEach(e => {
+                    html += `<div style="padding:4px 12px;font-size:12px;color:var(--text-secondary);">
+                        ${escapeHtml(e.email)} &mdash; <code style="font-size:11px;background:var(--bg-input);padding:1px 4px;border-radius:3px;">${escapeHtml(e.inviteCode || '')}</code>
+                    </div>`;
+                });
+                html += '</div></details>';
+            }
+
+            entriesDiv.innerHTML = html;
+
+            // Attach approve-single handlers
+            entriesDiv.querySelectorAll('.approve-single-waitlist').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    btn.disabled = true;
+                    btn.textContent = '...';
+                    try {
+                        const fn = firebase.functions().httpsCallable('approveWaitlistEntries');
+                        const result = await fn({ emails: [btn.dataset.email] });
+                        const d = result.data;
+                        const r = d.results[0];
+                        if (r && r.success) {
+                            document.getElementById('waitlist-action-result').innerHTML =
+                                `<p style="color:var(--success-color);font-size:12px;">Approved ${escapeHtml(r.email)} with code <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;">${escapeHtml(r.code)}</code></p>`;
+                        } else {
+                            document.getElementById('waitlist-action-result').innerHTML =
+                                `<p style="color:var(--error-color);font-size:12px;">Failed: ${escapeHtml(r?.reason || 'Unknown error')}</p>`;
+                        }
+                        loadWaitlist();
+                    } catch (e) {
+                        document.getElementById('waitlist-action-result').innerHTML =
+                            `<p style="color:var(--error-color);font-size:12px;">Error: ${escapeHtml(e.message)}</p>`;
+                        btn.disabled = false;
+                        btn.textContent = 'Approve';
+                    }
+                });
+            });
+        } catch (e) {
+            console.error('Failed to load waitlist:', e);
+            entriesDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load waitlist.</p>';
+        }
+    }
+    loadWaitlist();
+
+    // Approve all eligible (7+ days)
+    document.getElementById('approve-waitlist-ready').addEventListener('click', async () => {
+        const btn = document.getElementById('approve-waitlist-ready');
+        const resultDiv = document.getElementById('waitlist-action-result');
+        btn.disabled = true;
+        btn.textContent = 'Approving...';
+        resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">Approving eligible entries...</p>';
+
+        try {
+            const fn = firebase.functions().httpsCallable('approveWaitlistEntries');
+            const result = await fn({ count: 50 });
+            const d = result.data;
+
+            if (d.approved === 0) {
+                resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:12px;">No entries eligible yet (must wait 7+ days).</p>';
+            } else {
+                let html = `<p style="color:var(--success-color);font-size:12px;margin-bottom:4px;">Approved ${d.approved} entries!</p>`;
+                d.results.filter(r => r.success).forEach(r => {
+                    html += `<div style="font-size:11px;color:var(--text-secondary);">✓ ${escapeHtml(r.email)} → <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;">${escapeHtml(r.code)}</code></div>`;
+                });
+                resultDiv.innerHTML = html;
+                loadWaitlist();
+            }
+        } catch (e) {
+            resultDiv.innerHTML = `<p style="color:var(--error-color);font-size:12px;">Error: ${escapeHtml(e.message)}</p>`;
+        }
+        btn.disabled = false;
+        btn.textContent = 'Approve Eligible (7+ days)';
     });
 
     // === Test User Handlers ===
@@ -395,9 +886,41 @@ function showImpersonationBanner(name, uid, store) {
     });
 }
 
-// Real-time prefix search as user types
+// Cache all users for client-side substring search (admin-only, small user base)
+let _usersCache = null;
+let _usersCacheTime = 0;
+const USERS_CACHE_TTL = 60000; // 1 minute
+
+async function getAllUsers(db) {
+    const now = Date.now();
+    if (_usersCache && (now - _usersCacheTime) < USERS_CACHE_TTL) {
+        return _usersCache;
+    }
+    const snap = await db.collection('users').get();
+    _usersCache = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+    _usersCacheTime = now;
+    return _usersCache;
+}
+
+// Build a match function based on wildcard position:
+//   *term  → endsWith (suffix)
+//   term*  → startsWith (prefix)
+//   *term* → includes (substring)
+//   term   → startsWith (prefix, default)
+function buildMatchFn(rawInput) {
+    const leading = rawInput.startsWith('*');
+    const trailing = rawInput.endsWith('*');
+    const term = rawInput.replace(/\*/g, '').toLowerCase();
+    if (leading && trailing) return (field) => field.includes(term);
+    if (leading)             return (field) => field.endsWith(term);
+    if (trailing)            return (field) => field.startsWith(term);
+    /* no wildcard */        return (field) => field.startsWith(term);
+}
+
+// Real-time search as user types (case-insensitive)
 async function searchUsers(db) {
-    const searchTerm = document.getElementById('user-lookup-email').value.trim().toLowerCase();
+    const rawInput = document.getElementById('user-lookup-email').value.trim();
+    const searchTerm = rawInput.replace(/\*/g, '');
     const resultDiv = document.getElementById('user-lookup-result');
 
     // Clear results if search is empty
@@ -406,29 +929,33 @@ async function searchUsers(db) {
         return;
     }
 
-    // Require at least 3 characters
-    if (searchTerm.length < 3) {
-        resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Type at least 3 characters...</p>';
+    // Require at least 2 characters (after stripping wildcards)
+    if (searchTerm.length < 2) {
+        resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Type at least 2 characters...</p>';
         return;
     }
 
     resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Searching...</p>';
 
     try {
-        // Firestore prefix range query
-        const snap = await db.collection('users')
-            .where('email', '>=', searchTerm)
-            .where('email', '<', searchTerm + '\uf8ff')
-            .limit(10)
-            .get();
+        // Fetch all users (cached) and filter client-side
+        const allUsers = await getAllUsers(db);
 
-        if (snap.empty) {
+        const matchFn = buildMatchFn(rawInput);
+
+        const users = allUsers.filter(u => {
+            const email = (u.email || '').toLowerCase();
+            const name = (u.displayName || '').toLowerCase();
+            const uid = (u.uid || '').toLowerCase();
+            return matchFn(email) || matchFn(name) || matchFn(uid);
+        }).slice(0, 20);
+
+        if (users.length === 0) {
             resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No users found matching "' + escapeHtml(searchTerm) + '"</p>';
             return;
         }
 
         // Show list of matching users
-        const users = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
         resultDiv.innerHTML = `
             <div style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
                 ${users.map(u => `
@@ -440,14 +967,13 @@ async function searchUsers(db) {
             </div>
         `;
 
-        // Add hover styles
+        // Add hover styles and click handler
         resultDiv.querySelectorAll('.user-search-result').forEach(el => {
             el.addEventListener('mouseenter', () => el.style.background = 'var(--bg-hover)');
             el.addEventListener('mouseleave', () => el.style.background = '');
             el.addEventListener('click', () => {
-                // Set the email in the input and trigger full lookup
-                const email = el.querySelector('div').textContent;
-                document.getElementById('user-lookup-email').value = email;
+                // Use UID for lookup to ensure we find the right user
+                document.getElementById('user-lookup-email').value = el.dataset.uid;
                 lookupUser(db);
             });
         });
@@ -459,27 +985,53 @@ async function searchUsers(db) {
 }
 
 async function lookupUser(db) {
-    const email = document.getElementById('user-lookup-email').value.trim().toLowerCase();
+    const searchValue = document.getElementById('user-lookup-email').value.trim().replace(/\*/g, '');
     const resultDiv = document.getElementById('user-lookup-result');
 
-    if (!email) {
-        resultDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Enter an email address.</p>';
+    if (!searchValue) {
+        resultDiv.innerHTML = '<p style="color:var(--red);font-size:13px;">Enter an email, display name, or UID.</p>';
         return;
     }
 
     resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">Searching...</p>';
 
     try {
-        const snap = await db.collection('users').where('email', '==', email).get();
+        let userDoc = null;
+        let uid = null;
 
-        if (snap.empty) {
-            resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No user found with that email.</p>';
+        // Strategy 1: Try as UID (direct document lookup)
+        const uidDoc = await db.collection('users').doc(searchValue).get();
+        if (uidDoc.exists) {
+            userDoc = uidDoc;
+            uid = uidDoc.id;
+        }
+
+        // Strategy 2: Try as exact email match (case-insensitive)
+        if (!userDoc) {
+            const emailSnap = await db.collection('users').where('email', '==', searchValue.toLowerCase()).get();
+            if (!emailSnap.empty) {
+                userDoc = emailSnap.docs[0];
+                uid = emailSnap.docs[0].id;
+            }
+        }
+
+        // Strategy 3: Try as displayName match (case-insensitive, substring)
+        if (!userDoc) {
+            // Fetch all users and find by case-insensitive substring match on displayName
+            const allUsers = await getAllUsers(db);
+            const match = allUsers.find(u => (u.displayName || '').toLowerCase() === searchValue.toLowerCase());
+            if (match) {
+                userDoc = await db.collection('users').doc(match.uid).get();
+                uid = match.uid;
+            }
+        }
+
+        if (!userDoc) {
+            resultDiv.innerHTML = '<p style="color:var(--text-secondary);font-size:13px;">No user found matching "' + escapeHtml(searchValue) + '".</p>';
             return;
         }
 
-        const userDoc = snap.docs[0];
         const userData = userDoc.data();
-        const uid = userDoc.id;
         // Handle both Firestore Timestamp and string/Date formats
         const trialStart = userData.trialStartDate?.toDate
             ? userData.trialStartDate.toDate()
@@ -514,10 +1066,15 @@ async function lookupUser(db) {
                     &middot; Trial length: ${trialLength === 0 ? 'Unlimited' : trialLength + ' days'}
                     ${userData.trialCode ? '&middot; Code: <code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.trialCode) + '</code>' : ''}
                 </div>
+                <div style="margin-top:6px;font-size:13px;color:var(--text-secondary);">
+                    Invited by: ${userData.invitedBy ? '<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.invitedBy) + '</code>' : 'N/A (grandfathered)'}
+                    &middot; Invite codes: ${userData.registrationCodes ? userData.registrationCodes.length : 0}${userData.registrationCodesGenerated ? '' : ' (not yet generated)'}
+                </div>
                 <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-secondary btn-sm" id="extend-trial-btn">Extend Trial</button>
                     <button class="btn btn-secondary btn-sm" id="reset-trial-btn">Reset Trial</button>
                     <button class="btn btn-secondary btn-sm" id="grant-unlimited-btn" style="color:var(--green);">Grant Unlimited</button>
+                    <button class="btn btn-secondary btn-sm" id="repair-plaid-btn" style="color:var(--accent);">Repair Plaid</button>
                     <button class="btn btn-secondary btn-sm" id="view-telemetry-btn" style="color:var(--accent);">View Telemetry</button>
                 </div>
                 <div id="telemetry-results" style="margin-top:16px;display:none;"></div>
@@ -578,6 +1135,30 @@ async function lookupUser(db) {
             } catch (e) {
                 console.error('Failed to grant unlimited:', e);
             }
+        });
+
+        document.getElementById('repair-plaid-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('repair-plaid-btn');
+            btn.textContent = 'Repairing...';
+            btn.disabled = true;
+            try {
+                const fn = firebase.app().functions().httpsCallable('repairPlaidAccounts');
+                const result = await fn({ uid });
+                const data = result.data;
+                if (data.repaired > 0) {
+                    alert(`Repaired ${data.repaired} Plaid connection(s).\n\n${data.details.map(d => `${d.institution || d.itemId}: ${d.status}`).join('\n')}`);
+                } else {
+                    const msg = data.details?.length > 0
+                        ? `No orphaned Plaid accounts found.\n\n${data.details.map(d => `${d.itemId || d.uid}: ${d.status}`).join('\n')}`
+                        : data.message || 'No Plaid items found for this user.';
+                    alert(msg);
+                }
+            } catch (e) {
+                console.error('Repair Plaid failed:', e);
+                alert('Failed to repair Plaid accounts: ' + (e.message || 'Unknown error'));
+            }
+            btn.textContent = 'Repair Plaid';
+            btn.disabled = false;
         });
 
         document.getElementById('view-telemetry-btn').addEventListener('click', async () => {

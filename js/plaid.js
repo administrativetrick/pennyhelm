@@ -74,21 +74,53 @@ export async function connectBank(store, onComplete) {
             onSuccess: async (public_token, metadata) => {
                 try {
                     // Step 3: Exchange public token via Cloud Function
+                    // The cloud function also injects accounts server-side via
+                    // a Firestore transaction as a safety net.
                     const result = await callFunction('exchangePublicToken', {
                         public_token,
                         institution_name: metadata.institution?.name || 'Unknown Bank',
                         institution_id: metadata.institution?.institution_id || null,
                     });
 
-                    // Step 4: Map Plaid accounts to PennyHelm format and add to store
+                    // Step 4: Reload store from Firestore to pick up server-side
+                    // account injection (the Cloud Function writes accounts to
+                    // userData via transaction). This ensures our in-memory data
+                    // is current before we add anything on the client side.
+                    await store.reloadFromServer();
+
+                    // Step 5: Map Plaid accounts to PennyHelm format and add to store
+                    // (deduplicates by plaidAccountId — safe if server already added them)
                     const imported = importPlaidAccounts(store, result.accounts, result.itemId);
 
-                    alert(`Successfully connected ${result.institutionName}!\n${imported.accounts} account(s) and ${imported.debts} debt(s) imported.`);
+                    // Step 6: Force immediate sync to Firestore (not debounced)
+                    // This prevents a race condition where page refresh or
+                    // setup flow could overwrite the data before debounced save fires.
+                    await store.forceSyncNow();
+
+                    // Step 7: Verify accounts actually persisted — if the store
+                    // has no Plaid accounts for this item, the save may have been
+                    // overwritten by a concurrent write. Reload and retry once.
+                    const verifyAccounts = store.getAccounts().filter(a => a.plaidItemId === result.itemId);
+                    const verifyDebts = store.getDebts().filter(d => d.plaidItemId === result.itemId);
+                    if (verifyAccounts.length === 0 && verifyDebts.length === 0 && result.accounts.length > 0) {
+                        console.warn('Plaid accounts missing after save — reloading and retrying...');
+                        await store.reloadFromServer();
+                        importPlaidAccounts(store, result.accounts, result.itemId);
+                        await store.forceSyncNow();
+                    }
+
+                    const totalImported = store.getAccounts().filter(a => a.plaidItemId === result.itemId).length
+                        + store.getDebts().filter(d => d.plaidItemId === result.itemId).length;
+
+                    alert(`Successfully connected ${result.institutionName}!\n${totalImported} account(s) imported.`);
 
                     if (onComplete) onComplete();
                 } catch (err) {
                     console.error('Plaid exchange error:', err);
-                    alert('Failed to connect bank account. Please try again.');
+                    // The cloud function may have succeeded (plaidItem created)
+                    // even if the client-side save failed. Inform the user to
+                    // try refreshing rather than re-linking.
+                    alert('Bank connection was saved but accounts may not have loaded.\nPlease try refreshing connected balances, or contact support.');
                 }
             },
             onEvent: (eventName, metadata) => {
@@ -356,4 +388,65 @@ export async function refreshPlaidBalances(store) {
  */
 export function hasPlaidConnections(store) {
     return store.getPlaidItemIds().length > 0;
+}
+
+// ─── Transaction Sync ───
+
+/**
+ * Sync transactions from Plaid-connected accounts as expenses.
+ * Only fetches transactions since last sync (or last 30 days if first sync).
+ * Deduplicates by plaidTransactionId.
+ * @param {Store} store - PennyHelm store instance
+ * @returns {Object} { imported, total }
+ */
+export async function syncPlaidTransactions(store) {
+    if (!auth.isCloud()) return { imported: 0, total: 0 };
+    if (!hasPlaidConnections(store)) return { imported: 0, total: 0 };
+
+    const lastSync = store.getLastTransactionSync();
+    const now = new Date();
+
+    // Calculate start date: last sync or 30 days ago
+    let startDate;
+    if (lastSync) {
+        // Go back 1 extra day from last sync to catch any late-posting transactions
+        const lastSyncDate = new Date(lastSync);
+        lastSyncDate.setDate(lastSyncDate.getDate() - 1);
+        startDate = lastSyncDate.toISOString().slice(0, 10);
+    } else {
+        // First sync — last 30 days
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    }
+
+    const endDate = now.toISOString().slice(0, 10);
+
+    try {
+        const result = await callFunction('syncTransactions', {
+            start_date: startDate,
+            end_date: endDate,
+        });
+
+        const imported = store.importPlaidTransactions(result.transactions || []);
+        store.setLastTransactionSync(now.toISOString());
+
+        return { imported, total: (result.transactions || []).length };
+    } catch (err) {
+        console.error('Transaction sync error:', err);
+        return { imported: 0, total: 0, error: err.message };
+    }
+}
+
+/**
+ * Check if a transaction sync should run (once per day max).
+ * @param {Store} store
+ * @returns {boolean}
+ */
+export function shouldSyncTransactions(store) {
+    if (!hasPlaidConnections(store)) return false;
+    const lastSync = store.getLastTransactionSync();
+    if (!lastSync) return true;
+    const lastSyncDate = new Date(lastSync);
+    const now = new Date();
+    // Sync if last sync was more than 20 hours ago
+    return (now.getTime() - lastSyncDate.getTime()) > 20 * 60 * 60 * 1000;
 }
