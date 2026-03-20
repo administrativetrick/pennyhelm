@@ -118,6 +118,50 @@ export function renderSettings(container, store) {
         </div>
         ` : ''}
 
+        ${auth.isCloud() ? `
+        <div class="card mb-24">
+            <div class="settings-section">
+                <h3>API Access</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                    Generate API keys to access your PennyHelm data programmatically via REST API.
+                </p>
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label">API Keys</div>
+                        <div class="setting-desc" id="api-keys-count">Loading...</div>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="create-api-key-btn">Create Key</button>
+                </div>
+                <div id="api-keys-list" style="margin-top:12px;"></div>
+                <div id="api-key-created-banner" style="display:none;margin-top:12px;padding:14px;background:var(--bg-secondary);border:1px solid var(--green);border-radius:var(--radius-sm);">
+                    <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px;">NEW API KEY CREATED</div>
+                    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Copy this key now. It will not be shown again.</p>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <code id="api-key-value" style="flex:1;padding:8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;font-size:13px;word-break:break-all;user-select:all;"></code>
+                        <button class="btn btn-secondary btn-sm" id="copy-api-key-btn">Copy</button>
+                    </div>
+                </div>
+                <details style="margin-top:16px;">
+                    <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none;">API Documentation</summary>
+                    <div style="margin-top:8px;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);">
+                        <p style="margin:0 0 8px;font-weight:600;">Base URL</p>
+                        <code style="display:block;padding:6px 8px;background:var(--bg-primary);border-radius:4px;margin-bottom:12px;font-size:11px;">https://&lt;your-project&gt;.web.app/api/v1/</code>
+                        <p style="margin:0 0 8px;font-weight:600;">Authentication</p>
+                        <code style="display:block;padding:6px 8px;background:var(--bg-primary);border-radius:4px;margin-bottom:12px;font-size:11px;">Authorization: Bearer ph_live_...</code>
+                        <p style="margin:0 0 6px;font-weight:600;">Endpoints</p>
+                        <div style="display:grid;gap:4px;">
+                            <code style="padding:4px 8px;background:var(--bg-primary);border-radius:4px;font-size:11px;">GET /api/v1/bills</code>
+                            <code style="padding:4px 8px;background:var(--bg-primary);border-radius:4px;font-size:11px;">GET /api/v1/accounts</code>
+                            <code style="padding:4px 8px;background:var(--bg-primary);border-radius:4px;font-size:11px;">GET /api/v1/debts</code>
+                            <code style="padding:4px 8px;background:var(--bg-primary);border-radius:4px;font-size:11px;">GET /api/v1/expenses</code>
+                            <code style="padding:4px 8px;background:var(--bg-primary);border-radius:4px;font-size:11px;">GET /api/v1/summary</code>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </div>
+        ` : ''}
+
         <div class="card mb-24">
             <div class="settings-section">
                 <h3>Credit Scores</h3>
@@ -340,6 +384,21 @@ export function renderSettings(container, store) {
                 </div>
             </div>
         </div>
+
+        ${auth.isCloud() ? `
+        <div class="card mb-24" style="border:2px solid var(--red);">
+            <div class="settings-section">
+                <h3 style="color:var(--red);">⚠️ Delete Account</h3>
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label" style="color:var(--red);">Permanently Delete Your Account</div>
+                        <div class="setting-desc">This will permanently delete your account, all financial data, linked bank connections, and subscription. This action cannot be undone.</div>
+                    </div>
+                    <button class="btn btn-danger btn-sm" id="delete-account-btn">Delete Account</button>
+                </div>
+            </div>
+        </div>
+        ` : ''}
 
         ${auth.isCloud() ? `
         <div class="card mb-24">
@@ -821,6 +880,136 @@ export function renderSettings(container, store) {
                         alert('Failed to start MFA setup. Please try again.');
                     }
                 }
+            });
+        }
+    }
+
+    // === API Keys Management (cloud mode only) ===
+    if (auth.isCloud()) {
+        const apiKeysCountEl = container.querySelector('#api-keys-count');
+        const apiKeysListEl = container.querySelector('#api-keys-list');
+        const createApiKeyBtn = container.querySelector('#create-api-key-btn');
+        const apiKeyBanner = container.querySelector('#api-key-created-banner');
+        const apiKeyValueEl = container.querySelector('#api-key-value');
+        const copyApiKeyBtn = container.querySelector('#copy-api-key-btn');
+
+        const renderApiKeysList = (keys) => {
+            const activeKeys = keys.filter(k => k.status === 'active');
+            apiKeysCountEl.textContent = activeKeys.length === 0
+                ? 'No active API keys'
+                : `${activeKeys.length} active key${activeKeys.length > 1 ? 's' : ''}`;
+
+            if (keys.length === 0) {
+                apiKeysListEl.innerHTML = '';
+                return;
+            }
+
+            apiKeysListEl.innerHTML = keys.map(k => {
+                const created = k.createdAt ? new Date(k.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+                const lastUsed = k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never';
+                const isRevoked = k.status === 'revoked';
+                return `
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;${isRevoked ? 'opacity:0.5;' : ''}">
+                        <div style="min-width:0;">
+                            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${escapeHtml(k.name)}</div>
+                            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                                <code style="font-size:11px;">${escapeHtml(k.keyPrefix)}...</code>
+                                &middot; Created ${created} &middot; Last used: ${lastUsed}
+                                ${isRevoked ? ' &middot; <span style="color:var(--red);font-weight:600;">Revoked</span>' : ''}
+                            </div>
+                        </div>
+                        ${!isRevoked ? `<button class="btn btn-danger btn-sm revoke-api-key-btn" data-key-id="${k.keyId}" style="flex-shrink:0;margin-left:12px;">Revoke</button>` : ''}
+                    </div>`;
+            }).join('');
+
+            // Attach revoke handlers
+            apiKeysListEl.querySelectorAll('.revoke-api-key-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const keyId = btn.dataset.keyId;
+                    if (!confirm('Revoke this API key? Any integrations using it will stop working immediately.')) return;
+                    btn.disabled = true;
+                    btn.textContent = 'Revoking...';
+                    try {
+                        const functions = firebase.functions();
+                        const revokeApiKey = functions.httpsCallable('revokeApiKey');
+                        await revokeApiKey({ keyId });
+                        loadApiKeys();
+                    } catch (e) {
+                        console.error('Revoke API key error:', e);
+                        alert('Failed to revoke API key.');
+                        btn.disabled = false;
+                        btn.textContent = 'Revoke';
+                    }
+                });
+            });
+        };
+
+        const loadApiKeys = async () => {
+            try {
+                const functions = firebase.functions();
+                const listApiKeys = functions.httpsCallable('listApiKeys');
+                const result = await listApiKeys({});
+                renderApiKeysList(result.data.keys || []);
+            } catch (e) {
+                console.error('Error loading API keys:', e);
+                apiKeysCountEl.textContent = 'Error loading keys';
+            }
+        };
+
+        loadApiKeys();
+
+        if (createApiKeyBtn) {
+            createApiKeyBtn.addEventListener('click', () => {
+                openModal('Create API Key', `
+                    <div style="padding:8px 0 16px;font-size:14px;">
+                        <p style="margin-bottom:12px;">Give your API key a descriptive name so you can identify it later.</p>
+                        <div class="form-group">
+                            <label class="form-label" for="api-key-name">Key Name</label>
+                            <input type="text" class="form-input" id="api-key-name" placeholder="e.g. Budget Spreadsheet, Home Automation" maxlength="64">
+                        </div>
+                        <div id="api-key-create-error" style="color:var(--red);font-size:13px;margin-bottom:8px;"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                        <button class="btn btn-primary" id="modal-create">Create Key</button>
+                    </div>
+                `);
+                document.getElementById('api-key-name').focus();
+                document.getElementById('modal-cancel').addEventListener('click', closeModal);
+                document.getElementById('modal-create').addEventListener('click', async () => {
+                    const name = document.getElementById('api-key-name').value.trim();
+                    const errorDiv = document.getElementById('api-key-create-error');
+                    const createBtn = document.getElementById('modal-create');
+                    if (!name) {
+                        errorDiv.textContent = 'Please enter a name for the API key.';
+                        return;
+                    }
+                    createBtn.disabled = true;
+                    createBtn.textContent = 'Creating...';
+                    errorDiv.textContent = '';
+                    try {
+                        const functions = firebase.functions();
+                        const createApiKey = functions.httpsCallable('createApiKey');
+                        const result = await createApiKey({ name });
+                        closeModal();
+                        // Show the key in the banner
+                        apiKeyValueEl.textContent = result.data.apiKey;
+                        apiKeyBanner.style.display = 'block';
+                        loadApiKeys();
+                    } catch (e) {
+                        createBtn.disabled = false;
+                        createBtn.textContent = 'Create Key';
+                        errorDiv.textContent = e.message || 'Failed to create API key.';
+                    }
+                });
+            });
+        }
+
+        if (copyApiKeyBtn) {
+            copyApiKeyBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(apiKeyValueEl.textContent);
+                copyApiKeyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyApiKeyBtn.textContent = 'Copy'; }, 2000);
             });
         }
     }
@@ -1544,6 +1733,84 @@ export function renderSettings(container, store) {
                 });
             }
         }
+    });
+
+    // Delete Account (cloud mode only)
+    container.querySelector('#delete-account-btn')?.addEventListener('click', () => {
+        openModal('Delete Account', `
+            <div style="padding:8px 0 16px;font-size:14px;">
+                <div style="background:rgba(220,38,38,0.08);border:1px solid var(--red);border-radius:8px;padding:16px;margin-bottom:16px;">
+                    <p style="color:var(--red);font-weight:600;margin:0 0 8px;">⚠️ WARNING: This action is permanent and irreversible.</p>
+                    <p style="margin:0;font-size:13px;color:var(--text-secondary);">Once deleted, your data cannot be recovered.</p>
+                </div>
+                <p style="font-size:13px;margin-bottom:8px;">This will permanently delete:</p>
+                <ul style="margin-left:20px;margin-bottom:16px;color:var(--text-secondary);font-size:13px;">
+                    <li>Your PennyHelm account and profile</li>
+                    <li>All bills, accounts, debts, and financial data</li>
+                    <li>All linked bank connections (Plaid)</li>
+                    <li>Your subscription (if active)</li>
+                    <li>All invites and registration codes</li>
+                    <li>Two-factor authentication settings</li>
+                </ul>
+                <p style="font-size:13px;margin-bottom:8px;">Type <strong>DELETE</strong> to confirm:</p>
+                <input type="text" id="delete-confirm-input" class="form-input" placeholder="Type DELETE" autocomplete="off">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                <button class="btn btn-danger" id="modal-confirm" disabled>Delete My Account</button>
+            </div>
+        `);
+
+        const input = document.getElementById('delete-confirm-input');
+        const confirmBtn = document.getElementById('modal-confirm');
+        input.addEventListener('input', () => {
+            confirmBtn.disabled = input.value.trim() !== 'DELETE';
+        });
+
+        document.getElementById('modal-cancel').addEventListener('click', closeModal);
+        confirmBtn.addEventListener('click', () => {
+            openModal('Final Confirmation', `
+                <div style="text-align:center;padding:20px 0;">
+                    <p style="color:var(--red);font-weight:700;font-size:18px;">This is your last chance.</p>
+                    <p style="font-size:14px;margin:12px 0;">Your account and all data will be <strong>permanently erased</strong>.</p>
+                    <p style="font-size:13px;color:var(--text-muted);">This cannot be undone. There is no recovery option.</p>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                    <button class="btn btn-danger" id="modal-final-confirm" disabled>Deleting in <span id="countdown">5</span>s...</button>
+                </div>
+            `);
+
+            document.getElementById('modal-cancel').addEventListener('click', closeModal);
+            let seconds = 5;
+            const countdownEl = document.getElementById('countdown');
+            const finalBtn = document.getElementById('modal-final-confirm');
+            const timer = setInterval(() => {
+                seconds--;
+                countdownEl.textContent = seconds;
+                if (seconds <= 0) {
+                    clearInterval(timer);
+                    finalBtn.disabled = false;
+                    finalBtn.textContent = 'Permanently Delete My Account';
+                }
+            }, 1000);
+
+            finalBtn.addEventListener('click', async () => {
+                finalBtn.disabled = true;
+                finalBtn.textContent = 'Deleting...';
+                try {
+                    const deleteAccountFn = firebase.functions().httpsCallable('deleteAccount');
+                    await deleteAccountFn();
+                    closeModal();
+                    await auth.signOut();
+                    window.location.href = '/';
+                } catch (err) {
+                    console.error('Account deletion failed:', err);
+                    alert('Account deletion failed: ' + (err.message || 'Unknown error. Please try again.'));
+                    closeModal();
+                }
+            });
+        });
     });
 }
 

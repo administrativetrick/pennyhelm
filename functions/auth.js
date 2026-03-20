@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 
-module.exports = function({ admin, db, getEmailTransporter, generateSecurePassword, hashPassword, secrets }) {
-    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = secrets;
+module.exports = function({ admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets }) {
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV, STRIPE_SECRET_KEY } = secrets;
 
     const exports = {};
 
@@ -299,6 +299,235 @@ If you did not request this, please ignore this email or contact support.
             } catch (err) {
                 console.error("confirmPasswordChanged error:", err);
                 throw new HttpsError("internal", "Failed to confirm password change.");
+            }
+        }
+    );
+
+    // createTestUser
+    //   Admin-only: creates a Firebase Auth user + Firestore docs for a test user
+    exports.createTestUser = onCall(
+        async (request) => {
+            if (!request.auth) {
+                throw new HttpsError("unauthenticated", "Must be signed in.");
+            }
+            if (request.auth.token.admin !== true) {
+                throw new HttpsError("permission-denied", "Admin access required.");
+            }
+
+            const { displayName, email, subscriptionStatus } = request.data || {};
+            if (!displayName) {
+                throw new HttpsError("invalid-argument", "Display name is required.");
+            }
+
+            const crypto = require("crypto");
+            const testUid = "test-" + crypto.randomBytes(4).toString("hex");
+            const testEmail = email || testUid + "@pennyhelm.test";
+            const tempPassword = generateSecurePassword();
+            const passwordHash = hashPassword(tempPassword);
+
+            try {
+                // Create Firebase Auth user with custom UID
+                await admin.auth().createUser({
+                    uid: testUid,
+                    email: testEmail,
+                    password: tempPassword,
+                    displayName: displayName,
+                });
+                console.log("Created Firebase Auth user:", testUid);
+
+                // Create Firestore user profile
+                await db.collection("users").doc(testUid).set({
+                    email: testEmail,
+                    displayName: displayName,
+                    trialStartDate: admin.firestore.FieldValue.serverTimestamp(),
+                    subscriptionStatus: subscriptionStatus || "trial",
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    isTestUser: true,
+                    createdByAdmin: true,
+                    mobilePasswordSet: true,
+                    mobilePasswordHash: passwordHash,
+                    requirePasswordChange: true,
+                });
+
+                // Create empty userData doc
+                await db.collection("userData").doc(testUid).set({
+                    data: JSON.stringify({
+                        userName: displayName,
+                        bills: [],
+                        dependentBills: [],
+                        accounts: [],
+                        debts: [],
+                        paymentSources: ["Checking Account", "Credit Card"],
+                        setupComplete: false,
+                    }),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+
+                console.log("Test user created:", testUid, testEmail);
+                return { success: true, uid: testUid, email: testEmail, tempPassword: tempPassword };
+            } catch (err) {
+                console.error("createTestUser error:", err);
+                throw new HttpsError("internal", "Failed to create test user: " + err.message);
+            }
+        }
+    );
+
+    // deleteAccount
+    //   Permanently deletes the authenticated user's account and all associated data
+    exports.deleteAccount = onCall(
+        { secrets: [PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV, STRIPE_SECRET_KEY] },
+        async (request) => {
+            if (!request.auth) {
+                throw new HttpsError("unauthenticated", "Must be signed in.");
+            }
+
+            const uid = request.auth.uid;
+            console.log("deleteAccount called for user:", uid);
+
+            // 1. Read user doc for Stripe info
+            const userDoc = await db.collection("users").doc(uid).get();
+            const userData = userDoc.exists ? userDoc.data() : {};
+
+            // 2. Cancel Stripe subscription (best-effort)
+            if (userData.stripeSubscriptionId) {
+                try {
+                    const stripe = require("stripe")(STRIPE_SECRET_KEY.value());
+                    await stripe.subscriptions.cancel(userData.stripeSubscriptionId);
+                    console.log("Stripe subscription cancelled:", userData.stripeSubscriptionId);
+                } catch (err) {
+                    console.warn("Stripe cancellation failed (non-fatal):", err.message);
+                }
+            }
+
+            // 3. Revoke Plaid items (best-effort)
+            try {
+                const plaidSnap = await db.collection("plaidItems").where("uid", "==", uid).get();
+                if (!plaidSnap.empty) {
+                    const client = getPlaidClient(PLAID_CLIENT_ID.value(), PLAID_SECRET.value(), PLAID_ENV.value());
+                    for (const doc of plaidSnap.docs) {
+                        try {
+                            await client.itemRemove({ access_token: doc.data().accessToken });
+                            console.log("Plaid item revoked:", doc.id);
+                        } catch (err) {
+                            console.warn(`Plaid itemRemove failed for ${doc.id} (non-fatal):`, err.message);
+                        }
+                        await doc.ref.delete();
+                    }
+                }
+            } catch (err) {
+                console.warn("Plaid cleanup failed (non-fatal):", err.message);
+            }
+
+            // 4. Delete MFA subcollection
+            try {
+                const mfaSnap = await db.collection("users").doc(uid).collection("mfaSecrets").get();
+                if (!mfaSnap.empty) {
+                    const batch = db.batch();
+                    mfaSnap.docs.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                    console.log("MFA secrets deleted");
+                }
+            } catch (err) {
+                console.warn("MFA cleanup failed (non-fatal):", err.message);
+            }
+
+            // 5. Delete invites sent by this user
+            try {
+                const invSnap = await db.collection("invites").where("inviterUid", "==", uid).get();
+                if (!invSnap.empty) {
+                    const batch = db.batch();
+                    invSnap.docs.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                    console.log("Invites deleted:", invSnap.size);
+                }
+            } catch (err) {
+                console.warn("Invites cleanup failed (non-fatal):", err.message);
+            }
+
+            // 6. Delete registration codes owned by this user
+            try {
+                const regSnap = await db.collection("registrationCodes").where("ownerUid", "==", uid).get();
+                if (!regSnap.empty) {
+                    const batch = db.batch();
+                    regSnap.docs.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                    console.log("Registration codes deleted:", regSnap.size);
+                }
+            } catch (err) {
+                console.warn("Registration codes cleanup failed (non-fatal):", err.message);
+            }
+
+            // 7. Delete API keys
+            try {
+                const apiKeySnap = await db.collection("apiKeys").where("uid", "==", uid).get();
+                if (!apiKeySnap.empty) {
+                    const batch = db.batch();
+                    apiKeySnap.docs.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                    console.log("API keys deleted:", apiKeySnap.size);
+                }
+            } catch (err) {
+                console.warn("API keys cleanup failed (non-fatal):", err.message);
+            }
+
+            // 8. Delete userData document
+            await db.collection("userData").doc(uid).delete();
+            console.log("userData deleted");
+
+            // 9. Delete users document
+            await db.collection("users").doc(uid).delete();
+            console.log("users doc deleted");
+
+            // 10. Delete Firebase Auth account (must be last)
+            await admin.auth().deleteUser(uid);
+            console.log("Firebase Auth account deleted:", uid);
+
+            return { success: true };
+        }
+    );
+
+    // resetTestUserPassword
+    //   Admin-only: generates a new temporary password for a test user
+    exports.resetTestUserPassword = onCall(
+        async (request) => {
+            if (!request.auth) {
+                throw new HttpsError("unauthenticated", "Must be signed in.");
+            }
+            if (request.auth.token.admin !== true) {
+                throw new HttpsError("permission-denied", "Admin access required.");
+            }
+
+            const { uid } = request.data || {};
+            if (!uid) {
+                throw new HttpsError("invalid-argument", "User UID is required.");
+            }
+
+            // Verify this is actually a test user
+            const userDoc = await db.collection("users").doc(uid).get();
+            if (!userDoc.exists || !userDoc.data().isTestUser) {
+                throw new HttpsError("not-found", "Test user not found.");
+            }
+
+            try {
+                const tempPassword = generateSecurePassword();
+                const passwordHash = hashPassword(tempPassword);
+
+                // Update Firebase Auth password
+                await admin.auth().updateUser(uid, { password: tempPassword });
+                console.log("Password reset for test user:", uid);
+
+                // Update Firestore flags
+                await db.collection("users").doc(uid).set({
+                    mobilePasswordSet: true,
+                    mobilePasswordHash: passwordHash,
+                    requirePasswordChange: true,
+                    mobilePasswordResetAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+
+                return { success: true, tempPassword: tempPassword };
+            } catch (err) {
+                console.error("resetTestUserPassword error:", err);
+                throw new HttpsError("internal", "Failed to reset password: " + err.message);
             }
         }
     );
