@@ -118,6 +118,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // API keys — only Cloud Functions (admin SDK) can read/write.
+    // Keys are hashed; raw key is never stored. Lookup is by hash.
+    match /apiKeys/{keyId} {
+      allow read, write: if false;
+    }
+
     // Plaid items — access_tokens stored here, NEVER readable by client
     match /plaidItems/{itemId} {
       allow read, write: if false;

@@ -13,6 +13,8 @@
  *   invites.js   — Sharing invites, registration codes, waitlist
  *   scheduled.js — Cron jobs, admin utilities, transaction sync
  *   chatbot.js   — AI financial assistant (Gemini)
+ *   api-keys.js  — API key management (create, list, revoke)
+ *   api.js       — Public REST API (authenticated via API key)
  */
 
 const admin = require("firebase-admin");
@@ -111,7 +113,12 @@ const mfaFns       = require("./mfa")(shared);
 const inviteFns    = require("./invites")(shared);
 const scheduledFns = require("./scheduled")(shared);
 const chatbotFns   = require("./chatbot")(shared);
+const apiKeyFns    = require("./api-keys")(shared);
+const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
 
 // ─── Re-export All Cloud Functions ───────────────────────────
 
-Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns);
+// Remove internal helper before exporting
+delete apiKeyFns._validateApiKey;
+
+Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns);

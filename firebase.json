@@ -22,6 +22,10 @@
     ],
     "rewrites": [
       {
+        "source": "/api/**",
+        "function": "api"
+      },
+      {
         "source": "/app",
         "destination": "/app.html"
       },
@@ -40,6 +44,10 @@
       {
         "source": "/oauth",
         "destination": "/oauth.html"
+      },
+      {
+        "source": "/delete-account",
+        "destination": "/delete-account.html"
       }
     ]
   },
