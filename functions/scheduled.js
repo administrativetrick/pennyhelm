@@ -331,8 +331,10 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
 
                 const now = new Date();
                 const endDate = now.toISOString().slice(0, 10);
-                // Fetch last 3 days to catch any missed transactions
-                const startDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+                // Rolling window for users who've synced before (catches late-posting txns)
+                const incrementalStartDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+                // Historical backfill window for first-time syncs (feeds CashFlow charts)
+                const backfillStartDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
                 // Group items by user
                 const userItems = {};
@@ -361,18 +363,30 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
                             if (e.plaidTransactionId) existingTxnIds.add(e.plaidTransactionId);
                         });
 
+                        // First-time sync for this user → pull 90 days to seed CashFlow history.
+                        // Subsequent runs use the rolling 3-day window.
+                        const startDate = userData.lastTransactionSync ? incrementalStartDate : backfillStartDate;
+
                         let userImported = 0;
 
                         for (const item of items) {
                             try {
-                                const response = await client.transactionsGet({
-                                    access_token: item.accessToken,
-                                    start_date: startDate,
-                                    end_date: endDate,
-                                    options: { count: 500, offset: 0 },
-                                });
-
-                                const transactions = response.data.transactions || [];
+                                // Paginate through all transactions in the window
+                                let offset = 0;
+                                const transactions = [];
+                                while (true) {
+                                    const response = await client.transactionsGet({
+                                        access_token: item.accessToken,
+                                        start_date: startDate,
+                                        end_date: endDate,
+                                        options: { count: 500, offset },
+                                    });
+                                    const page = response.data.transactions || [];
+                                    transactions.push(...page);
+                                    const total = response.data.total_transactions || 0;
+                                    if (transactions.length >= total || page.length === 0) break;
+                                    offset = transactions.length;
+                                }
 
                                 for (const txn of transactions) {
                                     if (txn.amount <= 0) continue;
@@ -404,18 +418,18 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
                             }
                         }
 
-                        if (userImported > 0) {
-                            userData.lastTransactionSync = new Date().toISOString();
-                            const existingDoc = userDataDoc.data();
-                            const saveData = {
-                                data: JSON.stringify(userData),
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                            };
-                            if (existingDoc.sharedWithUids) saveData.sharedWithUids = existingDoc.sharedWithUids;
-                            if (existingDoc.sharedWithEdit) saveData.sharedWithEdit = existingDoc.sharedWithEdit;
-                            await db.collection("userData").doc(uid).set(saveData);
-                            totalImported += userImported;
-                        }
+                        // Always stamp lastTransactionSync after a successful run so the next
+                        // daily run uses the 3-day rolling window instead of another 90-day backfill.
+                        userData.lastTransactionSync = new Date().toISOString();
+                        const existingDoc = userDataDoc.data();
+                        const saveData = {
+                            data: JSON.stringify(userData),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        };
+                        if (existingDoc.sharedWithUids) saveData.sharedWithUids = existingDoc.sharedWithUids;
+                        if (existingDoc.sharedWithEdit) saveData.sharedWithEdit = existingDoc.sharedWithEdit;
+                        await db.collection("userData").doc(uid).set(saveData);
+                        totalImported += userImported;
 
                         usersProcessed++;
                     } catch (userErr) {
