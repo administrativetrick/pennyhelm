@@ -1,5 +1,7 @@
 import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating, formatDate } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
+import { calculateFinancialHealthScore } from '../services/financial-service.js';
+import { detectRecurringTransactions, buildBillSuggestion } from '../services/recurring-service.js';
 
 const GOAL_CATEGORIES = [
     { value: 'emergency', label: 'Emergency Fund', icon: '🛡️' },
@@ -13,12 +15,14 @@ const GOAL_CATEGORIES = [
 
 const DASHBOARD_WIDGETS = [
     { id: 'stats-grid',        label: 'Financial Summary',       icon: '📊' },
+    { id: 'health-score',      label: 'Financial Health Score',  icon: '🏥' },
     { id: 'pay-periods',       label: 'Pay Period Breakdown',    icon: '📅' },
     { id: 'monthly-progress',  label: 'Monthly Progress',        icon: '📈' },
     { id: 'upcoming-bills',    label: 'Upcoming Bills',          icon: '🔔' },
     { id: 'spending-category', label: 'Spending by Category',    icon: '🏷️' },
     { id: 'payment-sources',   label: 'Bills by Payment Source', icon: '💳' },
     { id: 'savings-goals',     label: 'Savings Goals',           icon: '🎯' },
+    { id: 'smart-insights',    label: 'Smart Insights',          icon: '💡' },
 ];
 
 let periodOffset = 0; // 0 = starts at current period
@@ -516,12 +520,14 @@ export function renderDashboard(container, store, subTab) {
     // Widget renderers map
     const widgetRenderers = {
         'stats-grid':        () => buildStatsGridHtml(ctx),
+        'health-score':      () => buildHealthScoreHtml(ctx),
         'pay-periods':       () => buildPayPeriodsHtml(ctx),
         'monthly-progress':  () => buildMonthlyProgressHtml(ctx),
         'upcoming-bills':    () => buildUpcomingBillsHtml(ctx),
         'spending-category': () => buildSpendingCategoryHtml(ctx),
         'payment-sources':   () => buildPaymentSourcesHtml(ctx),
         'savings-goals':     () => renderSavingsGoals(store),
+        'smart-insights':    () => buildSmartInsightsHtml(ctx),
     };
 
     const layout = store.getDashboardLayout();
@@ -574,6 +580,9 @@ export function renderDashboard(container, store, subTab) {
 
     // Savings Goals event handlers
     setupSavingsGoalHandlers(container, store);
+
+    // Smart Insights event handlers
+    setupSmartInsightsHandlers(container, store, ctx);
 
     if (prevBtn) {
         prevBtn.addEventListener('click', () => {
@@ -984,6 +993,226 @@ function getPaymentSourceBreakdown(bills, store, year, month) {
 }
 
 // ─────────────────────────────────────────────
+// FINANCIAL HEALTH SCORE
+// ─────────────────────────────────────────────
+
+function buildHealthScoreHtml(ctx) {
+    const { store, userMonthlyIncome, totalBills, cashTotal, debts,
+            totalDebtBalance, userScore, accounts } = ctx;
+
+    // Gather inputs for the score engine
+    const monthlyDebtPayments = debts.reduce((s, d) => s + (d.minimumPayment || 0), 0);
+    const savingsBalance = accounts
+        .filter(a => a.type === 'savings')
+        .reduce((s, a) => s + (a.balance || 0), 0);
+    const billPaymentRate = store.getBillPaymentRate(3);
+
+    const result = calculateFinancialHealthScore({
+        monthlyIncome: userMonthlyIncome,
+        totalMonthlyBills: totalBills,
+        totalDebtBalance: totalDebtBalance,
+        monthlyDebtPayments: monthlyDebtPayments,
+        cashTotal: cashTotal,
+        savingsBalance: savingsBalance,
+        billPaymentRate: billPaymentRate,
+        creditScore: userScore,
+    });
+
+    const { score, grade, components } = result;
+
+    // SVG circular gauge
+    const radius = 58;
+    const circumference = 2 * Math.PI * radius;
+    const dashOffset = circumference - (score / 100) * circumference;
+
+    var html = '<div class="card health-score-widget">';
+    html += '<div class="flex-between mb-16"><h3>Financial Health Score</h3>';
+    html += '<span style="font-size:18px;">' + grade.emoji + '</span></div>';
+
+    // ── Score Ring ──
+    html += '<div style="display:flex;align-items:center;gap:24px;margin-bottom:20px;">';
+    html += '<div class="health-score-ring" style="position:relative;width:140px;height:140px;flex-shrink:0;">';
+    html += '<svg viewBox="0 0 140 140" width="140" height="140">';
+    // Background track
+    html += '<circle cx="70" cy="70" r="' + radius + '" fill="none" stroke="var(--bg-input)" stroke-width="10"/>';
+    // Score arc
+    html += '<circle cx="70" cy="70" r="' + radius + '" fill="none" stroke="' + grade.color + '" stroke-width="10" '
+        + 'stroke-linecap="round" stroke-dasharray="' + circumference + '" '
+        + 'stroke-dashoffset="' + dashOffset + '" '
+        + 'transform="rotate(-90 70 70)" '
+        + 'style="transition:stroke-dashoffset 1s ease-out;"/>';
+    html += '</svg>';
+    // Center number
+    html += '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">';
+    html += '<div class="health-score-number" style="font-size:36px;font-weight:800;color:' + grade.color + ';line-height:1;">' + score + '</div>';
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">out of 100</div>';
+    html += '</div></div>';
+
+    // ── Grade + Legend ──
+    html += '<div style="flex:1;min-width:0;">';
+    html += '<div style="font-size:18px;font-weight:700;color:' + grade.color + ';margin-bottom:6px;">' + grade.label + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">';
+    if (score >= 90) html += 'Your finances are in outstanding shape. Keep it up!';
+    else if (score >= 75) html += 'Solid financial health. A few areas to optimize.';
+    else if (score >= 55) html += 'You\'re on the right track — focus on the weak spots below.';
+    else if (score >= 35) html += 'Several areas need attention. Follow the tips below.';
+    else html += 'Your finances need urgent attention. Start with the biggest gaps.';
+    html += '</div>';
+
+    // Score legend bar
+    html += '<div style="display:flex;gap:2px;height:6px;border-radius:3px;overflow:hidden;margin-bottom:4px;">';
+    html += '<div style="flex:1;background:var(--red);"></div>';
+    html += '<div style="flex:1;background:var(--orange);"></div>';
+    html += '<div style="flex:1;background:var(--yellow);"></div>';
+    html += '<div style="flex:1;background:var(--accent);"></div>';
+    html += '<div style="flex:1;background:var(--green);"></div></div>';
+    html += '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);">';
+    html += '<span>0</span><span>35</span><span>55</span><span>75</span><span>100</span></div>';
+    html += '</div></div>';
+
+    // ── Component Breakdown ──
+    html += '<div style="display:flex;flex-direction:column;gap:10px;">';
+    components.forEach(function(c) {
+        var barColor = c.score >= 80 ? 'var(--green)' : c.score >= 55 ? 'var(--accent)' : c.score >= 35 ? 'var(--yellow)' : 'var(--red)';
+        html += '<div style="background:var(--bg-secondary);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+        html += '<div style="display:flex;align-items:center;gap:8px;">';
+        html += '<span style="font-size:16px;">' + c.icon + '</span>';
+        html += '<span style="font-size:13px;font-weight:600;">' + c.name + '</span></div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;">';
+        html += '<span style="font-size:14px;font-weight:700;color:' + barColor + ';">' + c.score + '</span>';
+        html += '<span style="font-size:10px;color:var(--text-muted);font-weight:600;">' + Math.round(c.weight * 100) + '%</span></div></div>';
+        // Progress bar
+        html += '<div style="background:var(--bg-input);border-radius:4px;height:6px;overflow:hidden;margin-bottom:6px;">';
+        html += '<div style="height:100%;width:' + c.score + '%;background:' + barColor + ';border-radius:4px;transition:width 0.6s ease-out;"></div></div>';
+        // Tip
+        html += '<div style="font-size:11px;color:var(--text-secondary);">' + c.tip + '</div>';
+        html += '</div>';
+    });
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+}
+
+// ─────────────────────────────────────────────
+// SMART INSIGHTS (Recurring Transaction Detection)
+// ─────────────────────────────────────────────
+
+function buildSmartInsightsHtml(ctx) {
+    const { store, bills } = ctx;
+    const expenses = store.getExpenses();
+    const dismissed = store.getDismissedRecurringSuggestions();
+
+    // Only show if there are Plaid expenses to analyze
+    const plaidExpenses = expenses.filter(e => e.source === 'plaid');
+    if (plaidExpenses.length < 4) {
+        return '<div class="card smart-insights-widget">' +
+            '<div class="flex-between mb-16"><h3>Smart Insights</h3>' +
+            '<span style="font-size:18px;">💡</span></div>' +
+            '<div style="text-align:center;padding:24px 16px;">' +
+            '<div style="font-size:40px;margin-bottom:12px;">🔍</div>' +
+            '<div style="font-size:14px;color:var(--text-secondary);margin-bottom:6px;">Not enough transaction data yet</div>' +
+            '<div style="font-size:12px;color:var(--text-muted);max-width:320px;margin:0 auto;">Sync your bank transactions to get smart bill suggestions and spending alerts. Need at least a few transactions to detect patterns.</div>' +
+            '</div></div>';
+    }
+
+    const { recurring, irregular } = detectRecurringTransactions(expenses, bills, dismissed);
+
+    // If nothing to show, show an all-clear state
+    if (recurring.length === 0 && irregular.length === 0) {
+        return '<div class="card smart-insights-widget">' +
+            '<div class="flex-between mb-16"><h3>Smart Insights</h3>' +
+            '<span style="font-size:18px;">💡</span></div>' +
+            '<div style="text-align:center;padding:24px 16px;">' +
+            '<div style="font-size:40px;margin-bottom:12px;">✨</div>' +
+            '<div style="font-size:14px;color:var(--green);font-weight:600;margin-bottom:6px;">All caught up!</div>' +
+            '<div style="font-size:12px;color:var(--text-muted);max-width:320px;margin:0 auto;">No new recurring transactions detected. All your regular charges are being tracked as bills.</div>' +
+            '</div></div>';
+    }
+
+    var html = '<div class="card smart-insights-widget">';
+    html += '<div class="flex-between mb-16"><h3>Smart Insights</h3>';
+    html += '<span style="font-size:18px;">💡</span></div>';
+
+    // ── Recurring Suggestions ──
+    if (recurring.length > 0) {
+        html += '<div style="margin-bottom:16px;">';
+        html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);margin-bottom:10px;">';
+        html += '🔄 Recurring Charges Detected (' + recurring.length + ')</div>';
+
+        // Show top 5 suggestions
+        recurring.slice(0, 5).forEach(function(r) {
+            var confidenceColor = r.confidence >= 0.8 ? 'var(--green)' : r.confidence >= 0.6 ? 'var(--accent)' : 'var(--yellow)';
+            var confidenceLabel = r.confidence >= 0.8 ? 'High' : r.confidence >= 0.6 ? 'Medium' : 'Low';
+            var freqLabel = r.frequency === 'monthly' ? 'Monthly' : r.frequency === 'weekly' ? 'Weekly' :
+                r.frequency === 'biweekly' ? 'Biweekly' : r.frequency === 'quarterly' ? 'Quarterly' :
+                r.frequency === 'semi-annual' ? 'Semi-Annual' : r.frequency === 'yearly' ? 'Yearly' : r.frequency;
+
+            html += '<div class="insight-suggestion" data-merchant-key="' + escapeHtml(r.merchantKey) + '" style="background:var(--bg-secondary);padding:14px;border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:8px;">';
+
+            // Header row
+            html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
+            html += '<div style="flex:1;min-width:0;">';
+            html += '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(r.merchantName) + '</div>';
+            html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + freqLabel + ' &middot; ' + r.occurrences + ' charges found</div></div>';
+            html += '<div style="text-align:right;flex-shrink:0;margin-left:12px;">';
+            html += '<div style="font-size:16px;font-weight:700;">' + formatCurrency(r.averageAmount) + '</div>';
+            if (r.amountVariance > 0.05) {
+                html += '<div style="font-size:10px;color:var(--text-muted);">varies</div>';
+            }
+            html += '</div></div>';
+
+            // Confidence + info row
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+            html += '<div style="display:flex;align-items:center;gap:6px;">';
+            html += '<div style="width:6px;height:6px;border-radius:50%;background:' + confidenceColor + ';"></div>';
+            html += '<span style="font-size:11px;color:var(--text-secondary);">' + confidenceLabel + ' confidence</span></div>';
+            html += '<span style="font-size:11px;color:var(--text-muted);">~Day ' + r.estimatedDueDay + '</span></div>';
+
+            // Action buttons
+            html += '<div style="display:flex;gap:8px;">';
+            html += '<button class="btn btn-primary btn-sm insight-add-bill" data-merchant-key="' + escapeHtml(r.merchantKey) + '" style="flex:1;font-size:12px;">+ Add as Bill</button>';
+            html += '<button class="btn btn-sm insight-dismiss" data-merchant-key="' + escapeHtml(r.merchantKey) + '" style="font-size:12px;background:var(--bg-input);color:var(--text-secondary);border:1px solid var(--border);">Dismiss</button>';
+            html += '</div></div>';
+        });
+
+        if (recurring.length > 5) {
+            html += '<div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:4px;">+ ' + (recurring.length - 5) + ' more detected</div>';
+        }
+        html += '</div>';
+    }
+
+    // ── Irregular Charges ──
+    if (irregular.length > 0) {
+        html += '<div>';
+        html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--orange);margin-bottom:10px;">';
+        html += '⚠️ Unusual Charges (' + irregular.length + ')</div>';
+
+        irregular.slice(0, 3).forEach(function(item) {
+            var arrow = item.direction === 'higher' ? '↑' : '↓';
+            var arrowColor = item.direction === 'higher' ? 'var(--red)' : 'var(--green)';
+
+            html += '<div style="background:var(--bg-secondary);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:8px;border-left:3px solid var(--orange);">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+            html += '<div style="flex:1;min-width:0;">';
+            html += '<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(item.merchantName) + '</div>';
+            html += '<div style="font-size:11px;color:var(--text-muted);">' + new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + '</div></div>';
+            html += '<div style="text-align:right;flex-shrink:0;margin-left:12px;">';
+            html += '<div style="font-size:15px;font-weight:700;color:' + arrowColor + ';">' + arrow + ' ' + formatCurrency(item.amount) + '</div>';
+            html += '<div style="font-size:10px;color:var(--text-muted);">usually ' + formatCurrency(item.expectedAmount) + '</div>';
+            html += '</div></div>';
+            html += '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">' + formatCurrency(item.differenceAmount) + ' ' + item.direction + ' than normal (' + item.deviation + 'x deviation)</div>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// ─────────────────────────────────────────────
 // SAVINGS GOALS
 // ─────────────────────────────────────────────
 
@@ -1074,6 +1303,77 @@ function setupSavingsGoalHandlers(container, store) {
             if (goal) {
                 openGoalModal(store, goal);
             }
+        });
+    });
+}
+
+function setupSmartInsightsHandlers(container, store, ctx) {
+    // "Add as Bill" buttons
+    container.querySelectorAll('.insight-add-bill').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const merchantKey = btn.dataset.merchantKey;
+            const expenses = store.getExpenses();
+            const bills = store.getBills();
+            const dismissed = store.getDismissedRecurringSuggestions();
+            const { recurring } = detectRecurringTransactions(expenses, bills, dismissed);
+            const match = recurring.find(r => r.merchantKey === merchantKey);
+            if (!match) return;
+
+            const suggestion = buildBillSuggestion(match);
+
+            // Show confirmation modal with pre-filled data
+            var html = '<div class="form-group"><label>Bill Name</label>';
+            html += '<input type="text" class="form-input" id="insight-bill-name" value="' + escapeHtml(suggestion.name) + '"></div>';
+            html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
+            html += '<div class="form-group"><label>Amount</label>';
+            html += '<input type="number" class="form-input" id="insight-bill-amount" value="' + suggestion.amount + '" step="0.01"></div>';
+            html += '<div class="form-group"><label>Frequency</label>';
+            html += '<select class="form-input" id="insight-bill-freq">';
+            ['weekly', 'biweekly', 'monthly', 'quarterly', 'semi-annual', 'yearly'].forEach(f => {
+                html += '<option value="' + f + '"' + (f === suggestion.frequency ? ' selected' : '') + '>' +
+                    f.charAt(0).toUpperCase() + f.slice(1) + '</option>';
+            });
+            html += '</select></div></div>';
+            html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
+            html += '<div class="form-group"><label>Due Day of Month</label>';
+            html += '<input type="number" class="form-input" id="insight-bill-dueday" value="' + suggestion.dueDay + '" min="1" max="31"></div>';
+            html += '<div class="form-group"><label>Category</label>';
+            html += '<input type="text" class="form-input" id="insight-bill-category" value="' + escapeHtml(suggestion.category) + '"></div></div>';
+            html += '<div style="background:var(--accent-bg);padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);margin-top:8px;">';
+            html += '💡 Detected from ' + match.occurrences + ' transactions over your recent history.</div>';
+
+            openModal('Add Detected Bill', html, () => {
+                const name = document.getElementById('insight-bill-name').value.trim();
+                const amount = parseFloat(document.getElementById('insight-bill-amount').value);
+                const frequency = document.getElementById('insight-bill-freq').value;
+                const dueDay = parseInt(document.getElementById('insight-bill-dueday').value) || 1;
+                const category = document.getElementById('insight-bill-category').value.trim();
+
+                if (!name || isNaN(amount) || amount <= 0) return;
+
+                store.addBill({
+                    name, amount, frequency, dueDay, category,
+                    autoPay: false, frozen: false,
+                    notes: 'Auto-detected from transactions'
+                });
+
+                // Dismiss so it doesn't show again
+                store.dismissRecurringSuggestion(merchantKey);
+                closeModal();
+                renderDashboard(container, store);
+            });
+        });
+    });
+
+    // "Dismiss" buttons
+    container.querySelectorAll('.insight-dismiss').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const merchantKey = btn.dataset.merchantKey;
+            store.dismissRecurringSuggestion(merchantKey);
+            // Re-render to remove dismissed item
+            renderDashboard(container, store);
         });
     });
 }

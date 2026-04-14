@@ -58,7 +58,12 @@ function buildFinancialSummary() {
     // Unpaid bills this month
     const paidKey = `${year}-${String(month + 1).padStart(2, '0')}`;
     const paidThisMonth = data.paidHistory?.[paidKey] || {};
-    const unpaidBills = bills.filter(b => !paidThisMonth[b.id] && b.frequency !== 'yearly');
+    const isBillPaidForChat = (billId) => {
+        if (paidThisMonth[billId]) return true;
+        const prefix = billId + '_';
+        return Object.keys(paidThisMonth).some(k => k.startsWith(prefix) && paidThisMonth[k]);
+    };
+    const unpaidBills = bills.filter(b => !isBillPaidForChat(b.id) && b.frequency !== 'yearly');
 
     // Debts
     const debts = data.debts || [];

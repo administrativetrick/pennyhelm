@@ -1,0 +1,44 @@
+[
+  {
+    "id": "174ac977-e4d3-47e2-9326-3b07b3efe004",
+    "date": "2026-04-02",
+    "name": "Loading spinner",
+    "description": "Add a loading spinner to the dashboard while data is being fetched",
+    "branch": "hora/feature/loading-spinner-2026-04-02",
+    "status": "failed",
+    "startedAt": 1775160036062,
+    "error": "Merge failed: merge: feature: - not something we can merge\n"
+  },
+  {
+    "id": "7a6bef14-7c54-41e7-8da5-f0c9615b0074",
+    "project": "PennyHelm",
+    "date": "2026-04-02",
+    "name": "Export CSV",
+    "description": "Allow users to export their transactions as a CSV file",
+    "branch": "hora/feature/export-csv-2026-04-02",
+    "status": "failed",
+    "startedAt": 1775160683153,
+    "error": "Merge failed: merge: feature: - not something we can merge\n"
+  },
+  {
+    "id": "63558248-94a6-49ca-8cad-0c87aa5d58e7",
+    "project": "PennyHelm",
+    "date": "2026-04-02",
+    "name": "Dark mode toggle",
+    "description": "Add a dark/light theme toggle in the settings page",
+    "branch": "hora/feature/dark-mode-toggle-2026-04-02",
+    "status": "building",
+    "startedAt": 1775162216270
+  },
+  {
+    "id": "bbb1272a-b49f-4e24-be7b-1e02a24fdc93",
+    "project": "PennyHelm",
+    "date": "2026-04-03",
+    "name": "Bill reminders",
+    "description": "Show upcoming bills due in the next 7 days on the dashboard",
+    "branch": "hora/feature/bill-reminders-2026-04-03",
+    "status": "failed",
+    "startedAt": 1775174637030,
+    "error": "spawn claude ENOENT"
+  }
+]

@@ -227,3 +227,163 @@ export function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRang
     }
     return occurrences;
 }
+
+// ─── Financial Health Score ──────────────────────
+
+/**
+ * Calculate a 0-100 Financial Health Score from five weighted components:
+ *   1. Debt-to-Income Ratio  (25 pts)
+ *   2. Savings Rate          (25 pts)
+ *   3. Bill Payment History  (25 pts)
+ *   4. Credit Score           (15 pts)
+ *   5. Emergency Fund          (10 pts)
+ *
+ * Each sub-score is 0-100, then multiplied by its weight.
+ * Returns { score, grade, components[] } where each component
+ * has { name, score, weight, weighted, color, tip }.
+ */
+export function calculateFinancialHealthScore({
+    monthlyIncome,
+    totalMonthlyBills,
+    totalDebtBalance,
+    monthlyDebtPayments,
+    cashTotal,
+    savingsBalance,
+    billPaymentRate,
+    creditScore,
+}) {
+    const components = [];
+
+    // ── 1. Debt-to-Income (25%) ──────────────
+    // DTI = monthly debt payments / gross monthly income
+    // 0% = perfect (100), >50% = poor (0)
+    let dtiScore = 100;
+    if (monthlyIncome > 0) {
+        const dti = (monthlyDebtPayments + totalMonthlyBills) / monthlyIncome;
+        if (dti <= 0.30) dtiScore = 100;
+        else if (dti <= 0.40) dtiScore = 80 - (dti - 0.30) * 200; // 80-60
+        else if (dti <= 0.50) dtiScore = 60 - (dti - 0.40) * 300; // 60-30
+        else dtiScore = Math.max(0, 30 - (dti - 0.50) * 100);
+    } else if (totalMonthlyBills > 0 || monthlyDebtPayments > 0) {
+        dtiScore = 0; // debt but no income
+    }
+    dtiScore = clamp(dtiScore);
+    components.push({
+        name: 'Debt-to-Income',
+        score: Math.round(dtiScore),
+        weight: 0.25,
+        weighted: Math.round(dtiScore * 0.25),
+        icon: '📉',
+        tip: dtiScore >= 80 ? 'Great! Your debt load is manageable.'
+            : dtiScore >= 50 ? 'Consider reducing monthly obligations.'
+            : 'High debt relative to income — focus on payoff.'
+    });
+
+    // ── 2. Savings Rate (25%) ────────────────
+    // Savings as months of expenses covered
+    // 6+ months = 100, 0 = 0
+    let savingsScore = 0;
+    const monthlyExpenses = totalMonthlyBills + monthlyDebtPayments;
+    if (monthlyExpenses > 0) {
+        const monthsCovered = savingsBalance / monthlyExpenses;
+        if (monthsCovered >= 6) savingsScore = 100;
+        else savingsScore = (monthsCovered / 6) * 100;
+    } else if (savingsBalance > 0) {
+        savingsScore = 100; // savings and no expenses
+    }
+    savingsScore = clamp(savingsScore);
+    components.push({
+        name: 'Savings Cushion',
+        score: Math.round(savingsScore),
+        weight: 0.25,
+        weighted: Math.round(savingsScore * 0.25),
+        icon: '🏦',
+        tip: savingsScore >= 80 ? 'Excellent savings buffer!'
+            : savingsScore >= 50 ? 'Building toward 6 months of expenses.'
+            : 'Try to build an emergency fund.'
+    });
+
+    // ── 3. Bill Payment History (25%) ────────
+    // % of bills paid on time over recent months
+    // 100% = 100, 0% = 0
+    let paymentScore = billPaymentRate != null ? billPaymentRate * 100 : 50; // default 50 if no history
+    paymentScore = clamp(paymentScore);
+    components.push({
+        name: 'Payment History',
+        score: Math.round(paymentScore),
+        weight: 0.25,
+        weighted: Math.round(paymentScore * 0.25),
+        icon: '✅',
+        tip: paymentScore >= 90 ? 'Outstanding payment track record!'
+            : paymentScore >= 70 ? 'Good — try to pay all bills on time.'
+            : 'Late or missed payments hurt your score.'
+    });
+
+    // ── 4. Credit Score (15%) ────────────────
+    // Map 300-850 range to 0-100
+    let creditSubScore = 50; // default if not set
+    if (creditScore && creditScore >= 300) {
+        creditSubScore = ((creditScore - 300) / 550) * 100;
+    }
+    creditSubScore = clamp(creditSubScore);
+    components.push({
+        name: 'Credit Score',
+        score: Math.round(creditSubScore),
+        weight: 0.15,
+        weighted: Math.round(creditSubScore * 0.15),
+        icon: '📊',
+        tip: creditSubScore >= 80 ? 'Excellent credit standing!'
+            : creditSubScore >= 55 ? 'Good credit — keep it up.'
+            : 'Work on improving your credit score.'
+    });
+
+    // ── 5. Emergency Fund (10%) ──────────────
+    // Cash + savings as ratio of monthly income
+    // 3+ months income in cash = 100
+    let emergencyScore = 0;
+    if (monthlyIncome > 0) {
+        const cashMonths = cashTotal / monthlyIncome;
+        if (cashMonths >= 3) emergencyScore = 100;
+        else emergencyScore = (cashMonths / 3) * 100;
+    } else if (cashTotal > 0) {
+        emergencyScore = 75;
+    }
+    emergencyScore = clamp(emergencyScore);
+    components.push({
+        name: 'Cash Reserves',
+        score: Math.round(emergencyScore),
+        weight: 0.10,
+        weighted: Math.round(emergencyScore * 0.10),
+        icon: '💵',
+        tip: emergencyScore >= 80 ? 'Strong cash position!'
+            : emergencyScore >= 40 ? 'Building your cash reserves.'
+            : 'Try to keep 3 months of income liquid.'
+    });
+
+    // ── Overall Score ────────────────────────
+    const totalScore = Math.round(
+        dtiScore * 0.25 +
+        savingsScore * 0.25 +
+        paymentScore * 0.25 +
+        creditSubScore * 0.15 +
+        emergencyScore * 0.10
+    );
+
+    return {
+        score: clamp(totalScore),
+        grade: getHealthGrade(totalScore),
+        components
+    };
+}
+
+function clamp(v) {
+    return Math.max(0, Math.min(100, v));
+}
+
+function getHealthGrade(score) {
+    if (score >= 90) return { label: 'Excellent',  color: 'var(--green)',  emoji: '🌟' };
+    if (score >= 75) return { label: 'Good',       color: 'var(--accent)', emoji: '👍' };
+    if (score >= 55) return { label: 'Fair',        color: 'var(--yellow)', emoji: '⚡' };
+    if (score >= 35) return { label: 'Needs Work',  color: 'var(--orange)', emoji: '⚠️' };
+    return                   { label: 'Critical',   color: 'var(--red)',    emoji: '🚨' };
+}

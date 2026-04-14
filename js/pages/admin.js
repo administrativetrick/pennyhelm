@@ -739,39 +739,44 @@ Let me know if you have questions!`;
 
             if (!name) { alert('Please enter a name'); return; }
 
-            const testUid = 'test-' + crypto.randomUUID().slice(0, 8);
+            const saveBtn = document.getElementById('modal-save');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Creating...';
 
             try {
-                // Create user profile doc
-                await db.collection('users').doc(testUid).set({
-                    email: email || testUid + '@pennyhelm.test',
+                const createTestUserFn = firebase.functions().httpsCallable('createTestUser');
+                const result = await createTestUserFn({
                     displayName: name,
-                    trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
-                    subscriptionStatus: status,
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    isTestUser: true,
-                    createdByAdmin: true
-                });
-
-                // Create empty userData doc
-                await db.collection('userData').doc(testUid).set({
-                    data: JSON.stringify({
-                        userName: name,
-                        bills: [],
-                        dependentBills: [],
-                        accounts: [],
-                        debts: [],
-                        paymentSources: ['Checking Account', 'Credit Card'],
-                        setupComplete: false
-                    }),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    email: email || undefined,
+                    subscriptionStatus: status
                 });
 
                 closeModal();
-                refreshPage();
+
+                // Show the generated credentials
+                openModal('Test User Created', `
+                    <div style="text-align:center;">
+                        <p style="margin-bottom:8px;">User <strong>${escapeHtml(name)}</strong> created successfully.</p>
+                        <div style="background:var(--bg-secondary);border-radius:8px;padding:16px;margin:16px 0;text-align:left;">
+                            <p style="margin:0 0 8px 0;"><strong>UID:</strong> <code>${escapeHtml(result.data.uid)}</code></p>
+                            <p style="margin:0 0 8px 0;"><strong>Email:</strong> <code>${escapeHtml(result.data.email)}</code></p>
+                            <p style="margin:0;"><strong>Temporary Password:</strong> <code style="color:var(--accent);font-weight:600;">${escapeHtml(result.data.tempPassword)}</code></p>
+                        </div>
+                        <p style="color:var(--text-secondary);font-size:13px;">Save this password — it won't be shown again.</p>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-primary" id="modal-ok">OK</button>
+                    </div>
+                `);
+                document.getElementById('modal-ok').addEventListener('click', () => {
+                    closeModal();
+                    refreshPage();
+                });
             } catch (e) {
                 console.error('Failed to create test user:', e);
-                alert('Failed to create test user. Check console for details.');
+                alert('Failed to create test user: ' + (e.message || 'Check console for details.'));
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Create';
             }
         });
     });
@@ -820,6 +825,9 @@ async function loadTestUsers(container, db, store) {
                     <button class="btn btn-secondary btn-sm impersonate-user" data-uid="${u.uid}" data-name="${escapeHtml(u.displayName || 'Test User')}">
                         Impersonate
                     </button>
+                    <button class="btn btn-secondary btn-sm reset-password-user" data-uid="${u.uid}" data-name="${escapeHtml(u.displayName || 'Test User')}">
+                        Reset Password
+                    </button>
                     <button class="btn btn-secondary btn-sm delete-test-user" data-uid="${u.uid}" style="color:var(--red);">
                         Delete
                     </button>
@@ -837,6 +845,45 @@ async function loadTestUsers(container, db, store) {
                 await store.initFromServer();
                 showImpersonationBanner(name, uid, store);
                 navigate('dashboard');
+            });
+        });
+
+        // Wire reset password buttons
+        listDiv.querySelectorAll('.reset-password-user').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const uid = btn.dataset.uid;
+                const name = btn.dataset.name;
+
+                if (!confirm(`Reset password for ${name}?`)) return;
+
+                btn.disabled = true;
+                btn.textContent = 'Resetting...';
+
+                try {
+                    const resetFn = firebase.functions().httpsCallable('resetTestUserPassword');
+                    const result = await resetFn({ uid });
+
+                    openModal('Password Reset', `
+                        <div style="text-align:center;">
+                            <p style="margin-bottom:8px;">Password reset for <strong>${escapeHtml(name)}</strong>.</p>
+                            <div style="background:var(--bg-secondary);border-radius:8px;padding:16px;margin:16px 0;">
+                                <p style="margin:0;"><strong>New Temporary Password:</strong><br>
+                                <code style="color:var(--accent);font-weight:600;font-size:16px;">${escapeHtml(result.data.tempPassword)}</code></p>
+                            </div>
+                            <p style="color:var(--text-secondary);font-size:13px;">Save this password — it won't be shown again.</p>
+                        </div>
+                        <div class="modal-actions">
+                            <button class="btn btn-primary" id="modal-ok">OK</button>
+                        </div>
+                    `);
+                    document.getElementById('modal-ok').addEventListener('click', closeModal);
+                } catch (e) {
+                    console.error('Failed to reset password:', e);
+                    alert('Failed to reset password: ' + (e.message || 'Check console.'));
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Reset Password';
+                }
             });
         });
 
