@@ -2,6 +2,7 @@ import { formatCurrency, getCategoryBadgeClass, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
 import { expandBillOccurrences } from '../services/financial-service.js';
+import { renderCashflowSankey } from './cashflow-sankey.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -994,6 +995,33 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
     const incomeMax = incomeSources.length > 0 ? Math.max(...incomeSources.map(s => s.amount)) : 0;
     const expenseMax = sortedCategories.length > 0 ? sortedCategories[0][1] : 0;
 
+    // ─── Sankey data: prefer actual transactions (last 30 days) when available ───
+    // Falls back to recurring bills if the user has no imported transactions yet.
+    const allExpenses = (store.getExpenses ? store.getExpenses() : []) || [];
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const recentExpenses = allExpenses.filter(e => {
+        if (!e || !e.date) return false;
+        const d = new Date(e.date);
+        return !isNaN(d) && d >= thirtyDaysAgo && d <= today && (e.amount || 0) > 0;
+    });
+
+    let sankeyCategories;
+    let sankeySource = 'bills';
+    if (recentExpenses.length >= 3) {
+        const txnTotals = {};
+        recentExpenses.forEach(e => {
+            const cat = (e.category || 'Uncategorized').replace(/^\w/, c => c.toUpperCase());
+            txnTotals[cat] = (txnTotals[cat] || 0) + (e.amount || 0);
+        });
+        sankeyCategories = Object.entries(txnTotals).sort((a, b) => b[1] - a[1]);
+        sankeySource = 'transactions';
+    } else {
+        sankeyCategories = sortedCategories;
+    }
+    const sankeyOutflow = sankeyCategories.reduce((s, [, v]) => s + v, 0);
+    const sankeyNet = totalMonthlyIncome - sankeyOutflow;
+
     // Pay periods
     const payPeriods = buildPayPeriods(payDates, bills, store, income, year, month, depCoveredBills, otherIncome);
     const startingBalance = accounts.filter(a => a.type === 'checking' || a.type === 'savings').reduce((s, a) => s + a.balance, 0);
@@ -1043,33 +1071,23 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
             </div>
         </div>
 
-        <!-- Cashflow Waterfall -->
+        <!-- Cashflow Sankey -->
         <div class="card mb-24">
-            <h3 class="mb-16">Cashflow Waterfall</h3>
-            <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Annualized monthly view — how income flows through expense categories to net cashflow</p>
-            ${waterfallMax > 0 ? `
-            <div class="waterfall-chart">
-                <div class="waterfall-bar-wrapper">
-                    <div class="waterfall-bar-value text-green">${formatCurrency(totalMonthlyIncome)}</div>
-                    <div class="waterfall-bar positive" style="height:${(totalMonthlyIncome / waterfallMax * 100).toFixed(1)}%;"></div>
-                    <div class="waterfall-bar-label">Income</div>
+            <div class="flex-between mb-16">
+                <div>
+                    <h3>Cashflow Sankey</h3>
+                    <p style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                        Interactive view — how income flows through ${sankeySource === 'transactions' ? 'your actual spending (last 30 days)' : 'your recurring bills'} to ${sankeyNet >= 0 ? 'savings' : 'shortfall'}
+                        ${sankeySource === 'transactions' ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(99,102,241,0.15);color:#818cf8;border-radius:10px;font-size:10px;font-weight:600;">${recentExpenses.length} transactions</span>` : ''}
+                    </p>
                 </div>
-                ${sortedCategories.map(([cat, amount]) => {
-                    const pct = (amount / waterfallMax * 100).toFixed(1);
-                    return `
-                <div class="waterfall-bar-wrapper">
-                    <div class="waterfall-bar-value text-red">${formatCurrency(amount)}</div>
-                    <div class="waterfall-bar negative" style="height:${pct}%;"></div>
-                    <div class="waterfall-bar-label">${escapeHtml(cat)}</div>
-                </div>`;
-                }).join('')}
-                <div class="waterfall-bar-wrapper">
-                    <div class="waterfall-bar-value" style="color:${waterfallNet >= 0 ? 'var(--green)' : 'var(--orange)'};">${waterfallNet >= 0 ? '+' : ''}${formatCurrency(waterfallNet)}</div>
-                    <div class="waterfall-bar ${waterfallNet >= 0 ? 'net-positive' : 'net-negative'}" style="height:${(Math.abs(waterfallNet) / waterfallMax * 100).toFixed(1)}%;"></div>
-                    <div class="waterfall-bar-label">Net</div>
+                <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--text-muted);">
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#10b981;border-radius:2px;display:inline-block;"></span> Income</span>
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#ef4444;border-radius:2px;display:inline-block;"></span> Expenses</span>
+                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:${sankeyNet >= 0 ? '#22c55e' : '#f59e0b'};border-radius:2px;display:inline-block;"></span> ${sankeyNet >= 0 ? 'Savings' : 'Shortfall'}</span>
                 </div>
             </div>
-            ` : '<div style="font-size:13px;color:var(--text-muted);padding:24px;text-align:center;">No income or bills data to display</div>'}
+            <div id="cashflow-sankey-mount" style="min-height:360px;width:100%;"></div>
         </div>
 
         <!-- 6-Month Projection -->
@@ -1258,6 +1276,33 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
             </div>
         </div>`}
     `;
+
+    // Render the Sankey diagram (requires DOM insertion, so run after innerHTML)
+    const sankeyMount = container.querySelector('#cashflow-sankey-mount');
+    if (sankeyMount) {
+        const renderSankey = () => renderCashflowSankey(sankeyMount, {
+            incomeSources,
+            expenseCategories: sankeyCategories,
+            netCashflow: sankeyNet,
+        });
+        // Defer to next frame so the container has measurable layout width.
+        // Without this, clientWidth can be 0 in some layouts and the SVG renders blank.
+        requestAnimationFrame(() => {
+            if (document.body.contains(sankeyMount)) renderSankey();
+        });
+        // Re-render on resize (debounced) so the SVG adapts to container width
+        if (window._cashflowSankeyResize) {
+            window.removeEventListener('resize', window._cashflowSankeyResize);
+        }
+        let resizeTimer = null;
+        window._cashflowSankeyResize = () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (document.body.contains(sankeyMount)) renderSankey();
+            }, 150);
+        };
+        window.addEventListener('resize', window._cashflowSankeyResize);
+    }
 
     // Event handlers
     container.querySelector('#view-paycheck').addEventListener('click', () => {
