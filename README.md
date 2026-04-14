@@ -33,6 +33,35 @@ Open [http://localhost:8081](http://localhost:8081) in your browser.
 
 On first launch you'll be prompted to either **load sample data** or **start fresh** with an empty setup.
 
+### App Mode (`APP_MODE`)
+
+PennyHelm runs in one of two modes, toggled via a single flag in [`js/mode-config.js`](js/mode-config.js):
+
+```js
+export const APP_MODE = 'selfhost'; // or 'cloud'
+```
+
+| Value | Backend | Auth | Storage |
+|---|---|---|---|
+| `'selfhost'` | Express + SQLite | None (local) | `data/finances.db` |
+| `'cloud'` | Firebase Hosting + Cloud Functions | Firebase Auth (Google, email/password, MFA) | Firestore |
+
+**If you're self-hosting, set `APP_MODE = 'selfhost'`.** The repository ships with `'cloud'` as the default because the hosted build runs off the same source tree — change this line before running `npm start` or the app will try to initialize Firebase and redirect to a login page.
+
+#### What works in self-host mode
+
+Everything in the app works against your local SQLite database **except** bank sync (Plaid), which requires Firebase Cloud Functions to keep API secrets off the client. Specifically:
+
+- ✅ Dashboard, Bills, Calendar, Accounts (manual), Debts, Income, Cashflow (including the interactive Sankey), Reports, PDF/CSV exports, Settings, onboarding, theme, data import/export
+- ❌ **Plaid bank connection** — the "Connect Bank" button is hidden in self-host mode. Add accounts manually instead
+- ❌ Cloud-only features hidden in self-host: subscriptions/Stripe, MFA setup, mobile app credentials, sharing/invites, Delete Account, registration codes, admin panel
+
+The Cashflow Sankey and Cashflow Report fall back to your recurring bills when no imported transactions are available, so both features work fully in self-host with manually entered data.
+
+#### What you do NOT need for self-host
+
+You can ignore `firebase.json`, `firestore.rules`, `firestore.indexes.json`, the `functions/` directory, and `js/firebase-config.js` entirely — they're only consumed when `APP_MODE === 'cloud'`. No secrets are required; no `firebase-service-account.json` or `.env` file needs to exist.
+
 ## PennyHelm Cloud
 
 PennyHelm Cloud is a hosted version with Firebase Auth and Firestore — sign up, log in, and access your finances from any device. Try it at [cashpilot-c58d5.web.app](https://cashpilot-c58d5.web.app).

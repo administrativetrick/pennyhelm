@@ -414,8 +414,8 @@ export async function syncPlaidTransactions(store) {
         lastSyncDate.setDate(lastSyncDate.getDate() - 1);
         startDate = lastSyncDate.toISOString().slice(0, 10);
     } else {
-        // First sync — last 30 days
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        // First sync — last 90 days (historical backfill to feed CashFlow charts)
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     }
 
     const endDate = now.toISOString().slice(0, 10);
