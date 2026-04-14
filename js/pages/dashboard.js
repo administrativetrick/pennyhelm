@@ -1484,6 +1484,7 @@ function renderReportsTab(container, store) {
     // PDF report cards
     var pdfReports = [
         { id: 'dashboard-summary', icon: '📊', title: 'Dashboard Summary', desc: 'Financial overview, monthly progress, spending by category, and pay period breakdown.' },
+        { id: 'cashflow-report', icon: '🌊', title: 'Cashflow Report', desc: 'Income sources, expense categories, net cashflow, and savings rate — with actual spending when available.' },
         { id: 'income-report', icon: '💰', title: 'Income Report', desc: 'Pay schedule, other income sources, and total household income breakdown.' },
         { id: 'bills-report', icon: '📋', title: 'Bills & Expenses', desc: 'Complete bill listing, payment status, categories, and payment source breakdown.' },
         { id: 'debts-report', icon: '💳', title: 'Debt Summary', desc: 'All debts with balances, interest rates, minimum payments, and payoff strategy.' },
@@ -1752,6 +1753,10 @@ function generatePdfReport(store, reportId) {
             reportTitle = 'Dashboard Summary';
             reportHtml = buildDashboardPdfContent(store, dateLabel);
             break;
+        case 'cashflow-report':
+            reportTitle = 'Cashflow Report';
+            reportHtml = buildCashflowPdfContent(store, dateLabel);
+            break;
         case 'income-report':
             reportTitle = 'Income Report';
             reportHtml = buildIncomePdfContent(store, dateLabel);
@@ -1977,6 +1982,152 @@ function buildIncomePdfContent(store, dateLabel) {
     html += '<div class="summary-card"><div class="label">Total Monthly</div><div class="value text-green">' + formatCurrency(totalHousehold) + '</div></div>';
     html += '<div class="summary-card"><div class="label">Total Annual (est.)</div><div class="value">' + formatCurrency(totalHousehold * 12) + '</div></div>';
     html += '</div>';
+
+    return html;
+}
+
+function buildCashflowPdfContent(store, dateLabel) {
+    var now = new Date();
+    var income = store.getIncome();
+    var otherIncome = store.getOtherIncome();
+    var paySchedule = store.getPaySchedule();
+    var bills = store.getBills();
+    var depEnabled = store.isDependentEnabled();
+    var combineDepIncome = income.combineDependentIncome !== false;
+
+    // Monthly income
+    var monthlyMult = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
+    var userPayMonthly = (income.user.payAmount || 0) * monthlyMult;
+    var otherIncomeMonthly = otherIncome.reduce(function(s, src) {
+        var amt = src.amount || 0;
+        if (src.frequency === 'weekly') return s + amt * 52 / 12;
+        if (src.frequency === 'biweekly') return s + amt * 26 / 12;
+        if (src.frequency === 'monthly') return s + amt;
+        if (src.frequency === 'quarterly') return s + amt / 3;
+        if (src.frequency === 'yearly') return s + amt / 12;
+        return s;
+    }, 0);
+    var depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    var totalMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
+
+    // Income sources list
+    var incomeSources = [];
+    if (userPayMonthly > 0) incomeSources.push({ name: store.getUserName() + "'s Pay", amount: userPayMonthly });
+    if (depMonthlyPay > 0) incomeSources.push({ name: store.getDependentName() + "'s Pay", amount: depMonthlyPay });
+    otherIncome.forEach(function(src) {
+        var amt = src.amount || 0;
+        var m = src.frequency === 'weekly' ? amt * 52/12 : src.frequency === 'biweekly' ? amt * 26/12 : src.frequency === 'monthly' ? amt : src.frequency === 'quarterly' ? amt/3 : src.frequency === 'yearly' ? amt/12 : 0;
+        if (m > 0) incomeSources.push({ name: src.name || 'Other income', amount: m });
+    });
+
+    // Expense categories — prefer 30-day transactions, fall back to bills
+    var allExpenses = (store.getExpenses ? store.getExpenses() : []) || [];
+    var thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    var recentExpenses = allExpenses.filter(function(e) {
+        if (!e || !e.date) return false;
+        var d = new Date(e.date);
+        return !isNaN(d) && d >= thirtyDaysAgo && d <= now && (e.amount || 0) > 0;
+    });
+
+    var categoryTotals = {};
+    var source = 'bills';
+    if (recentExpenses.length >= 3) {
+        source = 'transactions';
+        recentExpenses.forEach(function(e) {
+            var cat = (e.category || 'Uncategorized').replace(/^\w/, function(c) { return c.toUpperCase(); });
+            categoryTotals[cat] = (categoryTotals[cat] || 0) + (e.amount || 0);
+        });
+    } else {
+        bills.filter(function(b) { return !b.frozen && !b.excludeFromTotal; }).forEach(function(bill) {
+            var cat = bill.category || 'Uncategorized';
+            var amt = bill.amount || 0;
+            var freq = bill.frequency || 'monthly';
+            var monthly = freq === 'weekly' ? amt * 52/12 : freq === 'biweekly' ? amt * 26/12 : freq === 'quarterly' ? amt/3 : freq === 'yearly' ? amt/12 : amt;
+            categoryTotals[cat] = (categoryTotals[cat] || 0) + monthly;
+        });
+    }
+    var sortedCategories = Object.entries(categoryTotals).sort(function(a, b) { return b[1] - a[1]; });
+    var totalOutflow = sortedCategories.reduce(function(s, e) { return s + e[1]; }, 0);
+    var netCashflow = totalMonthlyIncome - totalOutflow;
+    var savingsRate = totalMonthlyIncome > 0 ? (netCashflow / totalMonthlyIncome * 100) : 0;
+
+    var periodLabel = source === 'transactions' ? 'Based on actual spending (last 30 days, ' + recentExpenses.length + ' transactions)' : 'Based on recurring bills (monthly equivalent)';
+
+    // Summary
+    var html = '<p style="font-size:12px;color:#666;margin-bottom:16px;">' + periodLabel + '</p>';
+    html += '<h2>Cashflow Summary</h2>';
+    html += '<div class="summary-grid">';
+    html += '<div class="summary-card"><div class="label">Monthly Income</div><div class="value text-green">' + formatCurrency(totalMonthlyIncome) + '</div><div class="sub">' + incomeSources.length + ' source' + (incomeSources.length === 1 ? '' : 's') + '</div></div>';
+    html += '<div class="summary-card"><div class="label">Monthly Outflow</div><div class="value text-red">' + formatCurrency(totalOutflow) + '</div><div class="sub">' + sortedCategories.length + ' categor' + (sortedCategories.length === 1 ? 'y' : 'ies') + '</div></div>';
+    html += '<div class="summary-card"><div class="label">Net Cashflow</div><div class="value ' + (netCashflow >= 0 ? 'text-green' : 'text-red') + '">' + (netCashflow >= 0 ? '+' : '') + formatCurrency(netCashflow) + '</div></div>';
+    html += '<div class="summary-card"><div class="label">Savings Rate</div><div class="value ' + (savingsRate >= 20 ? 'text-green' : savingsRate >= 0 ? 'text-blue' : 'text-red') + '">' + savingsRate.toFixed(1) + '%</div><div class="sub">' + (savingsRate >= 20 ? 'Healthy' : savingsRate >= 10 ? 'Moderate' : savingsRate >= 0 ? 'Low' : 'Negative') + '</div></div>';
+    html += '</div>';
+
+    // Income sources
+    html += '<h2>Income Sources</h2>';
+    if (incomeSources.length === 0) {
+        html += '<p style="color:#666;font-size:12px;">No income sources configured.</p>';
+    } else {
+        html += '<table><tr><th>Source</th><th style="text-align:right;">Monthly Amount</th><th style="text-align:right;">% of Income</th></tr>';
+        incomeSources.sort(function(a, b) { return b.amount - a.amount; }).forEach(function(src) {
+            var pct = totalMonthlyIncome > 0 ? (src.amount / totalMonthlyIncome * 100) : 0;
+            html += '<tr><td>' + escapeHtml(src.name) + '</td><td style="text-align:right;">' + formatCurrency(src.amount) + '</td><td style="text-align:right;">' + pct.toFixed(1) + '%</td></tr>';
+        });
+        html += '<tr style="font-weight:700;background:#f5f5f5;"><td>Total</td><td style="text-align:right;" class="text-green">' + formatCurrency(totalMonthlyIncome) + '</td><td style="text-align:right;">100%</td></tr>';
+        html += '</table>';
+    }
+
+    // Expense categories (with inline bar)
+    html += '<h2>Expense Categories</h2>';
+    if (sortedCategories.length === 0) {
+        html += '<p style="color:#666;font-size:12px;">No expenses recorded.</p>';
+    } else {
+        var maxCat = sortedCategories[0][1];
+        html += '<table><tr><th>Category</th><th style="text-align:right;">Amount</th><th style="text-align:right;">% of Income</th><th style="text-align:right;">% of Outflow</th><th style="width:140px;">Share</th></tr>';
+        sortedCategories.forEach(function(entry) {
+            var cat = entry[0];
+            var amt = entry[1];
+            var pctIncome = totalMonthlyIncome > 0 ? (amt / totalMonthlyIncome * 100) : 0;
+            var pctOutflow = totalOutflow > 0 ? (amt / totalOutflow * 100) : 0;
+            var barPct = maxCat > 0 ? (amt / maxCat * 100) : 0;
+            html += '<tr>';
+            html += '<td>' + escapeHtml(cat) + '</td>';
+            html += '<td style="text-align:right;">' + formatCurrency(amt) + '</td>';
+            html += '<td style="text-align:right;">' + pctIncome.toFixed(1) + '%</td>';
+            html += '<td style="text-align:right;">' + pctOutflow.toFixed(1) + '%</td>';
+            html += '<td><div class="progress-bar"><div class="progress-fill bar-accent" style="width:' + barPct.toFixed(1) + '%;"></div></div></td>';
+            html += '</tr>';
+        });
+        html += '<tr style="font-weight:700;background:#f5f5f5;"><td>Total</td><td style="text-align:right;" class="text-red">' + formatCurrency(totalOutflow) + '</td><td style="text-align:right;">' + (totalMonthlyIncome > 0 ? (totalOutflow / totalMonthlyIncome * 100).toFixed(1) : '0.0') + '%</td><td style="text-align:right;">100%</td><td></td></tr>';
+        html += '</table>';
+    }
+
+    // Flow summary
+    html += '<h2>Cashflow Narrative</h2>';
+    html += '<table>';
+    html += '<tr><td>Total monthly income</td><td style="text-align:right;" class="text-green">' + formatCurrency(totalMonthlyIncome) + '</td></tr>';
+    html += '<tr><td>Total monthly outflow</td><td style="text-align:right;" class="text-red">&minus;' + formatCurrency(totalOutflow) + '</td></tr>';
+    html += '<tr style="font-weight:700;"><td>Net</td><td style="text-align:right;" class="' + (netCashflow >= 0 ? 'text-green' : 'text-red') + '">' + (netCashflow >= 0 ? '+' : '') + formatCurrency(netCashflow) + '</td></tr>';
+    html += '</table>';
+
+    if (source === 'transactions') {
+        // Top merchants from recent transactions
+        var merchantTotals = {};
+        recentExpenses.forEach(function(e) {
+            var key = e.vendor || e.name || 'Unknown';
+            merchantTotals[key] = (merchantTotals[key] || 0) + (e.amount || 0);
+        });
+        var topMerchants = Object.entries(merchantTotals).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 10);
+        if (topMerchants.length > 0) {
+            html += '<h2>Top Merchants (Last 30 Days)</h2>';
+            html += '<table><tr><th>Merchant</th><th style="text-align:right;">Total Spent</th><th style="text-align:right;">% of Outflow</th></tr>';
+            topMerchants.forEach(function(m) {
+                var pct = totalOutflow > 0 ? (m[1] / totalOutflow * 100) : 0;
+                html += '<tr><td>' + escapeHtml(m[0]) + '</td><td style="text-align:right;">' + formatCurrency(m[1]) + '</td><td style="text-align:right;">' + pct.toFixed(1) + '%</td></tr>';
+            });
+            html += '</table>';
+        }
+    }
 
     return html;
 }
