@@ -1,0 +1,6 @@
+{
+  "feature": "Loading spinner",
+  "description": "Add a loading spinner to the dashboard while data is being fetched",
+  "branch": "hora/feature/loading-spinner-2026-04-02",
+  "startedAt": 1775160038664
+}

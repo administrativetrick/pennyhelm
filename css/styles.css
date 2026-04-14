@@ -2543,3 +2543,47 @@ tbody tr:hover { background: var(--bg-card-hover); }
         width: calc(100vw - 32px);
     }
 }
+
+/* ===== Financial Health Score ===== */
+.health-score-widget .health-score-ring svg circle:last-of-type {
+    animation: healthScoreFill 1.2s ease-out forwards;
+}
+@keyframes healthScoreFill {
+    from { stroke-dashoffset: 364.42; }
+}
+.health-score-widget .health-score-number {
+    animation: healthScoreCount 0.8s ease-out;
+}
+@keyframes healthScoreCount {
+    from { opacity: 0; transform: scale(0.5); }
+    to { opacity: 1; transform: scale(1); }
+}
+@media (max-width: 600px) {
+    .health-score-widget .flex-between + div {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+}
+
+/* ===== Smart Insights ===== */
+.smart-insights-widget .insight-suggestion {
+    transition: border-color 0.2s, transform 0.15s;
+}
+.smart-insights-widget .insight-suggestion:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+.smart-insights-widget .insight-add-bill {
+    transition: background 0.2s, transform 0.1s;
+}
+.smart-insights-widget .insight-add-bill:active {
+    transform: scale(0.97);
+}
+.smart-insights-widget .insight-dismiss {
+    transition: background 0.2s, color 0.2s;
+}
+.smart-insights-widget .insight-dismiss:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+}

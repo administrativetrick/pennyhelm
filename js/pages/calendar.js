@@ -13,7 +13,11 @@ function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = [])
         let cursor = new Date(rangeStart);
         while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
         while (cursor <= rangeEnd) {
-            occurrences.push({ ...bill, _occurrenceDate: new Date(cursor) });
+            occurrences.push({
+                ...bill,
+                _occurrenceDate: new Date(cursor),
+                _occurrenceKey: `${bill.id}_w_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
+            });
             cursor = new Date(cursor.getTime() + 7 * 86400000);
         }
     } else if (freq === 'biweekly') {
@@ -21,18 +25,25 @@ function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = [])
         let cursor = new Date(rangeStart);
         while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
         while (cursor <= rangeEnd) {
-            occurrences.push({ ...bill, _occurrenceDate: new Date(cursor) });
+            occurrences.push({
+                ...bill,
+                _occurrenceDate: new Date(cursor),
+                _occurrenceKey: `${bill.id}_bw_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
+            });
             cursor = new Date(cursor.getTime() + 14 * 86400000);
         }
     } else if (freq === 'per-paycheck') {
-        payDatesInRange.forEach(pd => {
+        payDatesInRange.forEach((pd, idx) => {
             const payDate = new Date(pd);
             if (payDate >= rangeStart && payDate <= rangeEnd) {
-                occurrences.push({ ...bill, _occurrenceDate: payDate });
+                occurrences.push({
+                    ...bill,
+                    _occurrenceDate: payDate,
+                    _occurrenceKey: `${bill.id}_pp_${idx}_${payDate.getTime()}`,
+                });
             }
         });
     } else if (freq === 'twice-monthly') {
-        // Place on 1st and 15th of month (common semi-monthly pattern)
         const byMonth = {};
         payDatesInRange.forEach(pd => {
             const d = new Date(pd);
@@ -45,10 +56,18 @@ function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = [])
             const first = monthDates[0];
             const last = monthDates[monthDates.length - 1];
             if (first >= rangeStart && first <= rangeEnd) {
-                occurrences.push({ ...bill, _occurrenceDate: first });
+                occurrences.push({
+                    ...bill,
+                    _occurrenceDate: first,
+                    _occurrenceKey: `${bill.id}_tm_first_${first.getTime()}`,
+                });
             }
             if (last.getTime() !== first.getTime() && last >= rangeStart && last <= rangeEnd) {
-                occurrences.push({ ...bill, _occurrenceDate: last });
+                occurrences.push({
+                    ...bill,
+                    _occurrenceDate: last,
+                    _occurrenceKey: `${bill.id}_tm_last_${last.getTime()}`,
+                });
             }
         });
     } else {
@@ -260,7 +279,7 @@ function renderCalendarDays(firstDay, daysInMonth, dayData, isCurrentMonth, toda
         }
 
         data.bills.slice(0, 3).forEach(bill => {
-            const isPaid = store.isBillPaid(bill.id, year, month);
+            const isPaid = store.isBillPaid(bill.id, year, month, bill._occurrenceKey);
             const bgColor = getBillColor(bill.category);
             html += `<div class="calendar-bill-dot" style="background:${bgColor};${isPaid ? 'text-decoration:line-through;opacity:0.5;' : ''}">${escapeHtml(bill.name.length > 12 ? bill.name.slice(0, 12) + '...' : bill.name)}</div>`;
         });
@@ -341,7 +360,7 @@ function showDayDetail(container, day, data, store, year, month) {
     }
 
     data.bills.forEach(bill => {
-        const isPaid = store.isBillPaid(bill.id, year, month);
+        const isPaid = store.isBillPaid(bill.id, year, month, bill._occurrenceKey);
         html += `<div class="upcoming-item" style="margin-bottom:8px;">
             <div>
                 <div class="bill-name" style="${isPaid ? 'text-decoration:line-through;opacity:0.6;' : ''}">${escapeHtml(bill.name)}</div>

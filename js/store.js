@@ -60,6 +60,7 @@ const defaultData = {
     usageType: null, // 'personal' | 'business' | 'both' — set during onboarding
     businessNames: [], // ['Acme Corp', 'Side Hustle LLC'] — user-defined business names
     lastTransactionSync: null, // ISO date string of last Plaid transaction import
+    dismissedRecurringSuggestions: [], // merchant keys user has dismissed
     setupComplete: false // set to true after first-run welcome screen
 };
 
@@ -274,19 +275,72 @@ class Store {
         return `${year}-${String(month + 1).padStart(2, '0')}`;
     }
 
-    isBillPaid(billId, year, month) {
+    isBillPaid(billId, year, month, occurrenceKey) {
         const data = this._load();
         const key = this.getPaidKey(year, month);
-        return !!(data.paidHistory[key] && data.paidHistory[key][billId]);
+        if (!data.paidHistory[key]) return false;
+        // If an occurrence key is provided, check that specific occurrence
+        if (occurrenceKey) return !!data.paidHistory[key][occurrenceKey];
+        // Check old-style billId key (monthly/yearly/semi-annual bills, or legacy data)
+        if (data.paidHistory[key][billId]) return true;
+        // For recurring bills checked without occurrence key (e.g. dashboard summary),
+        // check if ANY occurrence of this bill is marked paid
+        const prefix = billId + '_';
+        return Object.keys(data.paidHistory[key]).some(k => k.startsWith(prefix) && data.paidHistory[key][k]);
     }
 
-    toggleBillPaid(billId, year, month) {
+    toggleBillPaid(billId, year, month, occurrenceKey) {
         const data = this._load();
         const key = this.getPaidKey(year, month);
         if (!data.paidHistory[key]) data.paidHistory[key] = {};
-        data.paidHistory[key][billId] = !data.paidHistory[key][billId];
+        const paidKey = occurrenceKey || billId;
+        data.paidHistory[key][paidKey] = !data.paidHistory[key][paidKey];
         this._save();
-        return data.paidHistory[key][billId];
+        return data.paidHistory[key][paidKey];
+    }
+
+    /**
+     * Calculate bill payment rate over the last N months (0-1).
+     * Looks at each active (non-frozen) bill per month and checks paid status.
+     */
+    getBillPaymentRate(months = 3) {
+        const data = this._load();
+        const bills = (data.bills || []).filter(b => !b.frozen && !b.excludeFromTotal);
+        if (bills.length === 0) return null;
+
+        const now = new Date();
+        let totalBills = 0;
+        let paidBills = 0;
+
+        for (let i = 0; i < months; i++) {
+            let y = now.getFullYear();
+            let m = now.getMonth() - i;
+            while (m < 0) { m += 12; y--; }
+
+            const key = this.getPaidKey(y, m);
+            const monthHistory = data.paidHistory[key] || {};
+
+            for (const bill of bills) {
+                // Skip yearly/semi-annual bills not due this month
+                if (bill.frequency === 'yearly' && bill.dueMonth !== m) continue;
+                if (bill.frequency === 'semi-annual') {
+                    const secondMonth = (bill.dueMonth + 6) % 12;
+                    if (bill.dueMonth !== m && secondMonth !== m) continue;
+                }
+                totalBills++;
+                // Check if paid (by billId or any occurrence key)
+                if (monthHistory[bill.id]) {
+                    paidBills++;
+                } else {
+                    const prefix = bill.id + '_';
+                    if (Object.keys(monthHistory).some(k => k.startsWith(prefix) && monthHistory[k])) {
+                        paidBills++;
+                    }
+                }
+            }
+        }
+
+        return totalBills > 0 ? paidBills / totalBills : null;
     }
 
     // ─── Dependent Bills CRUD ────────────────────────────────
@@ -812,6 +866,30 @@ class Store {
         this._save();
     }
 
+    // ─── Dismissed Recurring Suggestions ─────────────────────
+
+    getDismissedRecurringSuggestions() {
+        const data = this._load();
+        if (!data.dismissedRecurringSuggestions) data.dismissedRecurringSuggestions = [];
+        return data.dismissedRecurringSuggestions;
+    }
+
+    dismissRecurringSuggestion(merchantKey) {
+        const data = this._load();
+        if (!data.dismissedRecurringSuggestions) data.dismissedRecurringSuggestions = [];
+        if (!data.dismissedRecurringSuggestions.includes(merchantKey)) {
+            data.dismissedRecurringSuggestions.push(merchantKey);
+            this._save();
+        }
+    }
+
+    undismissRecurringSuggestion(merchantKey) {
+        const data = this._load();
+        if (!data.dismissedRecurringSuggestions) return;
+        data.dismissedRecurringSuggestions = data.dismissedRecurringSuggestions.filter(k => k !== merchantKey);
+        this._save();
+    }
+
     // ─── Business Names ──────────────────────────────────────
 
     getBusinessNames() {
@@ -941,7 +1019,7 @@ class Store {
 
     getDashboardLayout() {
         const data = this._load();
-        const defaultOrder = ['stats-grid', 'pay-periods', 'monthly-progress', 'upcoming-bills', 'spending-category', 'payment-sources', 'savings-goals'];
+        const defaultOrder = ['stats-grid', 'health-score', 'pay-periods', 'monthly-progress', 'upcoming-bills', 'spending-category', 'payment-sources', 'savings-goals', 'smart-insights'];
         if (!data.dashboardLayout) {
             return { order: [...defaultOrder], hidden: [] };
         }
