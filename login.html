@@ -44,36 +44,13 @@
                         <label for="auth-confirm-password">Confirm Password</label>
                         <input type="password" id="auth-confirm-password" class="form-input" placeholder="Confirm your password">
                     </div>
-                    <div class="form-group" id="invite-code-group" style="display:none;">
-                        <label for="auth-invite-code">Invite Code</label>
-                        <input type="text" id="auth-invite-code" class="form-input"
-                               placeholder="e.g. PH-A3X9K2M7"
+                    <div class="form-group" id="referral-code-group" style="display:none;">
+                        <label for="auth-referral-code">Referral Code (optional)</label>
+                        <input type="text" id="auth-referral-code" class="form-input"
+                               placeholder="e.g. REF-A3X9K2M7"
                                style="text-transform:uppercase;font-family:monospace;letter-spacing:1px;">
                         <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">
-                            An invite code from an existing PennyHelm user is required to create an account.
-                        </div>
-                        <div style="margin-top:8px;">
-                            <a href="#" id="show-waitlist-link" style="font-size:12px;color:var(--accent);">Don't have a code? Join the waitlist</a>
-                        </div>
-                    </div>
-
-                    <!-- Waitlist Form (hidden by default) -->
-                    <div id="waitlist-section" style="display:none;">
-                        <div style="border:1px solid var(--border);border-radius:8px;padding:16px;background:var(--bg-card);">
-                            <h3 style="font-size:15px;margin:0 0 6px;">Join the Waitlist</h3>
-                            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;">
-                                We'll email you an invite code when it's your turn — typically within 7 days.
-                            </p>
-                            <div class="form-group" style="margin-bottom:12px;">
-                                <input type="email" id="waitlist-email" class="form-input" placeholder="you@example.com">
-                            </div>
-                            <button type="button" class="btn-auth" id="waitlist-submit" style="width:100%;margin-bottom:8px;">
-                                Join Waitlist
-                            </button>
-                            <div id="waitlist-result"></div>
-                            <div style="text-align:center;margin-top:8px;">
-                                <a href="#" id="hide-waitlist-link" style="font-size:12px;color:var(--text-secondary);">I have a code</a>
-                            </div>
+                            Were you referred by a friend? Enter their code to give them credit.
                         </div>
                     </div>
 
