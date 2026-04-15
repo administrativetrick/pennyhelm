@@ -554,6 +554,19 @@ tbody tr:hover { background: var(--bg-card-hover); }
     white-space: nowrap;
 }
 
+.tag-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    line-height: 1.6;
+}
+
 .badge-housing, .badge-green { background: var(--green-bg); color: var(--green); }
 .badge-car, .badge-orange { background: var(--orange-bg); color: var(--orange); }
 .badge-subscription, .badge-blue { background: var(--blue-bg); color: var(--blue); }

@@ -650,20 +650,28 @@ function renderExpensesTab(container, store) {
     const showTypeColumn = usageType === 'business' || usageType === 'both';
     const showPlaidSync = capabilities().plaid && hasPlaidConnections(store);
 
+    // For totals, exclude:
+    //   - ignored expenses (rule-flagged exclude-from-reports)
+    //   - split parents (their children are the actual counted amounts; counting
+    //     both would double-count the total)
+    const countableExpenses = expenses.filter(e =>
+        !e.ignored && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0)
+    );
+
     // Summary calculations
     const now = new Date();
     const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const thisMonthExpenses = expenses.filter(e => (e.date || '').startsWith(thisMonth));
+    const thisMonthExpenses = countableExpenses.filter(e => (e.date || '').startsWith(thisMonth));
     const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const avgExpense = expenses.length > 0 ? expenses.reduce((sum, e) => sum + (e.amount || 0), 0) / expenses.length : 0;
+    const avgExpense = countableExpenses.length > 0 ? countableExpenses.reduce((sum, e) => sum + (e.amount || 0), 0) / countableExpenses.length : 0;
 
     // Business vs Personal totals
     const personalTotal = thisMonthExpenses.filter(e => e.expenseType !== 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
     const businessTotal = thisMonthExpenses.filter(e => e.expenseType === 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
 
-    // Top category
+    // Top category (based on countable expenses)
     const catCounts = {};
-    expenses.forEach(e => {
+    countableExpenses.forEach(e => {
         const cat = e.category || 'other';
         catCounts[cat] = (catCounts[cat] || 0) + (e.amount || 0);
     });
@@ -749,12 +757,22 @@ function renderExpensesTab(container, store) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${sorted.map(exp => `
-                                <tr>
+                            ${sorted.map(exp => {
+                                const hasSplits = Array.isArray(exp.splitChildren) && exp.splitChildren.length > 0;
+                                const isSplitChild = !!exp.splitOf;
+                                const isIgnored = !!exp.ignored;
+                                const rowStyle = isIgnored ? 'opacity:0.4;' : (hasSplits ? 'background:var(--bg-input);' : '');
+                                const tagsHtml = Array.isArray(exp.tags) && exp.tags.length > 0
+                                    ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">${exp.tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>`
+                                    : '';
+                                const badges = `${getSourceBadge(exp)}${hasSplits ? ' <span class="tag-pill" style="background:var(--bg-card);">split</span>' : ''}${isSplitChild ? ' <span class="tag-pill" style="background:var(--bg-card);">part of split</span>' : ''}${isIgnored ? ' <span class="tag-pill" style="background:var(--bg-card);color:var(--text-muted);">ignored</span>' : ''}`;
+                                return `
+                                <tr style="${rowStyle}">
                                     <td style="white-space:nowrap;">${exp.date ? new Date(exp.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</td>
                                     <td>
-                                        <div style="font-weight:600;">${escapeHtml(exp.name || '')} ${getSourceBadge(exp)}</div>
+                                        <div style="font-weight:600;">${escapeHtml(exp.name || '')} ${badges}</div>
                                         ${exp.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(exp.notes)}</div>` : ''}
+                                        ${tagsHtml}
                                     </td>
                                     <td>${getExpenseCategoryBadge(exp.category)}</td>
                                     ${showTypeColumn ? `<td>${getExpenseTypeBadge(exp)}</td>` : ''}
@@ -765,13 +783,18 @@ function renderExpensesTab(container, store) {
                                             <button class="btn-icon edit-expense" data-expense-id="${exp.id}" title="Edit">
                                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                             </button>
+                                            ${isSplitChild ? '' : (hasSplits
+                                                ? `<button class="btn-icon unsplit-expense" data-expense-id="${exp.id}" title="Undo split"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg></button>`
+                                                : `<button class="btn-icon split-expense" data-expense-id="${exp.id}" title="Split"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M5 7l7-4 7 4"/><path d="M5 17l7 4 7-4"/></svg></button>`
+                                            )}
                                             <button class="btn-icon delete-expense" data-expense-id="${exp.id}" title="Delete" style="color:var(--red);">
                                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                             </button>
                                         </div>
                                     </td>
                                 </tr>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -852,6 +875,21 @@ function renderExpensesTab(container, store) {
             }
         });
     });
+
+    container.querySelectorAll('.split-expense').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const expense = expenses.find(e => e.id === btn.dataset.expenseId);
+            if (expense) showSplitForm(store, expense);
+        });
+    });
+
+    container.querySelectorAll('.unsplit-expense').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!confirm('Undo this split and restore the original expense? All split children will be deleted.')) return;
+            store.unsplitExpense(btn.dataset.expenseId);
+            refreshPage();
+        });
+    });
 }
 
 function showExpenseForm(store, existingExpense = null) {
@@ -919,6 +957,10 @@ function showExpenseForm(store, existingExpense = null) {
             <input type="text" class="form-input" id="expense-vendor" value="${escapeHtml(expense.vendor || '')}" placeholder="e.g., Costco">
         </div>
         <div class="form-group">
+            <label>Tags (comma-separated, optional)</label>
+            <input type="text" class="form-input" id="expense-tags" value="${escapeHtml((expense.tags || []).join(', '))}" placeholder="e.g., reimbursable, kids, vacation">
+        </div>
+        <div class="form-group">
             <label>Notes (optional)</label>
             <input type="text" class="form-input" id="expense-notes" value="${escapeHtml(expense.notes || '')}">
         </div>
@@ -943,13 +985,15 @@ function showExpenseForm(store, existingExpense = null) {
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
     document.getElementById('modal-save').addEventListener('click', () => {
+        const rawTags = document.getElementById('expense-tags').value;
         const data = {
             name: document.getElementById('expense-name').value.trim(),
             amount: parseFloat(document.getElementById('expense-amount').value) || 0,
             date: document.getElementById('expense-date').value,
             category: document.getElementById('expense-category').value,
             vendor: document.getElementById('expense-vendor').value.trim(),
-            notes: document.getElementById('expense-notes').value.trim()
+            notes: document.getElementById('expense-notes').value.trim(),
+            tags: rawTags.split(',').map(t => t.trim()).filter(Boolean)
         };
 
         // Expense type fields
@@ -1697,3 +1741,119 @@ function showMortgageRefinanceCalculator(debt) {
 }
 
 // Cascade is now an inline toggle in the Strategy Comparison section
+
+// ─── Split expense modal ────────────────────────────────────────
+
+function showSplitForm(store, expense) {
+    const totalAmount = Number(expense.amount || 0);
+    // Start with a 50/50 split — two equal parts.
+    let parts = [
+        { amount: +(totalAmount / 2).toFixed(2), category: expense.category || 'other', tags: [], notes: '' },
+        { amount: +(totalAmount - +(totalAmount / 2).toFixed(2)).toFixed(2), category: expense.category || 'other', tags: [], notes: '' },
+    ];
+
+    function render() {
+        const sumSoFar = parts.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const delta = +(totalAmount - sumSoFar).toFixed(2);
+
+        const html = `
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+                Splitting <strong>${escapeHtml(expense.name || '')}</strong> of
+                <strong>${formatCurrency(totalAmount)}</strong> into parts. The parts must sum to the original total.
+            </div>
+            <div id="split-parts" style="display:flex;flex-direction:column;gap:12px;">
+                ${parts.map((p, i) => `
+                    <div class="settings-row" style="align-items:flex-start;gap:10px;padding:10px;border:1px solid var(--border);border-radius:6px;">
+                        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                            <div class="form-row" style="gap:8px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:11px;">Amount</label>
+                                    <input type="number" step="0.01" class="form-input split-amount" data-idx="${i}" value="${p.amount}">
+                                </div>
+                                <div class="form-group" style="flex:2;">
+                                    <label style="font-size:11px;">Category</label>
+                                    <select class="form-select split-category" data-idx="${i}">
+                                        ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
+                                            `<option value="${key}" ${p.category === key ? 'selected' : ''}>${val.label}</option>`
+                                        ).join('')}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row" style="gap:8px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:11px;">Tags (comma-separated)</label>
+                                    <input type="text" class="form-input split-tags" data-idx="${i}" value="${escapeHtml(p.tags.join(', '))}">
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:11px;">Notes</label>
+                                    <input type="text" class="form-input split-notes" data-idx="${i}" value="${escapeHtml(p.notes || '')}">
+                                </div>
+                            </div>
+                        </div>
+                        ${parts.length > 2 ? `<button type="button" class="btn-icon split-remove" data-idx="${i}" title="Remove" style="color:var(--red);align-self:center;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+            <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;">
+                <button type="button" class="btn btn-secondary btn-sm" id="split-add">+ Add part</button>
+                <div style="font-size:13px;">
+                    Sum: <strong>${formatCurrency(sumSoFar)}</strong> of ${formatCurrency(totalAmount)}
+                    ${Math.abs(delta) > 0.005
+                        ? ` &middot; <span style="color:var(--red);">${delta > 0 ? 'short by' : 'over by'} ${formatCurrency(Math.abs(delta))}</span>`
+                        : ' &middot; <span style="color:var(--green);">balanced ✓</span>'}
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="modal-save" ${Math.abs(delta) > 0.005 ? 'disabled' : ''}>Save Split</button>
+            </div>
+        `;
+
+        openModal(`Split Expense`, html);
+
+        function readInputs() {
+            document.querySelectorAll('.split-amount').forEach(el => {
+                parts[+el.dataset.idx].amount = Number(el.value) || 0;
+            });
+            document.querySelectorAll('.split-category').forEach(el => {
+                parts[+el.dataset.idx].category = el.value;
+            });
+            document.querySelectorAll('.split-tags').forEach(el => {
+                parts[+el.dataset.idx].tags = el.value.split(',').map(t => t.trim()).filter(Boolean);
+            });
+            document.querySelectorAll('.split-notes').forEach(el => {
+                parts[+el.dataset.idx].notes = el.value;
+            });
+        }
+
+        document.querySelectorAll('.split-amount').forEach(el => {
+            el.addEventListener('input', () => { readInputs(); render(); });
+        });
+        document.querySelectorAll('.split-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                readInputs();
+                parts.splice(+btn.dataset.idx, 1);
+                render();
+            });
+        });
+        document.getElementById('split-add').addEventListener('click', () => {
+            readInputs();
+            parts.push({ amount: 0, category: expense.category || 'other', tags: [], notes: '' });
+            render();
+        });
+
+        document.getElementById('modal-cancel').addEventListener('click', closeModal);
+        document.getElementById('modal-save').addEventListener('click', () => {
+            readInputs();
+            try {
+                store.splitExpense(expense.id, parts);
+                closeModal();
+                refreshPage();
+            } catch (ex) {
+                alert(ex.message);
+            }
+        });
+    }
+
+    render();
+}
