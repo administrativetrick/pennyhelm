@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "PennyHelm - Personal finance tracker with SQLite backend",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "deploy:cloud": "node scripts/deploy-cloud.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

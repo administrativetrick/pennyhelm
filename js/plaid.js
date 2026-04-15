@@ -5,7 +5,8 @@
  * Access tokens never touch the browser.
  */
 
-import { auth } from './auth.js';
+import { capabilities } from './mode/mode.js';
+import { loadPlaidSdk } from './cloud-loader.js';
 
 // ─── Plaid Type → PennyHelm Type Mapping ───
 
@@ -55,12 +56,15 @@ async function callFunction(name, data) {
  * @param {Function} onComplete - Callback after accounts are imported (for UI refresh)
  */
 export async function connectBank(store, onComplete) {
-    if (!auth.isCloud()) {
-        alert('Bank connection is only available in Cloud mode.');
+    if (!capabilities().plaid) {
+        alert('Bank connection is not available in this mode.');
         return;
     }
 
     try {
+        // Step 0: Load Plaid Link script (cloud-only, on demand)
+        await loadPlaidSdk();
+
         // Step 1: Get a link token from Cloud Function
         // Include redirect_uri for OAuth institutions (Chase, etc.) in production
         const oauthRedirectUri = window.location.origin + '/oauth';
@@ -152,12 +156,14 @@ export async function connectBank(store, onComplete) {
  * @param {Function} onComplete - Callback after update completes
  */
 export async function updateBankConsent(store, itemId, onComplete) {
-    if (!auth.isCloud()) {
-        alert('Bank connection is only available in Cloud mode.');
+    if (!capabilities().plaid) {
+        alert('Bank connection is not available in this mode.');
         return;
     }
 
     try {
+        await loadPlaidSdk();
+
         const oauthRedirectUri = window.location.origin + '/oauth';
         const { link_token } = await callFunction('createUpdateLinkToken', {
             item_id: itemId,
@@ -400,7 +406,7 @@ export function hasPlaidConnections(store) {
  * @returns {Object} { imported, total }
  */
 export async function syncPlaidTransactions(store) {
-    if (!auth.isCloud()) return { imported: 0, total: 0 };
+    if (!capabilities().plaid) return { imported: 0, total: 0 };
     if (!hasPlaidConnections(store)) return { imported: 0, total: 0 };
 
     const lastSync = store.getLastTransactionSync();

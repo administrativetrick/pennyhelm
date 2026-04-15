@@ -1,6 +1,7 @@
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { escapeHtml, formatCurrency } from '../utils.js';
 import { auth } from '../auth.js';
+import { capabilities } from '../mode/mode.js';
 import { requireMFAForUpload } from '../mfa-guard.js';
 
 // ===== IndexedDB Helper for Tax Document Blobs =====
@@ -360,7 +361,7 @@ function attachDocumentTabEvents(container, store, yearDocs) {
         fileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
-            if (auth.isCloud() && !auth.isMFAEnabled()) { e.target.value = ''; return; }
+            if (capabilities().mfa && !auth.isMFAEnabled()) { e.target.value = ''; return; }
             if (files.length === 1) {
                 showUploadModal(store, files[0], selectedYear);
             } else {
@@ -754,7 +755,7 @@ function attachTaxEvents(container, store, yearDocs) {
     container.querySelector('#tax-file-input').addEventListener('change', (e) => {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
-        if (auth.isCloud() && !auth.isMFAEnabled()) { e.target.value = ''; return; }
+        if (capabilities().mfa && !auth.isMFAEnabled()) { e.target.value = ''; return; }
         if (files.length === 1) {
             showUploadModal(store, files[0], selectedYear);
         } else {

@@ -218,6 +218,14 @@
                 </div>
             </div>
             <p class="steps-note">Open <strong>http://localhost:8081</strong> and you're ready to go. All data stays on your machine.</p>
+
+            <div class="docker-option">
+                <h3>Prefer Docker?</h3>
+                <p>Run PennyHelm in a single container — no Node.js or build tools required.</p>
+                <pre class="docker-cmd"><code>docker build -t pennyhelm .
+docker run -d -p 8081:8081 -v pennyhelm-data:/app/data --name pennyhelm pennyhelm</code></pre>
+                <p class="steps-note">Your database is stored in the <code>pennyhelm-data</code> volume, so it survives container restarts and upgrades.</p>
+            </div>
         </div>
     </section>
 
