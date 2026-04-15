@@ -50,10 +50,10 @@ export const APP_MODE = 'selfhost'; // or 'cloud'
 
 #### What works in self-host mode
 
-Everything in the app works against your local SQLite database **except** bank sync (Plaid), which requires Firebase Cloud Functions to keep API secrets off the client. Specifically:
+Everything in the app works against your local SQLite database. Specifically:
 
-- ✅ Dashboard, Bills, Calendar, Accounts (manual), Debts, Income, Cashflow (including the interactive Sankey), Reports, PDF/CSV exports, Settings, onboarding, theme, data import/export
-- ❌ **Plaid bank connection** — the "Connect Bank" button is hidden in self-host mode. Add accounts manually instead
+- ✅ Dashboard, Bills, Calendar, Accounts, Debts, Income, Cashflow (including the interactive Sankey), Budgets with rollover, Transaction Rules, Tags, Splits, Variance Report, Reports, PDF/CSV exports, Settings, onboarding, theme, data import/export
+- ✅ **Plaid bank connection — bring your own API keys.** Sign up at [plaid.com](https://plaid.com/), set `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` via env vars or paste them into **Settings → Bank Connection (Plaid)**. The local Express server talks to Plaid directly — your access tokens never leave your machine. See the [Bank connections (Plaid, selfhost)](#bank-connections-plaid-selfhost) section below for details.
 - ❌ Cloud-only features hidden in self-host: subscriptions/Stripe, MFA setup, mobile app credentials, sharing/invites, Delete Account, registration codes, admin panel
 
 The Cashflow Sankey and Cashflow Report fall back to your recurring bills when no imported transactions are available, so both features work fully in self-host with manually entered data.
