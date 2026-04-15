@@ -650,57 +650,74 @@ body {
     color: var(--accent);
 }
 
-.docker-option {
-    max-width: 720px;
-    margin: 48px auto 0;
-    padding: 24px 28px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--surface);
+/* A .step-wide card inside a .steps container takes the full row width
+   so it matches the combined width of the standard 3-step row exactly. */
+.steps-single {
+    margin-bottom: 28px;
 }
 
-.docker-option h3 {
-    margin: 0 0 8px;
-    font-size: 1.15rem;
+.steps .step.step-wide {
+    flex: 1 1 100%;
+    max-width: 100%;
 }
 
-.docker-option p {
-    margin: 0 0 12px;
+.step-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.step-desc {
     color: var(--text-secondary);
     font-size: 0.95rem;
-}
-
-.docker-cmd {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    overflow-x: auto;
+    line-height: 1.55;
     margin: 0 0 12px;
 }
 
-.docker-cmd code {
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-    font-size: 0.88rem;
-    line-height: 1.6;
-    color: var(--text-primary);
-    background: none;
-    padding: 0;
-    white-space: pre;
-}
-
-.docker-option .steps-note {
-    text-align: left;
-    margin: 0;
-}
-
-.docker-option .steps-note code {
-    background: var(--bg);
+.inline-code {
+    background: var(--bg-input);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 2px 6px;
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.85em;
+    color: var(--accent);
+}
+
+.step-wide .step-content code {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.or-divider {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 0 auto 28px;
+    color: var(--text-muted);
     font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: center;
+    justify-content: center;
+}
+
+.or-divider span {
+    flex-shrink: 0;
+}
+
+.or-divider::before,
+.or-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
 }
 
 /* ===== Footer ===== */

@@ -45,6 +45,7 @@ VOLUME ["/app/data"]
 
 ENV NODE_ENV=production \
     PORT=8081 \
+    HOST=0.0.0.0 \
     PENNYHELM_MODE=selfhost
 
 USER pennyhelm
