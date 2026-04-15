@@ -293,8 +293,9 @@ process.on('SIGTERM', () => {
     process.exit(0);
 });
 
-// In selfhost mode, bind to localhost only for security
-const HOST = MODE === 'selfhost' ? '127.0.0.1' : '0.0.0.0';
+// In selfhost mode, bind to localhost only for security — unless the caller
+// sets HOST (e.g. the Docker image sets HOST=0.0.0.0 so port mapping works).
+const HOST = process.env.HOST || (MODE === 'selfhost' ? '127.0.0.1' : '0.0.0.0');
 app.listen(PORT, HOST, () => {
     console.log(`PennyHelm (${MODE} mode) running at http://${HOST}:${PORT}`);
     console.log(`Database: ${dbPath}`);
