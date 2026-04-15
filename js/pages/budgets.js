@@ -1,0 +1,283 @@
+/**
+ * Category budgets page.
+ *
+ * Set a monthly limit per expense category. Spending is derived from the
+ * existing expenses list — nothing separate to track. Optional rollover
+ * carries unused (or overspent) amounts into the next month.
+ */
+
+import { openModal, closeModal, refreshPage } from '../app.js';
+import { formatCurrency, escapeHtml } from '../utils.js';
+import { EXPENSE_CATEGORIES } from '../expense-categories.js';
+import { monthKey, addMonth } from '../services/budget-service.js';
+
+// Track the month the page is currently showing. Defaults to the current month
+// on first load; the user can page back/forward to review history.
+let viewMonth = null;
+
+function formatMonth(key) {
+    const [y, m] = key.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+    });
+}
+
+function progressBar(status) {
+    const pct = Math.min(100, (status.pctUsed || 0) * 100);
+    const overBudget = status.remaining < -0.005;
+    const almost = !overBudget && status.pctUsed >= 0.9;
+    const color = overBudget ? 'var(--red)' : almost ? 'var(--orange)' : 'var(--green)';
+    return `
+        <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">
+            <div style="height:100%;width:${isFinite(pct) ? pct : 100}%;background:${color};transition:width 0.2s;"></div>
+        </div>
+    `;
+}
+
+export function renderBudgets(container, store) {
+    if (!viewMonth) viewMonth = monthKey();
+
+    const budgets = store.getBudgets();
+    const statuses = store.getBudgetStatuses(viewMonth);
+    const totals = store.getBudgetTotals(viewMonth);
+
+    // Sort: started-and-active first, then by largest overage, then alphabetical.
+    const sorted = [...statuses].sort((a, b) => {
+        if (a.notStarted !== b.notStarted) return a.notStarted ? 1 : -1;
+        const aOver = a.remaining < 0 ? 1 : 0;
+        const bOver = b.remaining < 0 ? 1 : 0;
+        if (aOver !== bOver) return bOver - aOver;
+        return (a.category || '').localeCompare(b.category || '');
+    });
+
+    const isCurrentMonth = viewMonth === monthKey();
+
+    container.innerHTML = `
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Category Budgets</h1>
+                <div class="subtitle">${budgets.length} budget${budgets.length !== 1 ? 's' : ''} &middot; ${formatMonth(viewMonth)}${isCurrentMonth ? ' &middot; current month' : ''}</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-secondary btn-sm" id="month-prev" title="Previous month">&larr;</button>
+                <button class="btn btn-secondary btn-sm" id="month-today" ${isCurrentMonth ? 'disabled' : ''}>Today</button>
+                <button class="btn btn-secondary btn-sm" id="month-next" ${isCurrentMonth ? 'disabled' : ''} title="Next month">&rarr;</button>
+                <button class="btn btn-primary" id="add-budget-btn">+ Add Budget</button>
+            </div>
+        </div>
+
+        ${budgets.length === 0 ? '' : `
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:16px;">
+                        <div>
+                            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">Monthly limit</div>
+                            <div style="font-size:22px;font-weight:700;margin-top:4px;">${formatCurrency(totals.monthlyAmount)}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">Rolled in</div>
+                            <div style="font-size:22px;font-weight:700;margin-top:4px;color:${totals.rolledIn >= 0 ? 'var(--green)' : 'var(--red)'};">${totals.rolledIn >= 0 ? '+' : ''}${formatCurrency(totals.rolledIn)}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">Spent</div>
+                            <div style="font-size:22px;font-weight:700;margin-top:4px;color:var(--red);">${formatCurrency(totals.spent)}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">Remaining</div>
+                            <div style="font-size:22px;font-weight:700;margin-top:4px;color:${totals.remaining >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCurrency(totals.remaining)}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `}
+
+        ${budgets.length === 0 ? `
+            <div class="card">
+                <div class="settings-section" style="text-align:center;padding:40px 20px;">
+                    <div style="font-size:40px;margin-bottom:12px;">🎯</div>
+                    <h3 style="margin-bottom:8px;">No budgets yet</h3>
+                    <p style="color:var(--text-secondary);margin-bottom:20px;max-width:520px;margin-left:auto;margin-right:auto;">
+                        Set a monthly limit per category. Spending is tracked automatically
+                        from your expenses. Optionally enable rollover to carry unused
+                        (or overspent) amounts into the next month.
+                    </p>
+                    <button class="btn btn-primary" id="empty-add-budget">+ Add Your First Budget</button>
+                </div>
+            </div>
+        ` : `
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                ${sorted.map(s => {
+                    const budget = budgets.find(b => b.category === s.category);
+                    const catMeta = EXPENSE_CATEGORIES[s.category] || EXPENSE_CATEGORIES['other'];
+                    const label = catMeta.label;
+                    const color = catMeta.color;
+                    if (s.notStarted) {
+                        return `
+                            <div class="card" style="opacity:0.5;">
+                                <div class="settings-row" style="gap:16px;">
+                                    <div style="flex:1;">
+                                        <div style="font-weight:600;">${escapeHtml(label)}</div>
+                                        <div style="font-size:12px;color:var(--text-muted);">Starts ${budget?.startMonth ? formatMonth(budget.startMonth) : '—'}</div>
+                                    </div>
+                                    <div style="display:flex;gap:4px;">
+                                        <button class="btn-icon edit-budget" data-budget-id="${budget?.id || ''}" title="Edit"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                        <button class="btn-icon delete-budget" data-budget-id="${budget?.id || ''}" title="Delete" style="color:var(--red);"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    const overBudget = s.remaining < -0.005;
+                    const rolloverNote = budget.rollover
+                        ? (Math.abs(s.rolledIn) > 0.005
+                            ? `<span style="color:${s.rolledIn >= 0 ? 'var(--green)' : 'var(--red)'};">${s.rolledIn >= 0 ? '+' : ''}${formatCurrency(s.rolledIn)} rolled in</span>`
+                            : '<span style="color:var(--text-muted);">rollover enabled</span>')
+                        : '';
+                    return `
+                        <div class="card">
+                            <div class="settings-section">
+                                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+                                    <div style="width:12px;height:12px;border-radius:3px;background:${color};"></div>
+                                    <div style="flex:1;font-weight:600;font-size:15px;">${escapeHtml(label)}</div>
+                                    <div style="display:flex;gap:4px;">
+                                        <button class="btn-icon edit-budget" data-budget-id="${budget.id}" title="Edit"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                        <button class="btn-icon delete-budget" data-budget-id="${budget.id}" title="Delete" style="color:var(--red);"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+                                    </div>
+                                </div>
+                                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;">
+                                    <div style="font-size:20px;font-weight:700;color:${overBudget ? 'var(--red)' : 'var(--text-primary)'};">
+                                        ${formatCurrency(s.spent)} <span style="font-size:13px;color:var(--text-muted);font-weight:500;">of ${formatCurrency(s.available)}</span>
+                                    </div>
+                                    <div style="font-size:13px;color:${overBudget ? 'var(--red)' : 'var(--text-secondary)'};font-weight:600;">
+                                        ${overBudget ? `${formatCurrency(Math.abs(s.remaining))} over` : `${formatCurrency(s.remaining)} left`}
+                                    </div>
+                                </div>
+                                ${progressBar(s)}
+                                <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--text-muted);">
+                                    <span>${formatCurrency(s.monthlyAmount)}/mo limit</span>
+                                    <span>${rolloverNote}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `}
+    `;
+
+    // Month navigation
+    const prev = container.querySelector('#month-prev');
+    const next = container.querySelector('#month-next');
+    const today = container.querySelector('#month-today');
+    if (prev) prev.addEventListener('click', () => { viewMonth = addMonth(viewMonth, -1); refreshPage(); });
+    if (next) next.addEventListener('click', () => { viewMonth = addMonth(viewMonth, 1); refreshPage(); });
+    if (today) today.addEventListener('click', () => { viewMonth = monthKey(); refreshPage(); });
+
+    const add = () => showBudgetForm(store);
+    const addBtn = container.querySelector('#add-budget-btn');
+    if (addBtn) addBtn.addEventListener('click', add);
+    const emptyBtn = container.querySelector('#empty-add-budget');
+    if (emptyBtn) emptyBtn.addEventListener('click', add);
+
+    container.querySelectorAll('.edit-budget').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const budget = store.getBudgets().find(b => b.id === btn.dataset.budgetId);
+            if (budget) showBudgetForm(store, budget);
+        });
+    });
+
+    container.querySelectorAll('.delete-budget').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!confirm('Delete this budget? Your expense history is unaffected — only the target and rollover state go away.')) return;
+            store.deleteBudget(btn.dataset.budgetId);
+            refreshPage();
+        });
+    });
+}
+
+function showBudgetForm(store, existing = null) {
+    const isEdit = !!existing;
+    const budget = existing || {
+        category: 'groceries',
+        monthlyAmount: 0,
+        rollover: false,
+        startMonth: monthKey(),
+        notes: '',
+    };
+
+    const html = `
+        <div class="form-group">
+            <label>Category</label>
+            <select class="form-select" id="budget-category" ${isEdit ? 'disabled' : ''}>
+                ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
+                    `<option value="${key}" ${budget.category === key ? 'selected' : ''}>${val.label}</option>`
+                ).join('')}
+            </select>
+            ${isEdit ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Category is locked once a budget is created — delete and re-add to change.</div>' : ''}
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Monthly limit</label>
+                <input type="number" step="0.01" class="form-input" id="budget-amount" value="${budget.monthlyAmount || ''}" placeholder="0.00">
+            </div>
+            <div class="form-group">
+                <label>Start month</label>
+                <input type="month" class="form-input" id="budget-start-month" value="${escapeHtml(budget.startMonth || monthKey())}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="budget-rollover" ${budget.rollover ? 'checked' : ''}>
+                <span>
+                    <strong>Roll unused amounts into next month</strong>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                        Under-spent months carry forward as extra headroom; over-spent months carry forward as a debit.
+                    </div>
+                </span>
+            </label>
+        </div>
+        <div class="form-group">
+            <label>Notes (optional)</label>
+            <input type="text" class="form-input" id="budget-notes" value="${escapeHtml(budget.notes || '')}">
+        </div>
+        <div id="budget-form-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none;"></div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+            <button class="btn btn-primary" id="modal-save">${isEdit ? 'Update Budget' : 'Add Budget'}</button>
+        </div>
+    `;
+
+    openModal(isEdit ? 'Edit Budget' : 'Add Budget', html);
+
+    document.getElementById('modal-cancel').addEventListener('click', closeModal);
+    document.getElementById('modal-save').addEventListener('click', () => {
+        const payload = {
+            category: document.getElementById('budget-category').value,
+            monthlyAmount: Number(document.getElementById('budget-amount').value) || 0,
+            rollover: document.getElementById('budget-rollover').checked,
+            startMonth: document.getElementById('budget-start-month').value || monthKey(),
+            notes: document.getElementById('budget-notes').value.trim(),
+        };
+
+        const err = document.getElementById('budget-form-error');
+        try {
+            if (isEdit) {
+                store.updateBudget(existing.id, payload);
+            } else {
+                // Guard against duplicates (store.addBudget replaces, but surface the intent)
+                const dup = store.getBudgets().find(b => b.category === payload.category);
+                if (dup) {
+                    if (!confirm(`A budget already exists for ${EXPENSE_CATEGORIES[payload.category]?.label || payload.category}. Replace it?`)) return;
+                }
+                store.addBudget(payload);
+            }
+            closeModal();
+            refreshPage();
+        } catch (ex) {
+            err.textContent = ex.message;
+            err.style.display = 'block';
+        }
+    });
+}

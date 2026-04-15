@@ -3,6 +3,7 @@ import { migrateKeyNames, migrateBalanceHistory } from './services/migration-man
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
 import { generatePayDates, createBalanceSnapshot } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
+import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
 
 const defaultData = {
     userName: 'User',
@@ -43,6 +44,7 @@ const defaultData = {
     debtBudget: { totalMonthlyBudget: 0, strategy: 'avalanche' },
     expenses: [], // { id, name, amount, category, date, vendor, notes, createdDate, expenseType: 'personal'|'business', businessName?, plaidTransactionId?, source: 'manual'|'plaid', tags?: string[], ignored?: boolean, splitOf?: string|null, splitChildren?: string[] }
     transactionRules: [], // { id, name, enabled, priority, match: {field, op, value}, actions: {category?, addTags?, rename?, ignore?} } — see js/services/transaction-rules.js
+    categoryBudgets: [], // { id, category, monthlyAmount, rollover, startMonth: 'YYYY-MM', notes? } — see js/services/budget-service.js
     taxDeductions: [], // { id, taxYear, category, description, amount, date, vendor, receiptDocId, notes }
     otherIncome: [], // { id, name, amount, frequency, category, notes } — category: rental|dividend|freelance|side-hustle|gift|other
     savingsGoals: [], // { id, name, targetAmount, currentAmount, targetDate, category, linkedAccountId, notes, createdDate }
@@ -1136,6 +1138,61 @@ class Store {
         data.expenses = data.expenses.filter(e => !childIds.has(e.id));
         parent.splitChildren = [];
         this._save();
+    }
+
+    // ─── Category Budgets ────────────────────────────────────
+
+    getBudgets() {
+        const data = this._load();
+        if (!data.categoryBudgets) data.categoryBudgets = [];
+        return data.categoryBudgets;
+    }
+
+    addBudget(budget) {
+        const err = validateBudget(budget);
+        if (err) throw new Error(err);
+        const data = this._load();
+        if (!data.categoryBudgets) data.categoryBudgets = [];
+        // One active budget per category — replace rather than duplicate.
+        data.categoryBudgets = data.categoryBudgets.filter(b => b.category !== budget.category);
+        const next = {
+            id: crypto.randomUUID(),
+            rollover: false,
+            startMonth: monthKey(),
+            ...budget,
+        };
+        data.categoryBudgets.push(next);
+        this._save();
+        return next;
+    }
+
+    updateBudget(id, updates) {
+        const data = this._load();
+        if (!data.categoryBudgets) return;
+        const idx = data.categoryBudgets.findIndex(b => b.id === id);
+        if (idx === -1) return;
+        const merged = { ...data.categoryBudgets[idx], ...updates };
+        const err = validateBudget(merged);
+        if (err) throw new Error(err);
+        data.categoryBudgets[idx] = merged;
+        this._save();
+    }
+
+    deleteBudget(id) {
+        const data = this._load();
+        if (!data.categoryBudgets) return;
+        data.categoryBudgets = data.categoryBudgets.filter(b => b.id !== id);
+        this._save();
+    }
+
+    /** Returns per-budget status array for a given 'YYYY-MM' (defaults to current). */
+    getBudgetStatuses(asOfMonth = monthKey()) {
+        return computeAllBudgetStatuses(this.getBudgets(), this.getExpenses(), asOfMonth);
+    }
+
+    /** Top-line totals across all active budgets for the given month. */
+    getBudgetTotals(asOfMonth = monthKey()) {
+        return computeBudgetTotals(this.getBudgetStatuses(asOfMonth));
     }
 
     // ─── Savings Goals ───────────────────────────────────────
