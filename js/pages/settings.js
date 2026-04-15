@@ -436,12 +436,12 @@ export function renderSettings(container, store) {
         ${auth.isCloud() ? `
         <div class="card mb-24">
             <div class="settings-section">
-                <h3>🎟️ Your Invite Codes</h3>
+                <h3>🎁 Referral Program</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Share these codes with friends to invite them to PennyHelm. Each code can be used once.
+                    Invite friends to PennyHelm. When 10 friends sign up for a paid plan, you earn a <strong>free year</strong>.
                 </p>
-                <div id="registration-codes-list">
-                    <p style="color:var(--text-secondary);font-size:13px;">Loading codes...</p>
+                <div id="referral-status">
+                    <p style="color:var(--text-secondary);font-size:13px;">Loading...</p>
                 </div>
             </div>
         </div>
@@ -1230,69 +1230,54 @@ export function renderSettings(container, store) {
         }
     }
 
-    // Registration invite codes (cloud only)
-    const regCodesList = container.querySelector('#registration-codes-list');
-    if (regCodesList && auth.isCloud()) {
+    // Referral program (cloud only)
+    const referralDiv = container.querySelector('#referral-status');
+    if (referralDiv && auth.isCloud()) {
         (async () => {
             try {
-                const db = firebase.firestore();
-                const userDoc = await db.collection('users').doc(auth.getUserId()).get();
-                let codes = userDoc.exists ? (userDoc.data().registrationCodes || []) : [];
+                const getReferralStatus = firebase.functions().httpsCallable('getReferralStatus');
+                const result = await getReferralStatus();
+                const d = result.data;
+                const pct = Math.min(100, (d.paidReferralCount / d.targetCount) * 100);
+                const remaining = d.targetCount - d.paidReferralCount;
 
-                // Generate codes on first view if not yet generated
-                if (codes.length === 0) {
-                    try {
-                        const genCodes = firebase.functions().httpsCallable('generateRegistrationCodes');
-                        const result = await genCodes({});
-                        codes = result.data.codes || [];
-                    } catch (err) {
-                        regCodesList.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load invite codes.</p>';
-                        return;
-                    }
-                }
-
-                // Fetch status of each code
-                const codeStatuses = await Promise.all(codes.map(async (code) => {
-                    try {
-                        const doc = await db.collection('registrationCodes').doc(code).get();
-                        return { code, ...(doc.exists ? doc.data() : { status: 'unknown' }) };
-                    } catch { return { code, status: 'unknown' }; }
-                }));
-
-                const available = codeStatuses.filter(c => c.status === 'available').length;
-                const used = codeStatuses.filter(c => c.status === 'redeemed').length;
-
-                regCodesList.innerHTML = `
-                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
-                        ${available} available · ${used} used
-                    </div>
-                    ${codeStatuses.map(c => `
-                        <div class="settings-row" style="opacity:${c.status === 'redeemed' ? 0.5 : 1};padding:6px 0;">
-                            <div>
-                                <span style="font-family:monospace;letter-spacing:1px;font-size:14px;font-weight:600;">${escapeHtml(c.code)}</span>
-                                <span style="font-size:11px;margin-left:8px;color:${c.status === 'redeemed' ? 'var(--text-secondary)' : 'var(--green)'};">
-                                    ${c.status === 'redeemed' ? 'Used' : 'Available'}
-                                </span>
-                            </div>
-                            ${c.status !== 'redeemed' ? `
-                                <button class="btn btn-secondary btn-sm copy-reg-code" data-code="${escapeHtml(c.code)}" style="padding:4px 10px;font-size:11px;">
-                                    Copy
-                                </button>
-                            ` : ''}
+                referralDiv.innerHTML = `
+                    ${d.rewardEarned ? `
+                        <div style="padding:12px;background:var(--green-bg, #e8f5e9);border-radius:8px;margin-bottom:14px;">
+                            <div style="font-weight:700;color:var(--green);">🎉 You earned a free year!</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Applied to your next billing cycle. Thank you for spreading the word!</div>
                         </div>
-                    `).join('')}
+                    ` : `
+                        <div style="margin-bottom:14px;">
+                            <div style="font-size:13px;margin-bottom:6px;">
+                                <strong>${d.paidReferralCount}</strong> of ${d.targetCount} friends signed up
+                                ${remaining > 0 ? ` — ${remaining} more for a free year!` : ''}
+                            </div>
+                            <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">
+                                <div style="height:100%;width:${pct}%;background:var(--accent);transition:width 0.2s;"></div>
+                            </div>
+                        </div>
+                    `}
+                    ${d.referralLink ? `
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <input type="text" class="form-input" id="referral-link-input" value="${escapeHtml(d.referralLink)}" readonly style="font-size:12px;font-family:monospace;">
+                            <button class="btn btn-secondary btn-sm" id="copy-referral-link" style="white-space:nowrap;">Copy Link</button>
+                        </div>
+                    ` : '<p style="color:var(--text-muted);font-size:13px;">Referral code not yet generated. Sign out and back in to generate one.</p>'}
                 `;
 
-                regCodesList.querySelectorAll('.copy-reg-code').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        navigator.clipboard.writeText(btn.dataset.code);
-                        btn.textContent = 'Copied!';
-                        setTimeout(() => btn.textContent = 'Copy', 2000);
+                const copyBtn = referralDiv.querySelector('#copy-referral-link');
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', () => {
+                        const input = document.getElementById('referral-link-input');
+                        navigator.clipboard.writeText(input.value);
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(() => copyBtn.textContent = 'Copy Link', 2000);
                     });
-                });
+                }
             } catch (err) {
-                console.error('Error loading registration codes:', err);
-                regCodesList.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load invite codes.</p>';
+                console.error('Error loading referral status:', err);
+                referralDiv.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Could not load referral status.</p>';
             }
         })();
     }
