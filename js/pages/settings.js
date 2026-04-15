@@ -5,6 +5,7 @@ import { CATEGORY_COLORS } from '../categories.js';
 import { hasPlaidConnections } from '../plaid.js';
 import { getThemePreference, setThemePreference } from '../theme.js';
 import { resetOnboarding, startOnboarding } from '../onboarding.js';
+import { loadQrcodeSdk } from '../cloud-loader.js';
 
 export function renderSettings(container, store) {
     const userName = store.getUserName();
@@ -803,8 +804,9 @@ export function renderSettings(container, store) {
                             </div>
                         `;
 
-                        // Render QR code
+                        // Render QR code (load QRCode lib on demand — cloud-only)
                         try {
+                            await loadQrcodeSdk();
                             const canvas = document.getElementById('mfa-qr-canvas');
                             await QRCode.toCanvas(canvas, otpauthUri, {
                                 width: 200,

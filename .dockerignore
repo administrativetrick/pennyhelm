@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.vscode
+.idea
+node_modules
+npm-debug.log
+data
+functions/node_modules
+auth_export.json
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db

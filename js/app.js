@@ -1,5 +1,6 @@
 import { store } from './store.js';
 import { auth } from './auth.js';
+import { initMode, capabilities } from './mode/mode.js';
 import { seedSampleData } from './seed.js';
 import { renderDashboard } from './pages/dashboard.js';
 import { renderBills } from './pages/bills.js';
@@ -9,15 +10,8 @@ import { renderDebts } from './pages/debts.js';
 import { renderIncome } from './pages/income.js';
 import { renderAdmin } from './pages/admin.js';
 import { renderAccounts } from './pages/accounts.js';
-import { initChatbot } from './chatbot.js';
 import { shouldShowOnboarding, startOnboarding, resetOnboarding } from './onboarding.js';
-import { shouldSyncTransactions, syncPlaidTransactions } from './plaid.js';
-import {
-    openModal, closeModal, showToast,
-    showSubscriptionModal, showRedeemCodeModal,
-    showPastDueBanner, showTrialBanner, showTrialExpiredScreen,
-    openManageSubscription
-} from './services/modal-manager.js';
+import { openModal, closeModal } from './services/modal-manager.js';
 
 const pages = {
     dashboard: renderDashboard,
@@ -49,8 +43,8 @@ function navigate(page) {
 
     if (!pages[page]) page = 'dashboard';
 
-    // Guard: admin page only accessible to admins in cloud mode
-    if (page === 'admin' && (!auth.isCloud() || !auth.isAdmin())) {
+    // Guard: admin page only exists in modes that declare the capability
+    if (page === 'admin' && (!capabilities().admin || !auth.isAdmin())) {
         page = 'dashboard';
     }
 
@@ -215,52 +209,36 @@ function showWelcomeScreen() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Initialize auth (determines mode, checks login for cloud)
+    // 1. Register the active mode (cloud or selfhost) — single source of truth
+    //    for every subsequent mode-specific action.
+    const mode = await initMode();
+
+    // 2. Auth init — delegates to the mode's auth strategy.
     await auth.init();
 
-    // 2. Configure store backend based on mode
-    if (auth.isCloud()) {
-        store.setMode('cloud');
-        store.initFirestore(auth.getUserId());
-    } else {
-        store.setMode('selfhost');
-        store.setAuthProvider(() => auth.getAuthHeaders());
-    }
+    // 3. Wire the store's storage backend.
+    await mode.initStorage(store, auth);
 
-    // 3. Load data from server/Firestore
+    // 4. Load data from the configured backend.
     await store.initFromServer();
 
-    // 4. Cloud mode: check trial status
-    if (auth.isCloud()) {
-        const trialOk = await checkTrialStatus();
-        if (!trialOk) return; // expired — don't render app
-    }
+    // 5. Mode-specific access gate (trial/subscription for cloud; no-op selfhost).
+    const canContinue = await mode.gateAccess({ auth, store });
+    if (!canContinue) return;
 
-    // 5. First run — show welcome screen before initializing
+    // 6. First-run welcome screen.
     if (!store.isSetupComplete()) {
         await showWelcomeScreen();
     }
 
     init();
 
-    // 5a. Show onboarding guide for new users (or existing users who haven't seen it)
+    // 7. Onboarding (both modes).
     if (shouldShowOnboarding()) {
         setTimeout(() => startOnboarding(), 400);
     }
 
-    // 5b. Auto-sync Plaid transactions as expenses (once per day)
-    if (auth.isCloud() && shouldSyncTransactions(store)) {
-        syncPlaidTransactions(store).then(result => {
-            if (result.imported > 0) {
-                console.log(`Auto-imported ${result.imported} transaction(s) as expenses.`);
-                if (window.location.hash.includes('expenses')) {
-                    navigate(window.location.hash.slice(1));
-                }
-            }
-        }).catch(() => { /* non-critical */ });
-    }
-
-    // 5c. Snapshot account balances daily for history tracking
+    // 8. Daily balance snapshot (both modes).
     try {
         if (store.getAccounts().length > 0) {
             const history = store.getBalanceHistory();
@@ -271,133 +249,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (e) { /* snapshot is non-critical */ }
 
-    // 6. Cloud mode: add sign-out and user info to sidebar
-    if (auth.isCloud()) {
-        addCloudUI();
-        initChatbot();
-    }
+    // 9. Mode-specific finalize (cloud: Plaid sync + sidebar + chatbot; selfhost: no-op).
+    await mode.finalize({ store, auth, navigate });
 });
 
-async function checkTrialStatus() {
-    try {
-        if (auth.isAdmin()) return true;
-
-        const status = await auth.getUserStatus();
-
-        if (status.status === 'active') return true;
-
-        if (status.status === 'past_due') {
-            showPastDueBanner(() => openManageSubscription(auth));
-            return true;
-        }
-
-        if (status.status === 'expired') {
-            showTrialExpiredScreen(
-                auth,
-                () => showSubscriptionModal(auth),
-                () => showRedeemCodeModal(auth)
-            );
-            return false;
-        }
-
-        if (status.status === 'trial' && status.trialDaysRemaining <= 7 && !status.isUnlimited) {
-            showTrialBanner(status.trialDaysRemaining, () => showSubscriptionModal(auth));
-        }
-
-        // Handle subscription success redirect
-        if (window.location.hash === '#subscription-success') {
-            showToast('Subscription activated! Welcome to PennyHelm Cloud.', 'success');
-            window.location.hash = '#dashboard';
-        }
-
-        // Handle mobile "Subscribe on Web" redirect
-        if (window.location.hash === '#subscription-needed') {
-            window.location.hash = '#dashboard';
-            setTimeout(() => showSubscriptionModal(auth), 300);
-        }
-
-        return true;
-    } catch (e) {
-        console.error('Failed to check trial status:', e);
-        return true; // fail open
-    }
-}
-
-function addCloudUI() {
-    const user = auth.getUser();
-    const displayName = user?.displayName || user?.email || 'User';
-
-    // Add admin nav link if user is admin
-    if (auth.isAdmin()) {
-        const navLinks = document.querySelector('.nav-links');
-        if (navLinks) {
-            const adminLi = document.createElement('li');
-            adminLi.innerHTML = `
-                <a href="#admin" class="nav-link" data-page="admin">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/>
-                    </svg>
-                    <span>Admin</span>
-                </a>
-            `;
-            const settingsLi = navLinks.querySelector('[data-page="settings"]')?.closest('li');
-            if (settingsLi) {
-                navLinks.insertBefore(adminLi, settingsLi);
-            } else {
-                navLinks.appendChild(adminLi);
-            }
-
-            adminLi.querySelector('.nav-link').addEventListener('click', (e) => {
-                e.preventDefault();
-                navigate('admin');
-            });
-        }
-
-        // Also add to mobile nav if it exists
-        const mobileNav = document.querySelector('.mobile-nav');
-        if (mobileNav) {
-            const settingsMobileLink = mobileNav.querySelector('[data-page="settings"]');
-            if (settingsMobileLink) {
-                const adminMobileLink = document.createElement('a');
-                adminMobileLink.href = '#admin';
-                adminMobileLink.dataset.page = 'admin';
-                adminMobileLink.innerHTML = `
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/>
-                    </svg>
-                    Admin
-                `;
-                mobileNav.insertBefore(adminMobileLink, settingsMobileLink);
-                adminMobileLink.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    navigate('admin');
-                });
-            }
-        }
-    }
-
-    // Sign out UI at bottom of sidebar
-    const signOutDiv = document.createElement('div');
-    signOutDiv.style.cssText = 'padding:8px 18px 12px;border-top:1px solid var(--border);';
-    signOutDiv.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;" id="sidebar-display-name"></div>
-            <button id="cloud-signout" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:12px;font-weight:500;padding:4px 8px;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">Sign Out</button>
-        </div>
-    `;
-
-    const sidebarNav = document.querySelector('.sidebar');
-    if (sidebarNav) {
-        sidebarNav.appendChild(signOutDiv);
-    }
-    const nameEl = document.getElementById('sidebar-display-name');
-    if (nameEl) {
-        nameEl.textContent = displayName;
-        nameEl.title = displayName;
-    }
-
-    const signOutBtn = document.getElementById('cloud-signout');
-    if (signOutBtn) {
-        signOutBtn.addEventListener('click', () => auth.signOut());
-    }
-}
