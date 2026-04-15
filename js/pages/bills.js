@@ -3,6 +3,7 @@ import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
 import { expandBillOccurrences } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
+import { EXPENSE_CATEGORIES } from '../expense-categories.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -836,6 +837,18 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             </div>
         </div>
         <div class="form-group">
+            <label>Budget Category (optional)</label>
+            <select class="form-select" id="bill-expense-category">
+                <option value="">— none (don't count toward a budget) —</option>
+                ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
+                    `<option value="${key}" ${bill.expenseCategory === key ? 'selected' : ''}>${val.label}</option>`
+                ).join('')}
+            </select>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                Tag this bill with a budget category to have it counted toward the matching Category Budget each month.
+            </div>
+        </div>
+        <div class="form-group">
             <label>Notes</label>
             <input type="text" class="form-input" id="bill-notes" value="${escapeHtml(bill.notes)}">
         </div>
@@ -899,7 +912,8 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             excludeFromTotal: document.getElementById('bill-exclude').checked,
             notes: document.getElementById('bill-notes').value.trim(),
             owner: owner,
-            userCovering: owner === 'dependent' && coveringEl ? coveringEl.checked : false
+            userCovering: owner === 'dependent' && coveringEl ? coveringEl.checked : false,
+            expenseCategory: document.getElementById('bill-expense-category').value || null
         };
 
         if (!data.name) { alert('Please enter a bill name'); return; }
