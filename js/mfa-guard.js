@@ -1,10 +1,11 @@
 // MFA Guard — blocks sensitive features (document uploads, statement scanning)
 // when the user hasn't enabled two-factor authentication.
 import { auth } from './auth.js';
+import { capabilities } from './mode/mode.js';
 import { openModal, closeModal } from './app.js';
 
 export function requireMFAForUpload(callback) {
-    if (!auth.isCloud() || auth.isMFAEnabled()) {
+    if (!capabilities().mfa || auth.isMFAEnabled()) {
         callback();
         return;
     }

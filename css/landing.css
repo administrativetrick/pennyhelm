@@ -650,6 +650,59 @@ body {
     color: var(--accent);
 }
 
+.docker-option {
+    max-width: 720px;
+    margin: 48px auto 0;
+    padding: 24px 28px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.docker-option h3 {
+    margin: 0 0 8px;
+    font-size: 1.15rem;
+}
+
+.docker-option p {
+    margin: 0 0 12px;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.docker-cmd {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 12px;
+}
+
+.docker-cmd code {
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: none;
+    padding: 0;
+    white-space: pre;
+}
+
+.docker-option .steps-note {
+    text-align: left;
+    margin: 0;
+}
+
+.docker-option .steps-note code {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+}
+
 /* ===== Footer ===== */
 .landing-footer {
     border-top: 1px solid var(--border);
