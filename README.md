@@ -46,7 +46,7 @@ export const APP_MODE = 'selfhost'; // or 'cloud'
 | `'selfhost'` | Express + SQLite | None (local) | `data/finances.db` |
 | `'cloud'` | Firebase Hosting + Cloud Functions | Firebase Auth (Google, email/password, MFA) | Firestore |
 
-**If you're self-hosting, set `APP_MODE = 'selfhost'`.** The repository ships with `'cloud'` as the default because the hosted build runs off the same source tree — change this line before running `npm start` or the app will try to initialize Firebase and redirect to a login page.
+**The repository ships with `'selfhost'` as the default** so `npm start` and the Docker image both work out of the box with no additional setup. For the Firebase Hosting deploy, use `npm run deploy:cloud` (see [Deploying to Firebase](#deploying-to-firebase)) — never bare `firebase deploy` from a source checkout, since a predeploy guard will reject it.
 
 #### What works in self-host mode
 
@@ -139,6 +139,49 @@ pennyhelm/
 └── data/               # Created at runtime (git-ignored)
     └── finances.db
 ```
+
+## Docker
+
+A `Dockerfile` ships in the repo for a fully self-hosted container build. The image runs the Express + SQLite backend and never contacts Firebase or any external service.
+
+```bash
+# Build the image
+docker build -t pennyhelm .
+
+# Run it (port 8081, persistent named volume for the database)
+docker run -d \
+    -p 8081:8081 \
+    -v pennyhelm-data:/app/data \
+    --name pennyhelm \
+    pennyhelm
+```
+
+Open [http://localhost:8081](http://localhost:8081).
+
+The SQLite database lives in the `pennyhelm-data` Docker volume, so it survives container restarts and upgrades. To back it up:
+
+```bash
+docker run --rm -v pennyhelm-data:/data -v "$PWD":/backup alpine \
+    tar czf /backup/pennyhelm-backup.tgz -C /data .
+```
+
+To upgrade: pull the latest repo, `docker build -t pennyhelm .` again, then `docker rm -f pennyhelm` and re-run. Your data stays in the volume.
+
+## Deploying to Firebase
+
+The hosted build at `cashpilot-c58d5.web.app` must always run in cloud mode — deploying selfhost would break every existing user. To make this impossible to get wrong:
+
+```bash
+npm run deploy:cloud
+```
+
+That script:
+
+1. Flips `js/mode-config.js` to `APP_MODE = 'cloud'` for the duration of the upload.
+2. Runs `firebase deploy` (any extra CLI args are forwarded — e.g. `npm run deploy:cloud -- --only hosting`).
+3. Restores the `'selfhost'` default on success **or** failure via a `try/finally`.
+
+A Firebase predeploy guard (`scripts/verify-cloud-mode.js`, wired in `firebase.json`) double-checks the mode at upload time. A bare `firebase deploy` from a fresh selfhost checkout is refused with a clear error, so the cloud site can't accidentally ship selfhost.
 
 ## License
 

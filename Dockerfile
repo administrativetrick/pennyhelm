@@ -1,0 +1,53 @@
+# PennyHelm — self-hosted Docker image
+# -------------------------------------
+# Builds a minimal Node.js container that runs the Express + SQLite selfhost
+# backend. No Firebase, no external CDNs, no telemetry. Data persists in
+# /app/data — mount a volume there to keep it across container restarts.
+
+# ---------- build stage ----------
+FROM node:20-bookworm-slim AS build
+
+# better-sqlite3 ships a prebuilt binary for most platforms, but fall back to
+# source compilation if the arch doesn't match. Build tools are in this stage
+# only — they don't ship in the final image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install deps first for better layer caching
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+# Copy application source
+COPY . .
+
+# Strip out files the runtime doesn't need
+RUN rm -rf .git .github .claude functions scripts auth_export.json \
+    firebase.json firestore.rules firestore.indexes.json \
+    *.md LICENSE
+
+# ---------- runtime stage ----------
+FROM node:20-bookworm-slim AS runtime
+
+# Drop root privileges
+RUN groupadd --system --gid 1001 pennyhelm \
+    && useradd  --system --uid 1001 --gid pennyhelm --shell /sbin/nologin pennyhelm
+
+WORKDIR /app
+
+COPY --from=build --chown=pennyhelm:pennyhelm /app /app
+
+# Persistent SQLite database lives here — mount a volume to keep data
+RUN mkdir -p /app/data && chown pennyhelm:pennyhelm /app/data
+VOLUME ["/app/data"]
+
+ENV NODE_ENV=production \
+    PORT=8081 \
+    PENNYHELM_MODE=selfhost
+
+USER pennyhelm
+EXPOSE 8081
+
+CMD ["node", "server.js"]
