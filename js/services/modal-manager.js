@@ -52,13 +52,12 @@ export function showSubscriptionModal(auth) {
                 <div class="plan-option" data-plan="annual" style="flex:1;min-width:180px;background:var(--accent-bg);border:2px solid var(--accent);border-radius:12px;padding:20px;cursor:pointer;text-align:center;position:relative;">
                     <div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;white-space:nowrap;">BEST VALUE</div>
                     <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px;">Annual</div>
-                    <div style="font-size:24px;font-weight:800;color:var(--text-primary);">$4.99<span style="font-size:13px;font-weight:500;color:var(--text-secondary);">/mo</span></div>
-                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">$59.88/yr first year</div>
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Then $8/mo ($96/yr)</div>
+                    <div style="font-size:24px;font-weight:800;color:var(--text-primary);">$6.49<span style="font-size:13px;font-weight:500;color:var(--text-secondary);">/mo</span></div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">$77.88/yr &middot; Save 19%</div>
                 </div>
                 <div class="plan-option" data-plan="monthly" style="flex:1;min-width:180px;background:var(--bg-card);border:2px solid var(--border);border-radius:12px;padding:20px;cursor:pointer;text-align:center;">
                     <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px;">Monthly</div>
-                    <div style="font-size:24px;font-weight:800;color:var(--text-primary);">$10<span style="font-size:13px;font-weight:500;color:var(--text-secondary);">/mo</span></div>
+                    <div style="font-size:24px;font-weight:800;color:var(--text-primary);">$7.99<span style="font-size:13px;font-weight:500;color:var(--text-secondary);">/mo</span></div>
                     <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Billed monthly</div>
                     <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Cancel anytime</div>
                 </div>
@@ -197,7 +196,7 @@ export function showPastDueBanner(onManage) {
 export function showTrialBanner(daysRemaining, onSubscribe) {
     const banner = document.createElement('div');
     banner.style.cssText = 'background:var(--orange-bg);color:var(--orange);text-align:center;padding:8px 16px;font-size:13px;font-weight:600;border-bottom:1px solid var(--orange);position:fixed;top:0;left:0;right:0;z-index:200;';
-    banner.innerHTML = 'Your free trial expires in <strong>' + daysRemaining + ' day' + (daysRemaining !== 1 ? 's' : '') + '</strong>. <a href="#" style="color:var(--accent);text-decoration:underline;margin-left:8px;" id="trial-banner-subscribe">Subscribe &mdash; plans from $4.99/mo</a>';
+    banner.innerHTML = 'Your free trial expires in <strong>' + daysRemaining + ' day' + (daysRemaining !== 1 ? 's' : '') + '</strong>. <a href="#" style="color:var(--accent);text-decoration:underline;margin-left:8px;" id="trial-banner-subscribe">Subscribe &mdash; plans from $6.49/mo</a>';
     document.body.prepend(banner);
     document.getElementById('trial-banner-subscribe').addEventListener('click', (e) => {
         e.preventDefault();
@@ -221,8 +220,8 @@ export function showTrialExpiredScreen(auth, onSubscribe, onRedeem) {
                     <p style="color:var(--text-secondary);margin-bottom:8px;">Subscribe to continue using PennyHelm Cloud, or redeem a trial code.</p>
                     <div style="background:var(--accent-bg);border:1px solid var(--accent);border-radius:10px;padding:16px;margin-bottom:24px;text-align:center;">
                         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">Plans starting at</div>
-                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">$4.99<span style="font-size:14px;font-weight:500;color:var(--text-secondary);">/mo</span></div>
-                        <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">First year annual &middot; $10/mo monthly</div>
+                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">$6.49<span style="font-size:14px;font-weight:500;color:var(--text-secondary);">/mo</span></div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">$77.88/yr annual &middot; $7.99/mo monthly</div>
                     </div>
                     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
                         <button style="padding:12px 28px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;" id="expired-subscribe-btn">Subscribe Now</button>
