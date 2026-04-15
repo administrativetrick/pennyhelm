@@ -43,39 +43,37 @@ export function isMonthBefore(a, b) {
 /**
  * Compute the status of a single budget for a given `asOfMonth`.
  *
+ * Bills can contribute to a category budget by setting `bill.expenseCategory`
+ * to a category key. Callers pass a `getBillSpendForMonth(category, monthKey)`
+ * function that returns the total bill amount in that category in that month;
+ * this keeps the core engine pure and avoids coupling it to the bill-occurrence
+ * date math which lives in financial-service.
+ *
  * @param {object} budget
  * @param {Array} expenses
  * @param {string} asOfMonth — 'YYYY-MM'
+ * @param {(category: string, monthKey: string) => number} [getBillSpendForMonth]
+ *   Optional callback returning the total bill amount for a category in a month.
+ *   If omitted, budgets only count manual / Plaid expenses.
  * @returns {{
  *   category: string,
  *   monthlyAmount: number,
  *   rollover: boolean,
  *   month: string,
- *   rolledIn: number,      // balance carried from prior month (0 if rollover:false)
- *   available: number,     // monthlyAmount + rolledIn
- *   spent: number,         // sum of qualifying expenses in this month
- *   remaining: number,     // available - spent (negative = over)
- *   rolledOut: number,     // carried to next month (always 0 if rollover:false)
- *   pctUsed: number        // spent / available, clamped [0, +∞)
+ *   rolledIn: number,        // balance carried from prior month (0 if rollover:false)
+ *   available: number,       // monthlyAmount + rolledIn
+ *   expenseSpent: number,    // sum of qualifying expenses this month
+ *   billSpent: number,       // sum of bill occurrences in this category this month
+ *   spent: number,           // expenseSpent + billSpent
+ *   remaining: number,       // available - spent (negative = over)
+ *   rolledOut: number,       // carried to next month (always 0 if rollover:false)
+ *   pctUsed: number          // spent / available
  * }}
  */
-export function computeBudgetStatus(budget, expenses, asOfMonth) {
+export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendForMonth) {
     const startMonth = budget.startMonth || asOfMonth;
     if (isMonthBefore(asOfMonth, startMonth)) {
-        // Budget hasn't started yet
-        return {
-            category: budget.category,
-            monthlyAmount: budget.monthlyAmount,
-            rollover: !!budget.rollover,
-            month: asOfMonth,
-            rolledIn: 0,
-            available: 0,
-            spent: 0,
-            remaining: 0,
-            rolledOut: 0,
-            pctUsed: 0,
-            notStarted: true,
-        };
+        return emptyStatus(budget, asOfMonth, true);
     }
 
     const qualifies = (e) =>
@@ -90,9 +88,13 @@ export function computeBudgetStatus(budget, expenses, asOfMonth) {
     // eslint-disable-next-line no-constant-condition
     while (true) {
         const available = Number(budget.monthlyAmount || 0) + rolledIn;
-        const spent = expenses
+        const expenseSpent = expenses
             .filter(e => qualifies(e) && (e.date || '').startsWith(cursor))
             .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+        const billSpent = typeof getBillSpendForMonth === 'function'
+            ? Number(getBillSpendForMonth(budget.category, cursor)) || 0
+            : 0;
+        const spent = expenseSpent + billSpent;
 
         if (cursor === asOfMonth) {
             const remaining = available - spent;
@@ -103,6 +105,8 @@ export function computeBudgetStatus(budget, expenses, asOfMonth) {
                 month: cursor,
                 rolledIn,
                 available,
+                expenseSpent,
+                billSpent,
                 spent,
                 remaining,
                 rolledOut: budget.rollover ? remaining : 0,
@@ -110,35 +114,38 @@ export function computeBudgetStatus(budget, expenses, asOfMonth) {
             };
         }
 
-        // Advance: roll out into next month only if rollover is enabled.
         rolledIn = budget.rollover ? (available - spent) : 0;
         cursor = addMonth(cursor, 1);
 
-        // Safety brake: stop if we somehow walk past asOfMonth without finding it.
-        if (isMonthBefore(asOfMonth, cursor)) {
-            return {
-                category: budget.category,
-                monthlyAmount: Number(budget.monthlyAmount || 0),
-                rollover: !!budget.rollover,
-                month: asOfMonth,
-                rolledIn: 0,
-                available: 0,
-                spent: 0,
-                remaining: 0,
-                rolledOut: 0,
-                pctUsed: 0,
-                notStarted: true,
-            };
-        }
+        // Safety brake — shouldn't trigger in practice since asOfMonth >= startMonth.
+        if (isMonthBefore(asOfMonth, cursor)) return emptyStatus(budget, asOfMonth, true);
     }
 }
 
+function emptyStatus(budget, month, notStarted = false) {
+    return {
+        category: budget.category,
+        monthlyAmount: Number(budget.monthlyAmount || 0),
+        rollover: !!budget.rollover,
+        month,
+        rolledIn: 0,
+        available: 0,
+        expenseSpent: 0,
+        billSpent: 0,
+        spent: 0,
+        remaining: 0,
+        rolledOut: 0,
+        pctUsed: 0,
+        ...(notStarted ? { notStarted: true } : {}),
+    };
+}
+
 /**
- * Compute statuses for every budget, as of a given month. Budgets without
- * statuses (not yet started) are included with `notStarted: true`.
+ * Compute statuses for every budget, as of a given month. Budgets that haven't
+ * started in `asOfMonth` come back with `notStarted: true`.
  */
-export function computeAllBudgetStatuses(budgets, expenses, asOfMonth) {
-    return (budgets || []).map(b => computeBudgetStatus(b, expenses, asOfMonth));
+export function computeAllBudgetStatuses(budgets, expenses, asOfMonth, getBillSpendForMonth) {
+    return (budgets || []).map(b => computeBudgetStatus(b, expenses, asOfMonth, getBillSpendForMonth));
 }
 
 /**
@@ -149,9 +156,11 @@ export function computeBudgetTotals(statuses) {
     const monthlyAmount = active.reduce((s, b) => s + b.monthlyAmount, 0);
     const rolledIn = active.reduce((s, b) => s + b.rolledIn, 0);
     const available = active.reduce((s, b) => s + b.available, 0);
+    const expenseSpent = active.reduce((s, b) => s + (b.expenseSpent || 0), 0);
+    const billSpent = active.reduce((s, b) => s + (b.billSpent || 0), 0);
     const spent = active.reduce((s, b) => s + b.spent, 0);
     const remaining = available - spent;
-    return { monthlyAmount, rolledIn, available, spent, remaining };
+    return { monthlyAmount, rolledIn, available, expenseSpent, billSpent, spent, remaining };
 }
 
 /** Basic shape validation before persisting. */
