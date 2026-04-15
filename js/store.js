@@ -1,7 +1,7 @@
 import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, expandBillOccurrences } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
 
@@ -1187,12 +1187,59 @@ class Store {
 
     /** Returns per-budget status array for a given 'YYYY-MM' (defaults to current). */
     getBudgetStatuses(asOfMonth = monthKey()) {
-        return computeAllBudgetStatuses(this.getBudgets(), this.getExpenses(), asOfMonth);
+        const getBillSpend = (cat, mKey) => this._billSpendForMonth(cat, mKey);
+        return computeAllBudgetStatuses(this.getBudgets(), this.getExpenses(), asOfMonth, getBillSpend);
     }
 
     /** Top-line totals across all active budgets for the given month. */
     getBudgetTotals(asOfMonth = monthKey()) {
         return computeBudgetTotals(this.getBudgetStatuses(asOfMonth));
+    }
+
+    /**
+     * Sum of bill amounts that occur in `monthKey` and are tagged with
+     * the given expense category. Used by the budget engine to blend
+     * committed bill spending into category budget totals.
+     */
+    _billSpendForMonth(category, mKey) {
+        if (!category || !mKey) return 0;
+        const [y, m] = mKey.split('-').map(Number);
+        if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
+        const year = y;
+        const month = m - 1; // JS Date: 0-indexed
+
+        const data = this._load();
+        const bills = (data.bills || []).filter(b => !b.frozen && b.expenseCategory === category);
+        if (bills.length === 0) return 0;
+
+        const monthStart = new Date(year, month, 1);
+        const monthEnd = new Date(year, month + 1, 0);
+
+        // Pay dates — needed for per-paycheck / twice-monthly bills.
+        const payDates = generatePayDates(
+            data.paySchedule,
+            monthStart.toISOString().slice(0, 10),
+            monthEnd.toISOString().slice(0, 10)
+        );
+
+        let total = 0;
+        for (const bill of bills) {
+            const amt = Number(bill.amount) || 0;
+            if (amt === 0) continue;
+            if (bill.frequency === 'yearly') {
+                if (bill.dueMonth === month) total += amt;
+            } else if (bill.frequency === 'semi-annual') {
+                const second = (bill.dueMonth + 6) % 12;
+                if (bill.dueMonth === month || second === month) total += amt;
+            } else if (bill.frequency === 'monthly' || !bill.frequency) {
+                total += amt;
+            } else {
+                // weekly / biweekly / per-paycheck / twice-monthly → expand
+                const occ = expandBillOccurrences(bill, monthStart, monthEnd, payDates);
+                total += (occ?.length || 0) * amt;
+            }
+        }
+        return total;
     }
 
     // ─── Savings Goals ───────────────────────────────────────
