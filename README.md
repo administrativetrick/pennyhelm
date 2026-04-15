@@ -64,7 +64,7 @@ You can ignore `firebase.json`, `firestore.rules`, `firestore.indexes.json`, the
 
 ## PennyHelm Cloud
 
-PennyHelm Cloud is a hosted version with Firebase Auth and Firestore — sign up, log in, and access your finances from any device. Try it at [cashpilot-c58d5.web.app](https://cashpilot-c58d5.web.app).
+PennyHelm Cloud is a hosted version with Firebase Auth and Firestore — sign up, log in, and access your finances from any device. Try it at [https://pennyhelm.com](https://pennyhelm.com).
 
 ## Configuration
 
