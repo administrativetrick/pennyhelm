@@ -149,10 +149,8 @@
                         <h3>PennyHelm Cloud</h3>
                         <!-- Annual pricing (default) -->
                         <div class="pricing-annual">
-                            <div class="promo-badge">First year intro pricing</div>
                             <div class="path-price">$4.99<span>/month</span></div>
-                            <div class="path-price-detail">$59.88 billed annually</div>
-                            <div class="path-price-after">Then $8/mo ($96/yr)</div>
+                            <div class="path-price-detail">$59.88 billed annually &middot; Price locked — never increases</div>
                         </div>
                         <!-- Monthly pricing (hidden by default) -->
                         <div class="pricing-monthly" style="display:none;">
@@ -194,6 +192,20 @@
         <div class="section-inner">
             <h2 class="section-title">Self-Host in 3 Steps</h2>
             <p class="section-subtitle">Up and running in under a minute</p>
+
+            <div class="step step-wide">
+                <div class="step-icon">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h18l-2 10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L3 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+                </div>
+                <div class="step-content">
+                    <h4>One-line Docker install</h4>
+                    <p class="step-desc">Run PennyHelm in a single container — no Node.js or build tools required. Your database is stored in the <code class="inline-code">pennyhelm-data</code> volume, so it survives restarts and upgrades.</p>
+                    <code>docker build -t pennyhelm . &amp;&amp; docker run -d -p 8081:8081 -v pennyhelm-data:/app/data --name pennyhelm pennyhelm</code>
+                </div>
+            </div>
+
+            <div class="or-divider"><span>or install from source</span></div>
+
             <div class="steps">
                 <div class="step">
                     <div class="step-number">1</div>
@@ -218,14 +230,6 @@
                 </div>
             </div>
             <p class="steps-note">Open <strong>http://localhost:8081</strong> and you're ready to go. All data stays on your machine.</p>
-
-            <div class="docker-option">
-                <h3>Prefer Docker?</h3>
-                <p>Run PennyHelm in a single container — no Node.js or build tools required.</p>
-                <pre class="docker-cmd"><code>docker build -t pennyhelm .
-docker run -d -p 8081:8081 -v pennyhelm-data:/app/data --name pennyhelm pennyhelm</code></pre>
-                <p class="steps-note">Your database is stored in the <code>pennyhelm-data</code> volume, so it survives container restarts and upgrades.</p>
-            </div>
         </div>
     </section>
 

@@ -1,13 +1,14 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { auth } from '../auth.js';
+import { capabilities } from '../mode/mode.js';
 import { connectBank, refreshPlaidBalances, hasPlaidConnections } from '../plaid.js';
 import { showVehicleDetail } from './vehicle-detail.js';
 import { requireMFAForUpload } from '../mfa-guard.js';
 
 export function renderAccounts(container, store) {
     const accounts = store.getAccounts();
-    const isCloud = auth.isCloud();
+    const plaidAvailable = capabilities().plaid;
     const hasPlaid = hasPlaidConnections(store);
 
     // Calculate totals
@@ -33,7 +34,7 @@ export function renderAccounts(container, store) {
                 <div class="subtitle">${accounts.length} account${accounts.length !== 1 ? 's' : ''} &middot; Net: ${formatCurrency(netTotal)}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                ${isCloud ? '<button class="btn btn-secondary" id="connect-bank-btn" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
+                ${plaidAvailable ? '<button class="btn btn-secondary" id="connect-bank-btn" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
                 <button class="btn btn-secondary" id="scan-statement-btn">Scan Statement</button>
                 <button class="btn btn-primary" id="add-account-btn">+ Add Account</button>
             </div>
@@ -182,8 +183,8 @@ export function renderAccounts(container, store) {
             <h3 style="margin-bottom:8px;">No accounts tracked</h3>
             <p style="color:var(--text-muted);margin-bottom:24px;">Add your bank accounts, investments, and property to track your net worth.</p>
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-                ${isCloud ? '<button class="btn btn-primary" id="empty-connect-bank" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
-                <button class="btn ${isCloud ? 'btn-secondary' : 'btn-primary'}" id="empty-add-account">+ Add Manually</button>
+                ${plaidAvailable ? '<button class="btn btn-primary" id="empty-connect-bank" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
+                <button class="btn ${plaidAvailable ? 'btn-secondary' : 'btn-primary'}" id="empty-add-account">+ Add Manually</button>
             </div>
         </div>
         `}

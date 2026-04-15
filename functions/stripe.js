@@ -71,7 +71,10 @@ module.exports = function({ admin, db, secrets }) {
                     metadata: { firebaseUid: uid },
                 };
 
-                // Apply first-year coupon for annual plans
+                // Apply permanent annual-plan discount coupon.
+                // NOTE: the secret is still named STRIPE_FIRST_YEAR_COUPON_ID for
+                // backwards compatibility, but its duration in the Stripe dashboard
+                // must be set to `forever` so the $4.99/mo price never increases.
                 if (plan === 'annual') {
                     const couponId = STRIPE_FIRST_YEAR_COUPON_ID.value();
                     if (couponId) {
