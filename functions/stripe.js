@@ -161,6 +161,16 @@ module.exports = function({ admin, db, secrets }) {
                                 subscribedAt: admin.firestore.FieldValue.serverTimestamp(),
                             }, { merge: true });
                             console.log(`User ${uid} subscription activated.`);
+
+                            // Track referral reward
+                            try {
+                                const inviteFns = require("./invites")({ admin, db, getEmailTransporter: () => null, secrets });
+                                if (inviteFns.trackPaidReferral) {
+                                    await inviteFns.trackPaidReferral(uid, stripe);
+                                }
+                            } catch (refErr) {
+                                console.error("Referral tracking error:", refErr);
+                            }
                         }
                         break;
                     }
@@ -181,6 +191,18 @@ module.exports = function({ admin, db, secrets }) {
                                     : null,
                             }, { merge: true });
                             console.log(`User ${uid} subscription updated to ${status}.`);
+
+                            // Track referral when subscription becomes active
+                            if (subscription.status === "active") {
+                                try {
+                                    const inviteFns = require("./invites")({ admin, db, getEmailTransporter: () => null, secrets });
+                                    if (inviteFns.trackPaidReferral) {
+                                        await inviteFns.trackPaidReferral(uid, stripe);
+                                    }
+                                } catch (refErr) {
+                                    console.error("Referral tracking error:", refErr);
+                                }
+                            }
                         }
                         break;
                     }

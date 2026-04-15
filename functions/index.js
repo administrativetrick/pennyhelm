@@ -116,7 +116,9 @@ const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
 
 // ─── Re-export All Cloud Functions ───────────────────────────
 
-// Remove internal helper before exporting
+// Remove internal helpers before exporting (these are plain functions,
+// not onCall/onRequest — they'd crash if Firebase tried to deploy them)
 delete apiKeyFns._validateApiKey;
+delete inviteFns.trackPaidReferral;
 
 Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns);
