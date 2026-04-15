@@ -1,5 +1,6 @@
-import { formatCurrency, escapeHtml } from '../utils.js';
+import { formatCurrency, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
+import { getMonthlyMultiplier } from '../services/financial-service.js';
 import {
     renderTaxes,
     getSelectedYear, setSelectedYear,
@@ -62,13 +63,6 @@ const OTHER_INCOME_FREQ = {
     biweekly: 'Biweekly'
 };
 
-function getMonthlyMultiplier(freq) {
-    if (freq === 'biweekly') return 26 / 12;
-    if (freq === 'weekly') return 52 / 12;
-    if (freq === 'semimonthly') return 2;
-    return 1;
-}
-
 function getOtherIncomeMonthly(source) {
     const amt = source.amount || 0;
     switch (source.frequency) {
@@ -80,12 +74,6 @@ function getOtherIncomeMonthly(source) {
         case 'one-time': return 0; // doesn't count toward monthly
         default: return amt;
     }
-}
-
-function getOrdinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return s[(v - 20) % 10] || s[v] || s[0];
 }
 
 let balanceHistoryView = 'monthly'; // 'daily' | 'monthly' | 'yearly'

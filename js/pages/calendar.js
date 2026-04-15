@@ -1,80 +1,8 @@
 import { getMonthName, getDaysInMonth, getFirstDayOfMonth, formatCurrency, getCategoryBadgeClass, escapeHtml } from '../utils.js';
+import { expandBillOccurrences } from '../services/financial-service.js';
 
 let viewYear, viewMonth;
 
-// Expand a recurring bill into individual dated occurrences within a date range
-// (mirrors expandBillOccurrences from bills.js for calendar use)
-function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = []) {
-    const occurrences = [];
-    const freq = bill.frequency;
-
-    if (freq === 'weekly') {
-        const targetDay = (bill.dueDay || 0) % 7;
-        let cursor = new Date(rangeStart);
-        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
-        while (cursor <= rangeEnd) {
-            occurrences.push({
-                ...bill,
-                _occurrenceDate: new Date(cursor),
-                _occurrenceKey: `${bill.id}_w_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
-            });
-            cursor = new Date(cursor.getTime() + 7 * 86400000);
-        }
-    } else if (freq === 'biweekly') {
-        const targetDay = (bill.dueDay || 0) % 7;
-        let cursor = new Date(rangeStart);
-        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
-        while (cursor <= rangeEnd) {
-            occurrences.push({
-                ...bill,
-                _occurrenceDate: new Date(cursor),
-                _occurrenceKey: `${bill.id}_bw_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
-            });
-            cursor = new Date(cursor.getTime() + 14 * 86400000);
-        }
-    } else if (freq === 'per-paycheck') {
-        payDatesInRange.forEach((pd, idx) => {
-            const payDate = new Date(pd);
-            if (payDate >= rangeStart && payDate <= rangeEnd) {
-                occurrences.push({
-                    ...bill,
-                    _occurrenceDate: payDate,
-                    _occurrenceKey: `${bill.id}_pp_${idx}_${payDate.getTime()}`,
-                });
-            }
-        });
-    } else if (freq === 'twice-monthly') {
-        const byMonth = {};
-        payDatesInRange.forEach(pd => {
-            const d = new Date(pd);
-            const key = `${d.getFullYear()}-${d.getMonth()}`;
-            if (!byMonth[key]) byMonth[key] = [];
-            byMonth[key].push(d);
-        });
-        Object.values(byMonth).forEach(monthDates => {
-            monthDates.sort((a, b) => a - b);
-            const first = monthDates[0];
-            const last = monthDates[monthDates.length - 1];
-            if (first >= rangeStart && first <= rangeEnd) {
-                occurrences.push({
-                    ...bill,
-                    _occurrenceDate: first,
-                    _occurrenceKey: `${bill.id}_tm_first_${first.getTime()}`,
-                });
-            }
-            if (last.getTime() !== first.getTime() && last >= rangeStart && last <= rangeEnd) {
-                occurrences.push({
-                    ...bill,
-                    _occurrenceDate: last,
-                    _occurrenceKey: `${bill.id}_tm_last_${last.getTime()}`,
-                });
-            }
-        });
-    } else {
-        return null; // monthly, yearly, semi-annual — no expansion needed
-    }
-    return occurrences;
-}
 
 // Check if a yearly/semi-annual bill is due in a specific month
 function isPeriodicBillDueInMonth(bill, checkMonth) {
