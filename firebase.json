@@ -4,6 +4,9 @@
   },
   "hosting": {
     "public": ".",
+    "predeploy": [
+      "node scripts/verify-cloud-mode.js"
+    ],
     "ignore": [
       "node_modules/**",
       "data/**",

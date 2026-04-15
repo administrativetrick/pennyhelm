@@ -116,10 +116,8 @@ export function showSubscriptionModal(auth) {
 // ─── Redeem Code Modal ────────────────────────────
 
 export function showRedeemCodeModal(auth) {
-    // Defense-in-depth: this flow uses Firebase Firestore. The caller (app.js
-    // checkTrialStatus) is already gated on auth.isCloud(), but guard here too
-    // so future callers can't accidentally crash self-hosted builds.
-    if (!auth || !auth.isCloud || !auth.isCloud()) return;
+    // This flow is cloud-only. It's only ever imported by the cloud mode's
+    // gateAccess phase (js/mode/cloud.js); selfhost never reaches it.
     openModal('Redeem Trial Code', `
         <div class="form-group">
             <label>Enter your trial code</label>
