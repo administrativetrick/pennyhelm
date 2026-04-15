@@ -12,7 +12,7 @@ import { renderAdmin } from './pages/admin.js';
 import { renderAccounts } from './pages/accounts.js';
 import { renderRules } from './pages/rules.js';
 import { renderBudgets } from './pages/budgets.js';
-import { shouldShowOnboarding, startOnboarding, resetOnboarding } from './onboarding.js';
+import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 
 const pages = {

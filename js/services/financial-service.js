@@ -48,6 +48,21 @@ export function calculateNetWorth(accounts, debts) {
     };
 }
 
+// ─── Frequency math ───────────────────────────────
+
+/**
+ * Multiplier that converts a periodic amount into its monthly equivalent.
+ * 52/12 for weekly, 26/12 for biweekly, 2 for semimonthly, 1 otherwise.
+ */
+export function getMonthlyMultiplier(freq) {
+    switch (freq) {
+        case 'weekly':      return 52 / 12;
+        case 'biweekly':    return 26 / 12;
+        case 'semimonthly': return 2;
+        default:            return 1;
+    }
+}
+
 // ─── Monthly Income ───────────────────────────────
 
 export function calculateMonthlyIncome(income, otherIncomeSources) {
@@ -386,4 +401,134 @@ function getHealthGrade(score) {
     if (score >= 55) return { label: 'Fair',        color: 'var(--yellow)', emoji: '⚡' };
     if (score >= 35) return { label: 'Needs Work',  color: 'var(--orange)', emoji: '⚠️' };
     return                   { label: 'Critical',   color: 'var(--red)',    emoji: '🚨' };
+}
+
+// ─── Pay Period Building ──────────────────────────
+
+/**
+ * Build the per-paycheck cashflow "pay periods" structure used by the bills
+ * cashflow view and dashboard widget. Each period runs from one pay date to
+ * the next, with bills and other-income occurrences assigned to it.
+ *
+ * @param {Date[]} payDates — sorted ascending
+ * @param {Array}  bills
+ * @param {object} store
+ * @param {object} income — must expose .user.payAmount
+ * @param {number} year
+ * @param {number} month
+ * @param {Array}  [coveredDepBills]
+ * @param {Array}  [otherIncomeSources]
+ */
+export function buildPayPeriods(payDates, bills, store, income, year, month, coveredDepBills = [], otherIncomeSources = []) {
+    if (!payDates || payDates.length === 0) return [];
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const activeBills = bills.filter(b => !b.frozen && b.amount > 0);
+    const sorted = [...payDates].sort((a, b) => a - b);
+
+    const periods = [];
+
+    for (let i = 0; i < sorted.length; i++) {
+        const periodStart = sorted[i];
+        const periodEnd = sorted[i + 1]
+            ? new Date(sorted[i + 1].getTime() - 24 * 60 * 60 * 1000)
+            : new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000);
+
+        const periodBills = [];
+        const startMonth = periodStart.getMonth();
+        const startYear = periodStart.getFullYear();
+        const payDatesInPeriod = sorted.filter(d => d >= periodStart && d <= periodEnd);
+
+        activeBills.forEach(bill => {
+            if (bill.frequency === 'yearly' && bill.dueMonth != null) {
+                const dueDate = new Date(startYear, bill.dueMonth, bill.dueDay);
+                const dueDateNextYear = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
+                if ((dueDate >= periodStart && dueDate <= periodEnd) ||
+                    (dueDateNextYear >= periodStart && dueDateNextYear <= periodEnd)) {
+                    periodBills.push(bill);
+                }
+                return;
+            }
+            if (bill.frequency === 'semi-annual' && bill.dueMonth != null) {
+                const secondMonth = (bill.dueMonth + 6) % 12;
+                const dueDate1 = new Date(startYear, bill.dueMonth, bill.dueDay);
+                const dueDate2 = new Date(startYear, secondMonth, bill.dueDay);
+                const dueDate1Next = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
+                const dueDate2Next = new Date(startYear + 1, secondMonth, bill.dueDay);
+                if ((dueDate1 >= periodStart && dueDate1 <= periodEnd) ||
+                    (dueDate2 >= periodStart && dueDate2 <= periodEnd) ||
+                    (dueDate1Next >= periodStart && dueDate1Next <= periodEnd) ||
+                    (dueDate2Next >= periodStart && dueDate2Next <= periodEnd)) {
+                    periodBills.push(bill);
+                }
+                return;
+            }
+
+            // Expand recurring bills into individual occurrences
+            const expanded = expandBillOccurrences(bill, periodStart, periodEnd, payDatesInPeriod);
+            if (expanded !== null) {
+                periodBills.push(...expanded);
+            } else {
+                // Monthly bill — check due day
+                const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
+                const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
+
+                if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
+                    periodBills.push(bill);
+                } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
+                    periodBills.push(bill);
+                }
+            }
+        });
+
+        coveredDepBills.forEach(depBill => {
+            if (!depBill.amount || depBill.amount <= 0) return;
+            const dueDayThisMonth = new Date(startYear, startMonth, depBill.dueDay || 1);
+            const dueDayNextMonth = new Date(startYear, startMonth + 1, depBill.dueDay || 1);
+            if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
+                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
+            } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
+                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
+            }
+        });
+
+        const periodIncome = [];
+        const recurringOtherIncome = otherIncomeSources.filter(s => s.payDay && s.frequency !== 'one-time' && s.amount > 0);
+        recurringOtherIncome.forEach(src => {
+            const payDayThisMonth = new Date(startYear, startMonth, src.payDay);
+            const payDayNextMonth = new Date(startYear, startMonth + 1, src.payDay);
+            if (payDayThisMonth >= periodStart && payDayThisMonth <= periodEnd) {
+                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
+            } else if (payDayNextMonth >= periodStart && payDayNextMonth <= periodEnd) {
+                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
+            }
+        });
+
+        periodBills.sort((a, b) => (a.dueDay || 0) - (b.dueDay || 0));
+        periodIncome.sort((a, b) => (a.payDay || 0) - (b.payDay || 0));
+
+        const billsTotal = periodBills.reduce((s, b) => s + (b.excludeFromTotal ? 0 : b.amount), 0);
+        const otherIncomeTotal = periodIncome.reduce((s, i) => s + i.amount, 0);
+        const available = income.user.payAmount + otherIncomeTotal - billsTotal;
+
+        const isCurrent = today >= periodStart && today <= periodEnd;
+
+        const dateOpts = { month: 'short', day: 'numeric' };
+        periods.push({
+            label: `Pay Period ${i + 1}`,
+            startLabel: periodStart.toLocaleDateString('en-US', dateOpts),
+            endLabel: periodEnd.toLocaleDateString('en-US', dateOpts),
+            start: periodStart,
+            end: periodEnd,
+            bills: periodBills,
+            billsTotal,
+            income: periodIncome,
+            otherIncomeTotal,
+            available,
+            isCurrent
+        });
+    }
+
+    return periods;
 }
