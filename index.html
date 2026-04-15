@@ -193,14 +193,16 @@
             <h2 class="section-title">Self-Host in 3 Steps</h2>
             <p class="section-subtitle">Up and running in under a minute</p>
 
-            <div class="step step-wide">
-                <div class="step-icon">
-                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h18l-2 10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L3 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
-                </div>
-                <div class="step-content">
-                    <h4>One-line Docker install</h4>
-                    <p class="step-desc">Run PennyHelm in a single container — no Node.js or build tools required. Your database is stored in the <code class="inline-code">pennyhelm-data</code> volume, so it survives restarts and upgrades.</p>
-                    <code>docker build -t pennyhelm . &amp;&amp; docker run -d -p 8081:8081 -v pennyhelm-data:/app/data --name pennyhelm pennyhelm</code>
+            <div class="steps steps-single">
+                <div class="step step-wide">
+                    <div class="step-icon">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h18l-2 10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L3 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+                    </div>
+                    <div class="step-content">
+                        <h4>One-line Docker Compose install</h4>
+                        <p class="step-desc">Run PennyHelm in a single container — no Node.js or build tools required. Your database is stored in the <code class="inline-code">pennyhelm-data</code> volume, so it survives restarts and upgrades.</p>
+                        <code>docker compose up -d --build</code>
+                    </div>
                 </div>
             </div>
 
