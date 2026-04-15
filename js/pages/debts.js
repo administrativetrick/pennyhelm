@@ -522,7 +522,7 @@ export function renderDebts(container, store) {
 
     // Event handlers
     container.querySelector('#add-debt-btn').addEventListener('click', () => showDebtForm(store));
-    container.querySelector('#set-budget-btn').addEventListener('click', () => showBudgetForm(store, budget));
+    container.querySelector('#set-budget-btn').addEventListener('click', () => showDebtBudgetForm(store, budget));
 
     const cascadeToggle = container.querySelector('#cascade-toggle');
     if (cascadeToggle) {
@@ -1277,7 +1277,7 @@ function showDebtForm(store, existingDebt = null) {
     });
 }
 
-function showBudgetForm(store, budget) {
+function showDebtBudgetForm(store, budget) {
     const formHtml = `
         <div class="form-group">
             <label>Total Monthly Payment Budget</label>
