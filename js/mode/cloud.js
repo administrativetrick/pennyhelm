@@ -23,6 +23,15 @@ const cloud = Object.freeze({
         registrationCodes: true,
     }),
 
+    // Cloud dispatches Plaid calls through Firebase Cloud Functions.
+    plaidTransport: Object.freeze({
+        async call(name, data) {
+            const fn = firebase.app().functions().httpsCallable(name);
+            const result = await fn(data);
+            return result.data;
+        },
+    }),
+
     authStrategy: makeCloudAuthStrategy(),
 
     async initStorage(store, auth) {

@@ -142,13 +142,20 @@ pennyhelm/
 
 ## Docker
 
-A `Dockerfile` ships in the repo for a fully self-hosted container build. The image runs the Express + SQLite backend and never contacts Firebase or any external service.
+A `Dockerfile` and `docker-compose.yml` ship in the repo for a fully self-hosted container build. The image runs the Express + SQLite backend and never contacts Firebase or any external service.
+
+### Docker Compose (recommended)
 
 ```bash
-# Build the image
-docker build -t pennyhelm .
+docker compose up -d
+```
 
-# Run it (port 8081, persistent named volume for the database)
+Open [http://localhost:8081](http://localhost:8081). The database lives in the named `pennyhelm-data` volume.
+
+### Plain Docker
+
+```bash
+docker build -t pennyhelm .
 docker run -d \
     -p 8081:8081 \
     -v pennyhelm-data:/app/data \
@@ -156,9 +163,7 @@ docker run -d \
     pennyhelm
 ```
 
-Open [http://localhost:8081](http://localhost:8081).
-
-The SQLite database lives in the `pennyhelm-data` Docker volume, so it survives container restarts and upgrades. To back it up:
+To back up the database:
 
 ```bash
 docker run --rm -v pennyhelm-data:/data -v "$PWD":/backup alpine \
@@ -166,6 +171,33 @@ docker run --rm -v pennyhelm-data:/data -v "$PWD":/backup alpine \
 ```
 
 To upgrade: pull the latest repo, `docker build -t pennyhelm .` again, then `docker rm -f pennyhelm` and re-run. Your data stays in the volume.
+
+## Bank connections (Plaid, selfhost)
+
+Self-hosted users bring their own Plaid API credentials. Sign up at [plaid.com](https://plaid.com/) and grab your `client_id` and `secret` from the [Plaid dashboard](https://dashboard.plaid.com/developers/keys).
+
+There are two ways to configure them:
+
+**1. Environment variables** (recommended for Docker):
+
+```bash
+docker run -d \
+    -p 8081:8081 \
+    -v pennyhelm-data:/app/data \
+    -e PLAID_CLIENT_ID=your_client_id \
+    -e PLAID_SECRET=your_secret \
+    -e PLAID_ENV=sandbox \
+    --name pennyhelm \
+    pennyhelm
+```
+
+`PLAID_ENV` must be explicitly set to one of `sandbox`, `development`, or `production`.
+
+**2. In-app settings UI**: start the server without env vars, open **Settings → Bank Connection (Plaid)**, and paste your credentials. They're stored in your local SQLite database.
+
+Environment variables take precedence over in-app settings, so Docker users with `PLAID_*` set see a read-only config panel in the UI. Credentials never leave your machine — the Express server talks to Plaid directly; nothing is sent to Firebase or any other third party.
+
+The Plaid "Connect Bank" and "Refresh Balances" buttons stay hidden until Plaid is configured.
 
 ## Deploying to Firebase
 

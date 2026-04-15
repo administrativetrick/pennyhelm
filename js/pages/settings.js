@@ -6,6 +6,7 @@ import { hasPlaidConnections } from '../plaid.js';
 import { getThemePreference, setThemePreference } from '../theme.js';
 import { resetOnboarding, startOnboarding } from '../onboarding.js';
 import { loadQrcodeSdk } from '../cloud-loader.js';
+import { renderPlaidConfigCard, attachPlaidConfigHandlers } from './settings-plaid.js';
 
 export function renderSettings(container, store) {
     const userName = store.getUserName();
@@ -69,6 +70,8 @@ export function renderSettings(container, store) {
         </div>
 
         ${renderAccountsSection(store)}
+
+        ${!auth.isCloud() ? renderPlaidConfigCard() : ''}
 
         ${auth.isCloud() ? `
         <div class="card mb-24">
@@ -522,6 +525,11 @@ export function renderSettings(container, store) {
     // Accounts summary link
     const acctLink = container.querySelector('#settings-go-to-accounts');
     if (acctLink) acctLink.addEventListener('click', (e) => { e.preventDefault(); window.location.hash = 'accounts'; });
+
+    // Plaid config (selfhost only — card is not rendered in cloud mode)
+    if (!auth.isCloud()) {
+        attachPlaidConfigHandlers(container).catch(e => console.error('Plaid config handlers:', e));
+    }
 
     // Subscription status (cloud mode only)
     if (auth.isCloud()) {

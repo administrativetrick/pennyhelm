@@ -2,6 +2,7 @@ import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { showVehicleDetail } from './vehicle-detail.js';
 import { auth } from '../auth.js';
+import { capabilities } from '../mode/mode.js';
 import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
 
 let activeDebtsTab = 'debts';
@@ -647,7 +648,7 @@ function renderExpensesTab(container, store) {
     const expenses = store.getExpenses();
     const usageType = store.getUsageType();
     const showTypeColumn = usageType === 'business' || usageType === 'both';
-    const showPlaidSync = auth.isCloud() && hasPlaidConnections(store);
+    const showPlaidSync = capabilities().plaid && hasPlaidConnections(store);
 
     // Summary calculations
     const now = new Date();

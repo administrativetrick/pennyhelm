@@ -1,0 +1,43 @@
+# PennyHelm — selfhost deployment via Docker Compose
+#
+# Quick start:
+#   docker compose up -d
+#
+# Open http://localhost:8081.
+#
+# SQLite data persists in the named `pennyhelm-data` volume, so it
+# survives container restarts and upgrades.
+#
+# Optional: bring your own Plaid API credentials to enable the
+# Connect Bank flow. Either set the three PLAID_* vars below (either
+# inline here or in a sibling `.env` file), OR leave them unset and
+# configure them later in the in-app Settings → Bank Connection (Plaid)
+# section.
+#
+# To wipe the database and start fresh:
+#   docker compose down -v
+
+services:
+  pennyhelm:
+    build: .
+    # Or pin to a published image once you push one:
+    # image: ghcr.io/administrativetrick/pennyhelm:latest
+    image: pennyhelm:latest
+    container_name: pennyhelm
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - pennyhelm-data:/app/data
+    environment:
+      # PORT: 8081            # override if 8081 is taken
+      # PLAID_CLIENT_ID: ""   # from https://dashboard.plaid.com/developers/keys
+      # PLAID_SECRET:    ""
+      # PLAID_ENV:       sandbox   # one of: sandbox | development | production
+      NODE_ENV: production
+    # If you prefer a .env file, uncomment:
+    # env_file:
+    #   - .env
+
+volumes:
+  pennyhelm-data:

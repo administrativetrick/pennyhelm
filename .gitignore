@@ -12,6 +12,7 @@ auth_export.json
 
 # Claude
 .claude/
+CLAUDE.md
 
 # Cloud Functions
 functions/node_modules/
