@@ -2,6 +2,7 @@ import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
 import { generatePayDates, createBalanceSnapshot } from './services/financial-service.js';
+import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 
 const defaultData = {
     userName: 'User',
@@ -40,7 +41,8 @@ const defaultData = {
     },
     debts: [], // { id, name, type, currentBalance, originalBalance, interestRate, minimumPayment, createdDate, notes }
     debtBudget: { totalMonthlyBudget: 0, strategy: 'avalanche' },
-    expenses: [], // { id, name, amount, category, date, vendor, notes, createdDate, expenseType: 'personal'|'business', businessName?, plaidTransactionId?, source: 'manual'|'plaid' }
+    expenses: [], // { id, name, amount, category, date, vendor, notes, createdDate, expenseType: 'personal'|'business', businessName?, plaidTransactionId?, source: 'manual'|'plaid', tags?: string[], ignored?: boolean, splitOf?: string|null, splitChildren?: string[] }
+    transactionRules: [], // { id, name, enabled, priority, match: {field, op, value}, actions: {category?, addTags?, rename?, ignore?} } — see js/services/transaction-rules.js
     taxDeductions: [], // { id, taxYear, category, description, amount, date, vendor, receiptDocId, notes }
     otherIncome: [], // { id, name, amount, frequency, category, notes } — category: rental|dividend|freelance|side-hustle|gift|other
     savingsGoals: [], // { id, name, targetAmount, currentAmount, targetDate, category, linkedAccountId, notes, createdDate }
@@ -955,10 +957,11 @@ class Store {
     importPlaidTransactions(transactions) {
         const data = this._load();
         if (!data.expenses) data.expenses = [];
+        if (!data.transactionRules) data.transactionRules = [];
         let imported = 0;
         for (const txn of transactions) {
             if (data.expenses.some(e => e.plaidTransactionId === txn.plaidTransactionId)) continue;
-            const expense = {
+            let expense = {
                 id: crypto.randomUUID(),
                 name: txn.name,
                 amount: txn.amount,
@@ -971,13 +974,168 @@ class Store {
                 businessName: null,
                 plaidTransactionId: txn.plaidTransactionId,
                 plaidAccountId: txn.plaidAccountId,
-                source: 'plaid'
+                source: 'plaid',
+                tags: [],
+                ignored: false,
             };
+            // Apply user-defined transaction rules (categorize, tag, rename, ignore)
+            expense = applyRulesToExpense(data.transactionRules, expense);
             data.expenses.push(expense);
             imported++;
         }
         if (imported > 0) this._save();
         return imported;
+    }
+
+    // ─── Transaction Rules ───────────────────────────────────
+
+    getRules() {
+        const data = this._load();
+        if (!data.transactionRules) data.transactionRules = [];
+        return data.transactionRules;
+    }
+
+    addRule(rule) {
+        const err = validateRule(rule);
+        if (err) throw new Error(err);
+        const data = this._load();
+        if (!data.transactionRules) data.transactionRules = [];
+        const next = {
+            id: crypto.randomUUID(),
+            enabled: true,
+            priority: data.transactionRules.length, // append to end
+            ...rule,
+        };
+        data.transactionRules.push(next);
+        this._save();
+        return next;
+    }
+
+    updateRule(id, updates) {
+        const data = this._load();
+        if (!data.transactionRules) return;
+        const idx = data.transactionRules.findIndex(r => r.id === id);
+        if (idx === -1) return;
+        const merged = { ...data.transactionRules[idx], ...updates };
+        const err = validateRule(merged);
+        if (err) throw new Error(err);
+        data.transactionRules[idx] = merged;
+        this._save();
+    }
+
+    deleteRule(id) {
+        const data = this._load();
+        if (!data.transactionRules) return;
+        data.transactionRules = data.transactionRules.filter(r => r.id !== id);
+        this._save();
+    }
+
+    /**
+     * Re-apply all rules to every existing expense. Useful after creating
+     * or editing rules retroactively.
+     * Returns the number of expenses whose JSON representation changed.
+     */
+    reapplyRulesToAllExpenses() {
+        const data = this._load();
+        if (!data.expenses || !data.transactionRules) return 0;
+        let changed = 0;
+        for (let i = 0; i < data.expenses.length; i++) {
+            const before = JSON.stringify(data.expenses[i]);
+            const after = applyRulesToExpense(data.transactionRules, data.expenses[i]);
+            if (JSON.stringify(after) !== before) {
+                data.expenses[i] = after;
+                changed++;
+            }
+        }
+        if (changed > 0) this._save();
+        return changed;
+    }
+
+    // ─── Tags ────────────────────────────────────────────────
+
+    getAllExpenseTags() {
+        const data = this._load();
+        const tags = new Set();
+        (data.expenses || []).forEach(e => {
+            (Array.isArray(e.tags) ? e.tags : []).forEach(t => {
+                const clean = String(t).trim();
+                if (clean) tags.add(clean);
+            });
+        });
+        return [...tags].sort();
+    }
+
+    // ─── Splits ──────────────────────────────────────────────
+
+    /**
+     * Split an expense into N child parts. Each part has its own category,
+     * tags, amount, and optional note. The parent expense is kept but marked
+     * as split (via `splitChildren`) and excluded from reporting totals to
+     * avoid double-counting (reports should sum children, skip parents with
+     * a non-empty splitChildren array).
+     *
+     * @param {string} parentId
+     * @param {Array<{amount, category, tags?, notes?}>} parts
+     */
+    splitExpense(parentId, parts) {
+        if (!Array.isArray(parts) || parts.length < 2) {
+            throw new Error('A split requires at least 2 parts');
+        }
+        const data = this._load();
+        if (!data.expenses) data.expenses = [];
+        const parent = data.expenses.find(e => e.id === parentId);
+        if (!parent) throw new Error('Parent expense not found');
+        if (Array.isArray(parent.splitChildren) && parent.splitChildren.length > 0) {
+            throw new Error('Expense is already split — unsplit first before re-splitting');
+        }
+
+        const total = parts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        if (Math.abs(total - Number(parent.amount)) > 0.01) {
+            throw new Error(`Split parts total ${total.toFixed(2)} does not match parent amount ${Number(parent.amount).toFixed(2)}`);
+        }
+
+        const childIds = [];
+        for (const part of parts) {
+            const child = {
+                id: crypto.randomUUID(),
+                name: parent.name,
+                amount: Number(part.amount),
+                category: part.category || parent.category || 'other',
+                date: parent.date,
+                vendor: parent.vendor || '',
+                notes: part.notes || '',
+                createdDate: new Date().toISOString(),
+                expenseType: parent.expenseType || 'personal',
+                businessName: parent.businessName || null,
+                plaidTransactionId: null, // children are manual subdivisions, don't dedupe against Plaid
+                plaidAccountId: parent.plaidAccountId || null,
+                source: 'split',
+                tags: Array.isArray(part.tags) ? [...part.tags] : [],
+                ignored: false,
+                splitOf: parent.id,
+            };
+            data.expenses.push(child);
+            childIds.push(child.id);
+        }
+
+        parent.splitChildren = childIds;
+        this._save();
+        return childIds;
+    }
+
+    /**
+     * Undo a split — deletes all children and restores the parent to
+     * being counted again.
+     */
+    unsplitExpense(parentId) {
+        const data = this._load();
+        if (!data.expenses) return;
+        const parent = data.expenses.find(e => e.id === parentId);
+        if (!parent || !Array.isArray(parent.splitChildren) || parent.splitChildren.length === 0) return;
+        const childIds = new Set(parent.splitChildren);
+        data.expenses = data.expenses.filter(e => !childIds.has(e.id));
+        parent.splitChildren = [];
+        this._save();
     }
 
     // ─── Savings Goals ───────────────────────────────────────
