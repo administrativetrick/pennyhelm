@@ -1,11 +1,14 @@
 /**
  * PennyHelm — Plaid Integration (Client-Side)
  *
- * Calls Firebase Cloud Functions to securely interact with Plaid API.
- * Access tokens never touch the browser.
+ * Calls are dispatched through the active mode's `plaidTransport`:
+ *   - cloud:    Firebase Cloud Functions (httpsCallable)
+ *   - selfhost: POST /api/plaid/<name> against the local Express service
+ *
+ * Access tokens never touch the browser in either mode.
  */
 
-import { capabilities } from './mode/mode.js';
+import { mode, capabilities } from './mode/mode.js';
 import { loadPlaidSdk } from './cloud-loader.js';
 
 // ─── Plaid Type → PennyHelm Type Mapping ───
@@ -36,16 +39,10 @@ function mapLoanSubtype(plaidSubtype) {
     }
 }
 
-// ─── Cloud Functions Helpers ───
+// ─── Mode-aware transport ───
 
-function getFunctions() {
-    return firebase.app().functions();
-}
-
-async function callFunction(name, data) {
-    const fn = getFunctions().httpsCallable(name);
-    const result = await fn(data);
-    return result.data;
+function callFunction(name, data) {
+    return mode().plaidTransport.call(name, data);
 }
 
 // ─── Connect Bank ───

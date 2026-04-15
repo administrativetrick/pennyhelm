@@ -154,6 +154,18 @@ app.get('/api/config', (req, res) => {
     res.json({ mode: MODE, appName: 'PennyHelm' });
 });
 
+// ===== Plaid (selfhost only — cloud mode uses Firebase Cloud Functions) =====
+if (MODE === 'selfhost') {
+    try {
+        const createPlaidRouter = require('./plaid-service');
+        app.use('/api/plaid', createPlaidRouter(db));
+        console.log('Plaid routes mounted at /api/plaid');
+    } catch (e) {
+        console.warn('Plaid routes not mounted:', e.message);
+        console.warn('Run `npm install` to enable Plaid support.');
+    }
+}
+
 // ===== Auth Routes =====
 
 // Register a new user (called after Firebase signup)
