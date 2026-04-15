@@ -217,4 +217,8 @@ A Firebase predeploy guard (`scripts/verify-cloud-mode.js`, wired in `firebase.j
 
 ## License
 
-This software is licensed under the [Business Source License 1.1](LICENSE). You are free to self-host and use it for personal, non-commercial purposes. Commercial use (including offering it as a hosted service) requires a separate license. See the [LICENSE](LICENSE) file for full terms.
+PennyHelm is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPLv3).
+
+You're free to run, study, modify, and redistribute PennyHelm — including self-hosting it for yourself, your family, or inside your organization. The key obligation: **if you host a modified version as a network service for others, you must publish your modifications under AGPLv3 too.** That's the "A" in AGPL. Unmodified self-hosting has no publishing obligation.
+
+The hosted build at `cashpilot-c58d5.web.app` is operated by the PennyHelm copyright holder under a separate commercial arrangement — dual licensing is permitted for the copyright holder. See the [LICENSE](LICENSE) file for full terms.
