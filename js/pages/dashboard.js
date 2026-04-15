@@ -1,7 +1,8 @@
 import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating, formatDate } from '../utils.js';
-import { openModal, closeModal, refreshPage } from '../app.js';
+import { openModal, closeModal, refreshPage, navigate } from '../app.js';
 import { calculateFinancialHealthScore } from '../services/financial-service.js';
 import { detectRecurringTransactions, buildBillSuggestion } from '../services/recurring-service.js';
+import { EXPENSE_CATEGORIES } from '../expense-categories.js';
 
 const GOAL_CATEGORIES = [
     { value: 'emergency', label: 'Emergency Fund', icon: '🛡️' },
@@ -22,6 +23,7 @@ const DASHBOARD_WIDGETS = [
     { id: 'spending-category', label: 'Spending by Category',    icon: '🏷️' },
     { id: 'payment-sources',   label: 'Bills by Payment Source', icon: '💳' },
     { id: 'savings-goals',     label: 'Savings Goals',           icon: '🎯' },
+    { id: 'budget-health',     label: 'Budget Health',           icon: '📊' },
     { id: 'smart-insights',    label: 'Smart Insights',          icon: '💡' },
 ];
 
@@ -527,6 +529,7 @@ export function renderDashboard(container, store, subTab) {
         'spending-category': () => buildSpendingCategoryHtml(ctx),
         'payment-sources':   () => buildPaymentSourcesHtml(ctx),
         'savings-goals':     () => renderSavingsGoals(store),
+        'budget-health':     () => buildBudgetHealthHtml(store),
         'smart-insights':    () => buildSmartInsightsHtml(ctx),
     };
 
@@ -622,6 +625,15 @@ export function renderDashboard(container, store, subTab) {
         customizeBtn.addEventListener('click', () => {
             dashboardEditMode = true;
             renderDashboard(container, store);
+        });
+    }
+
+    // Budget Health widget — "Set up a budget" / "View all" navigate to budgets page
+    const budgetGoto = container.querySelector('#dashboard-goto-budgets');
+    if (budgetGoto) {
+        budgetGoto.addEventListener('click', (e) => {
+            e.preventDefault();
+            navigate('budgets');
         });
     }
 
@@ -1093,6 +1105,107 @@ function buildHealthScoreHtml(ctx) {
 
     html += '</div>';
     return html;
+}
+
+// ─────────────────────────────────────────────
+// BUDGET HEALTH
+// ─────────────────────────────────────────────
+
+function buildBudgetHealthHtml(store) {
+    const budgets = store.getBudgets();
+    if (!budgets || budgets.length === 0) {
+        return `
+            <div class="card mt-16">
+                <h3 class="mb-16">📊 Budget Health</h3>
+                <div style="text-align:center;padding:20px 10px;">
+                    <p style="color:var(--text-secondary);margin:0 0 14px;font-size:13px;">
+                        Set monthly limits per category and track spending automatically.
+                    </p>
+                    <button class="btn btn-secondary btn-sm" id="dashboard-goto-budgets">Set up a budget</button>
+                </div>
+            </div>
+        `;
+    }
+
+    const statuses = store.getBudgetStatuses().filter(s => !s.notStarted);
+    if (statuses.length === 0) {
+        return `
+            <div class="card mt-16">
+                <h3 class="mb-16">📊 Budget Health</h3>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0;">
+                    No budgets active in the current month yet. Check back once a budget's start month is reached.
+                </p>
+            </div>
+        `;
+    }
+
+    const overCount = statuses.filter(s => s.remaining < -0.005).length;
+    const warningCount = statuses.filter(s => s.remaining >= -0.005 && s.pctUsed >= 0.9).length;
+    const okCount = statuses.length - overCount - warningCount;
+
+    const totals = {
+        spent: statuses.reduce((s, b) => s + b.spent, 0),
+        available: statuses.reduce((s, b) => s + b.available, 0),
+    };
+    const remaining = totals.available - totals.spent;
+
+    // Top 4 by pctUsed, desc
+    const top = [...statuses]
+        .sort((a, b) => (b.pctUsed || 0) - (a.pctUsed || 0))
+        .slice(0, 4);
+
+    const headlineColor = overCount > 0 ? 'var(--red)' : warningCount > 0 ? 'var(--orange)' : 'var(--green)';
+    const headline = overCount > 0
+        ? `${overCount} over budget`
+        : warningCount > 0
+            ? `${warningCount} near limit`
+            : 'All on track';
+
+    return `
+        <div class="card mt-16">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <h3 style="margin:0;">📊 Budget Health</h3>
+                <a href="#budgets" id="dashboard-goto-budgets" style="font-size:12px;color:var(--accent);text-decoration:none;">View all &rarr;</a>
+            </div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;">
+                <div style="font-size:18px;font-weight:700;color:${headlineColor};">${headline}</div>
+                <div style="font-size:13px;color:var(--text-secondary);">
+                    ${formatCurrency(totals.spent)} / ${formatCurrency(totals.available)}
+                    &middot; ${remaining >= 0 ? formatCurrency(remaining) + ' left' : formatCurrency(Math.abs(remaining)) + ' over'}
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-bottom:14px;">
+                ${okCount > 0 ? `<span class="tag-pill" style="background:${'rgba(34,197,94,0.15)'};color:var(--green);">${okCount} on track</span>` : ''}
+                ${warningCount > 0 ? `<span class="tag-pill" style="background:rgba(249,115,22,0.15);color:var(--orange);">${warningCount} near limit</span>` : ''}
+                ${overCount > 0 ? `<span class="tag-pill" style="background:rgba(239,68,68,0.15);color:var(--red);">${overCount} over</span>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                ${top.map(s => {
+                    const cat = EXPENSE_CATEGORIES[s.category] || EXPENSE_CATEGORIES['other'];
+                    const pct = Math.min(100, (s.pctUsed || 0) * 100);
+                    const over = s.remaining < -0.005;
+                    const almost = !over && s.pctUsed >= 0.9;
+                    const barColor = over ? 'var(--red)' : almost ? 'var(--orange)' : 'var(--green)';
+                    return `
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                                <span style="font-weight:600;">
+                                    <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${cat.color};margin-right:6px;vertical-align:middle;"></span>
+                                    ${escapeHtml(cat.label)}
+                                </span>
+                                <span style="color:${over ? 'var(--red)' : 'var(--text-secondary)'};">
+                                    ${formatCurrency(s.spent)} / ${formatCurrency(s.available)}
+                                </span>
+                            </div>
+                            <div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden;">
+                                <div style="height:100%;width:${isFinite(pct) ? pct : 100}%;background:${barColor};"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
 }
 
 // ─────────────────────────────────────────────
