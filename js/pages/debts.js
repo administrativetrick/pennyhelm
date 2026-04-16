@@ -4,7 +4,7 @@ import { showVehicleDetail } from './vehicle-detail.js';
 import { auth } from '../auth.js';
 import { capabilities } from '../mode/mode.js';
 import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
-import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions } from '../expense-categories.js';
+import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 
 let activeDebtsTab = 'debts';
 
@@ -947,24 +947,8 @@ function showExpenseForm(store, existingExpense = null) {
 
     openModal(isEdit ? 'Edit Expense' : 'Add Expense', formHtml);
 
-    // "Create new category" handler
-    const catSelect = document.getElementById('expense-category');
-    if (catSelect) {
-        catSelect.addEventListener('change', () => {
-            if (catSelect.value === '__create_new__') {
-                const name = prompt('New category name:');
-                if (!name || !name.trim()) { catSelect.value = expense.category || 'other'; return; }
-                const color = '#94a3b8';
-                try {
-                    const created = store.addCustomExpenseCategory({ name: name.trim(), color });
-                    catSelect.innerHTML = renderCategoryOptions(created.key, store);
-                } catch (err) {
-                    alert(err.message);
-                    catSelect.value = expense.category || 'other';
-                }
-            }
-        });
-    }
+    // Searchable category picker
+    mountSearchableCategoryPicker(document.getElementById('expense-category'), store);
 
     // Show/hide business name based on expense type
     const typeSelect = document.getElementById('expense-type');

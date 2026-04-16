@@ -302,3 +302,132 @@ export function renderCategoryOptions(selectedKey, store) {
     html += '<optgroup label="───────────"><option value="__create_new__">+ Create new category...</option></optgroup>';
     return html;
 }
+
+// ─── Searchable category picker ───────────────────
+
+/**
+ * Replace a plain <select> with a searchable text input + dropdown.
+ * The hidden <select> retains the selected value for form reads.
+ *
+ * @param {HTMLSelectElement} selectEl — the <select> to enhance
+ * @param {object} store — for custom categories
+ * @param {object} [opts]
+ * @param {Function} [opts.onCreateNew] — called when user picks "+ Create new"
+ */
+export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
+    if (!selectEl || selectEl.dataset.searchable === 'true') return; // already mounted
+    selectEl.dataset.searchable = 'true';
+
+    const all = store ? getAllExpenseCategories(store) : EXPENSE_CATEGORIES;
+    const entries = Object.entries(all).map(([key, cat]) => ({
+        key, label: cat.label, group: cat.group || 'Other', color: cat.color,
+    }));
+
+    // Build wrapper
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;';
+    selectEl.parentNode.insertBefore(wrapper, selectEl);
+
+    // Hidden select stays for value reads
+    selectEl.style.display = 'none';
+    wrapper.appendChild(selectEl);
+
+    // Text input
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'form-input';
+    input.placeholder = 'Search categories...';
+    input.autocomplete = 'off';
+    input.style.cssText = 'width:100%;';
+    // Pre-fill with current selection label
+    const currentKey = selectEl.value;
+    if (currentKey && all[currentKey]) {
+        input.value = all[currentKey].label;
+    }
+    wrapper.appendChild(input);
+
+    // Dropdown
+    const dropdown = document.createElement('div');
+    dropdown.style.cssText = 'position:absolute;left:0;right:0;top:100%;max-height:260px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 6px 6px;z-index:100;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.2);';
+    wrapper.appendChild(dropdown);
+
+    function renderDropdown(filter) {
+        const q = (filter || '').toLowerCase();
+        const groups = {};
+        for (const e of entries) {
+            if (q && !e.label.toLowerCase().includes(q) && !e.group.toLowerCase().includes(q) && !e.key.includes(q)) continue;
+            if (!groups[e.group]) groups[e.group] = [];
+            groups[e.group].push(e);
+        }
+
+        let html = '';
+        for (const [groupName, cats] of Object.entries(groups)) {
+            html += `<div style="padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:var(--bg-input);position:sticky;top:0;">${groupName}</div>`;
+            for (const c of cats) {
+                html += `<div class="cat-pick-item" data-key="${c.key}" style="padding:7px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">`;
+                html += `<span style="width:8px;height:8px;border-radius:2px;background:${c.color};flex-shrink:0;"></span>`;
+                html += `${c.label}</div>`;
+            }
+        }
+        // "Create new" always visible
+        html += `<div style="border-top:1px solid var(--border);padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:var(--bg-input);">───</div>`;
+        html += `<div class="cat-pick-item" data-key="__create_new__" style="padding:7px 12px;cursor:pointer;font-size:13px;color:var(--accent);font-weight:600;" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">+ Create new category...</div>`;
+
+        if (!html.includes('cat-pick-item')) {
+            html = '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:13px;">No matches</div>' + html;
+        }
+
+        dropdown.innerHTML = html;
+
+        dropdown.querySelectorAll('.cat-pick-item').forEach(item => {
+            item.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // prevent input blur
+                const key = item.dataset.key;
+                if (key === '__create_new__') {
+                    dropdown.style.display = 'none';
+                    if (opts.onCreateNew) {
+                        opts.onCreateNew(input, selectEl);
+                    } else {
+                        const name = prompt('New category name:');
+                        if (name && name.trim() && store && store.addCustomExpenseCategory) {
+                            try {
+                                const created = store.addCustomExpenseCategory({ name: name.trim(), color: '#94a3b8' });
+                                selectEl.innerHTML = renderCategoryOptions(created.key, store);
+                                selectEl.value = created.key;
+                                input.value = created.name;
+                            } catch (err) { alert(err.message); }
+                        }
+                    }
+                } else {
+                    selectEl.value = key;
+                    input.value = item.textContent.trim();
+                    dropdown.style.display = 'none';
+                    selectEl.dispatchEvent(new Event('change'));
+                }
+            });
+        });
+    }
+
+    input.addEventListener('focus', () => {
+        renderDropdown(input.value);
+        dropdown.style.display = '';
+    });
+
+    input.addEventListener('input', () => {
+        renderDropdown(input.value);
+        dropdown.style.display = '';
+    });
+
+    input.addEventListener('blur', () => {
+        // Small delay so mousedown on item fires first
+        setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+    });
+
+    // Clear input restores default
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+            input.blur();
+        }
+    });
+}
