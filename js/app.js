@@ -12,6 +12,7 @@ import { renderAdmin } from './pages/admin.js';
 import { renderAccounts } from './pages/accounts.js';
 import { renderRules } from './pages/rules.js';
 import { renderBudgets } from './pages/budgets.js';
+import { renderSavingsGoalsPage } from './pages/savings.js';
 import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 
@@ -23,6 +24,7 @@ const pages = {
     debts: renderDebts,
     accounts: renderAccounts,
     budgets: renderBudgets,
+    savings: renderSavingsGoalsPage,
     rules: renderRules,
     settings: renderSettings,
     admin: renderAdmin
@@ -156,6 +158,10 @@ function createMobileNav() {
         <a href="#budgets" data-page="budgets">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6 4"/></svg>
             Budgets
+        </a>
+        <a href="#savings" data-page="savings">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16"/><path d="M3 21h18"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>
+            Savings
         </a>
         <a href="#rules" data-page="rules">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h6"/><circle cx="19" cy="12" r="3"/><path d="M19 15v3"/></svg>
