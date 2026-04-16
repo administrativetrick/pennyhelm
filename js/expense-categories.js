@@ -351,6 +351,15 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
     dropdown.style.cssText = 'position:absolute;left:0;right:0;top:100%;max-height:260px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:0 0 6px 6px;z-index:100;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.2);';
     wrapper.appendChild(dropdown);
 
+    // Common categories shown at the top when no filter is active
+    const COMMON_KEYS = [
+        'groceries', 'dining', 'gas', 'rent', 'mortgage', 'utilities',
+        'electric', 'internet', 'phone', 'streaming', 'subscriptions',
+        'coffee', 'shopping', 'clothing', 'healthcare', 'pharmacy',
+        'gym', 'car-insurance', 'car-payment', 'car-maintenance',
+        'childcare', 'pet-food', 'gifts', 'entertainment',
+    ];
+
     function renderDropdown(filter) {
         const q = (filter || '').toLowerCase();
         const groups = {};
@@ -361,6 +370,23 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
         }
 
         let html = '';
+
+        // When no filter, show common categories first for quick selection
+        if (!q) {
+            const common = COMMON_KEYS
+                .map(k => entries.find(e => e.key === k))
+                .filter(Boolean);
+            if (common.length > 0) {
+                html += `<div style="padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:var(--bg-input);position:sticky;top:0;">Common</div>`;
+                for (const c of common) {
+                    html += `<div class="cat-pick-item" data-key="${c.key}" style="padding:7px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">`;
+                    html += `<span style="width:8px;height:8px;border-radius:2px;background:${c.color};flex-shrink:0;"></span>`;
+                    html += `${c.label}</div>`;
+                }
+                html += `<div style="border-top:1px solid var(--border);margin:4px 0;"></div>`;
+            }
+        }
+
         for (const [groupName, cats] of Object.entries(groups)) {
             html += `<div style="padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:var(--bg-input);position:sticky;top:0;">${groupName}</div>`;
             for (const c of cats) {
@@ -408,12 +434,19 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
         });
     }
 
+    let userTyping = false;
+
     input.addEventListener('focus', () => {
-        renderDropdown(input.value);
+        // On focus, show common categories (no filter) — user hasn't typed yet.
+        // Select the text so typing immediately replaces the current label.
+        userTyping = false;
+        input.select();
+        renderDropdown('');
         dropdown.style.display = '';
     });
 
     input.addEventListener('input', () => {
+        userTyping = true;
         renderDropdown(input.value);
         dropdown.style.display = '';
     });
