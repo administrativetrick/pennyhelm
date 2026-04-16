@@ -294,11 +294,29 @@ body {
     background: linear-gradient(180deg, transparent 0%, rgba(79, 140, 255, 0.03) 100%);
 }
 
+.screenshot-featured {
+    margin: 40px auto 40px;
+    max-width: 1120px;
+}
+
+.screenshot-featured img {
+    box-shadow:
+        0 24px 60px -20px rgba(79, 140, 255, 0.4),
+        0 16px 40px -16px rgba(0, 0, 0, 0.6);
+}
+
+.screenshot-featured figcaption {
+    text-align: center;
+    font-size: 1rem;
+    max-width: 780px;
+    margin: 0 auto;
+}
+
 .screenshot-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
     gap: 32px;
-    margin-top: 40px;
+    margin-top: 0;
 }
 
 .screenshot-card {
