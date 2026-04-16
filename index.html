@@ -46,8 +46,27 @@
                     <span class="btn-sub">Free &middot; Run on your machine</span>
                 </a>
             </div>
-            <div class="hero-screenshot">
-                <img src="screenshots/dashboard.png" alt="PennyHelm Dashboard — monthly income, bills, remaining, and financial health score" loading="lazy">
+            <div class="hero-screenshot" data-showcase>
+                <div class="showcase-stage" aria-label="Animated PennyHelm product showcase">
+                    <figure class="showcase-slide active" data-slide="0">
+                        <img src="screenshots/dashboard.png" alt="PennyHelm dashboard — monthly income, bills, remaining, financial health score" loading="eager">
+                    </figure>
+                    <figure class="showcase-slide" data-slide="1">
+                        <img src="screenshots/bills.png" alt="Bills page with recurring bills, due days, categories, and paid status" loading="lazy">
+                    </figure>
+                    <figure class="showcase-slide" data-slide="2">
+                        <img src="screenshots/calendar.png" alt="Calendar view with paydays and bill due dates across the month" loading="lazy">
+                    </figure>
+                    <figure class="showcase-slide" data-slide="3">
+                        <img src="screenshots/cashflow.png" alt="Cashflow page with Sankey diagram showing money flow to expenses and savings" loading="lazy">
+                    </figure>
+                </div>
+                <div class="showcase-dots" role="tablist" aria-label="Product screens">
+                    <button class="showcase-dot active" type="button" data-showcase-dot="0" aria-label="Show dashboard"></button>
+                    <button class="showcase-dot" type="button" data-showcase-dot="1" aria-label="Show bills"></button>
+                    <button class="showcase-dot" type="button" data-showcase-dot="2" aria-label="Show calendar"></button>
+                    <button class="showcase-dot" type="button" data-showcase-dot="3" aria-label="Show cashflow"></button>
+                </div>
             </div>
         </div>
     </section>
@@ -309,6 +328,63 @@
                 document.querySelectorAll('.pricing-monthly').forEach(el => el.style.display = isAnnual ? 'none' : '');
             });
         });
+
+        // Hero showcase animation
+        const showcase = document.querySelector('[data-showcase]');
+        if (showcase) {
+            const slides = Array.from(showcase.querySelectorAll('.showcase-slide'));
+            const dots = Array.from(showcase.querySelectorAll('.showcase-dot'));
+            let activeIndex = 0;
+            let timerId = null;
+
+            const setActiveSlide = (index) => {
+                activeIndex = (index + slides.length) % slides.length;
+                slides.forEach((slide, i) => {
+                    slide.classList.toggle('active', i === activeIndex);
+                });
+                dots.forEach((dot, i) => {
+                    const isActive = i === activeIndex;
+                    dot.classList.toggle('active', isActive);
+                    dot.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                });
+            };
+
+            const startRotation = () => {
+                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    return;
+                }
+                if (timerId) {
+                    return;
+                }
+                timerId = window.setInterval(() => {
+                    setActiveSlide(activeIndex + 1);
+                }, 3800);
+            };
+
+            const stopRotation = () => {
+                if (!timerId) {
+                    return;
+                }
+                window.clearInterval(timerId);
+                timerId = null;
+            };
+
+            dots.forEach((dot, index) => {
+                dot.addEventListener('click', () => {
+                    setActiveSlide(index);
+                    stopRotation();
+                    startRotation();
+                });
+            });
+
+            showcase.addEventListener('mouseenter', stopRotation);
+            showcase.addEventListener('mouseleave', startRotation);
+            showcase.addEventListener('focusin', stopRotation);
+            showcase.addEventListener('focusout', startRotation);
+
+            setActiveSlide(0);
+            startRotation();
+        }
     </script>
 </body>
 </html>
