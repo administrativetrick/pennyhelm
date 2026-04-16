@@ -1277,6 +1277,28 @@ class Store {
         this._save();
     }
 
+    /**
+     * For each goal with a linkedAccountId, pull the account's current balance
+     * into the goal's currentAmount. Returns the number of goals updated.
+     */
+    syncGoalsFromLinkedAccounts() {
+        const data = this._load();
+        if (!data.savingsGoals || !data.accounts) return 0;
+        let updated = 0;
+        for (const goal of data.savingsGoals) {
+            if (!goal.linkedAccountId) continue;
+            const acct = data.accounts.find(a => a.id === goal.linkedAccountId);
+            if (!acct) continue;
+            const newVal = Number(acct.balance) || 0;
+            if (newVal !== goal.currentAmount) {
+                goal.currentAmount = newVal;
+                updated++;
+            }
+        }
+        if (updated > 0) this._save();
+        return updated;
+    }
+
     // ─── Dashboard Layout ────────────────────────────────────
 
     getDashboardLayout() {
