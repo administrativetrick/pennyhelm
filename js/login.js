@@ -521,8 +521,6 @@ if (urlRef && referralCodeInput) {
         const signupTab = document.querySelector('.auth-tab[data-tab="signup"]');
         if (signupTab) signupTab.click();
     }
-        }
-    });
 }
 
 // If already signed in, redirect to app (but not during login flow)
