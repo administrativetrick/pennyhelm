@@ -3,6 +3,7 @@ import { migrateKeyNames, migrateBalanceHistory } from './services/migration-man
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
 import { generatePayDates, createBalanceSnapshot, expandBillOccurrences } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
+import { EXPENSE_CATEGORIES as _builtinExpenseCategories } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
 
 const defaultData = {
@@ -51,6 +52,7 @@ const defaultData = {
     invites: [], // { id, email, type: 'partner'|'financial-planner'|'cpa', status: 'pending'|'accepted'|'declined', permissions: 'view'|'edit', invitedAt, acceptedAt?, inviteeUid? }
     sharedWith: [], // { uid, email, type, permissions, sharedAt } — people who have access to this account
     customCategories: [], // { id, name, color, createdAt } — user-defined bill categories
+    customExpenseCategories: [], // { id, key, name, color, createdAt } — user-defined expense/budget categories
     vehicleMileage: [], // { id, vehicleAccountId, mileage, date, notes }
     vehicleTrips: [], // { id, vehicleAccountId, startMileage, endMileage, distance, date, purpose, notes }
     balanceHistory: [], // { date: "2026-01-15", checking, savings, investment, netWorth }
@@ -198,7 +200,45 @@ class Store {
         this._save();
     }
 
-    // ─── Custom Categories CRUD ──────────────────────────────
+    // ─── Custom Expense Categories (budget/expense taxonomy) ──
+
+    getCustomExpenseCategories() {
+        const data = this._load();
+        if (!data.customExpenseCategories) data.customExpenseCategories = [];
+        return data.customExpenseCategories;
+    }
+
+    addCustomExpenseCategory({ name, color }) {
+        if (!name || typeof name !== 'string' || !name.trim()) throw new Error('Category name is required');
+        const key = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        if (!key) throw new Error('Invalid category name');
+        const data = this._load();
+        if (!data.customExpenseCategories) data.customExpenseCategories = [];
+
+        // Check built-ins too (imported at top of file)
+        if (_builtinExpenseCategories[key]) throw new Error(`"${name}" already exists as a built-in category`);
+        if (data.customExpenseCategories.some(c => c.key === key)) throw new Error(`"${name}" already exists`);
+
+        const entry = {
+            id: crypto.randomUUID(),
+            key,
+            name: name.trim(),
+            color: color || '#94a3b8',
+            createdAt: new Date().toISOString(),
+        };
+        data.customExpenseCategories.push(entry);
+        this._save();
+        return entry;
+    }
+
+    deleteCustomExpenseCategory(id) {
+        const data = this._load();
+        if (!data.customExpenseCategories) return;
+        data.customExpenseCategories = data.customExpenseCategories.filter(c => c.id !== id);
+        this._save();
+    }
+
+    // ─── Custom Categories CRUD (bill taxonomy) ─────────────
 
     getCustomCategories() {
         const data = this._load();
