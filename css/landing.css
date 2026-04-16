@@ -270,6 +270,74 @@ body {
     flex-wrap: wrap;
 }
 
+/* ===== Hero screenshot ===== */
+.hero-screenshot {
+    margin: 56px auto 0;
+    max-width: 1120px;
+    padding: 0 16px;
+}
+
+.hero-screenshot img {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow:
+        0 30px 60px -20px rgba(79, 140, 255, 0.35),
+        0 20px 40px -20px rgba(0, 0, 0, 0.7);
+    display: block;
+}
+
+/* ===== Screenshots gallery ===== */
+.screenshots-gallery {
+    padding: 80px 0;
+    background: linear-gradient(180deg, transparent 0%, rgba(79, 140, 255, 0.03) 100%);
+}
+
+.screenshot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 32px;
+    margin-top: 40px;
+}
+
+.screenshot-card {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.screenshot-card img {
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: 0 16px 40px -16px rgba(0, 0, 0, 0.6);
+    display: block;
+}
+
+.screenshot-card figcaption {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    padding: 0 4px;
+}
+
+.screenshot-card figcaption strong {
+    color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+    .screenshot-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+    .hero-screenshot {
+        margin-top: 36px;
+    }
+}
+
 /* ===== Buttons ===== */
 .btn {
     display: inline-flex;
