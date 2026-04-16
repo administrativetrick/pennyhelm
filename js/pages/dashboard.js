@@ -2,7 +2,7 @@ import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating, formatDat
 import { openModal, closeModal, refreshPage, navigate } from '../app.js';
 import { calculateFinancialHealthScore, expandBillOccurrences, buildPayPeriods } from '../services/financial-service.js';
 import { detectRecurringTransactions, buildBillSuggestion } from '../services/recurring-service.js';
-import { EXPENSE_CATEGORIES } from '../expense-categories.js';
+import { EXPENSE_CATEGORIES, getAllExpenseCategories } from '../expense-categories.js';
 
 const GOAL_CATEGORIES = [
     { value: 'emergency', label: 'Emergency Fund', icon: '🛡️' },
@@ -994,7 +994,8 @@ function buildBudgetHealthHtml(store) {
             </div>
             <div style="display:flex;flex-direction:column;gap:10px;">
                 ${top.map(s => {
-                    const cat = EXPENSE_CATEGORIES[s.category] || EXPENSE_CATEGORIES['other'];
+                    const allCats = getAllExpenseCategories(store);
+                    const cat = allCats[s.category] || allCats['other'];
                     const pct = Math.min(100, (s.pctUsed || 0) * 100);
                     const over = s.remaining < -0.005;
                     const almost = !over && s.pctUsed >= 0.9;

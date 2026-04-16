@@ -8,7 +8,7 @@
 
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { formatCurrency, escapeHtml } from '../utils.js';
-import { EXPENSE_CATEGORIES } from '../expense-categories.js';
+import { EXPENSE_CATEGORIES, getAllExpenseCategories, renderCategoryOptions } from '../expense-categories.js';
 import { monthKey, addMonth } from '../services/budget-service.js';
 
 // Track the month the page is currently showing. Defaults to the current month
@@ -124,7 +124,7 @@ export function renderBudgets(container, store) {
             <div style="display:flex;flex-direction:column;gap:12px;">
                 ${sorted.map(s => {
                     const budget = budgets.find(b => b.category === s.category);
-                    const catMeta = EXPENSE_CATEGORIES[s.category] || EXPENSE_CATEGORIES['other'];
+                    const catMeta = getAllExpenseCategories(store)[s.category] || getAllExpenseCategories(store)['other'];
                     const label = catMeta.label;
                     const color = catMeta.color;
                     if (s.notStarted) {
@@ -236,9 +236,7 @@ function showBudgetForm(store, existing = null) {
         <div class="form-group">
             <label>Category</label>
             <select class="form-select" id="budget-category" ${isEdit ? 'disabled' : ''}>
-                ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
-                    `<option value="${key}" ${budget.category === key ? 'selected' : ''}>${val.label}</option>`
-                ).join('')}
+                ${renderCategoryOptions(budget.category, store)}
             </select>
             ${isEdit ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Category is locked once a budget is created — delete and re-add to change.</div>' : ''}
         </div>
@@ -294,7 +292,7 @@ function showBudgetForm(store, existing = null) {
                 // Guard against duplicates (store.addBudget replaces, but surface the intent)
                 const dup = store.getBudgets().find(b => b.category === payload.category);
                 if (dup) {
-                    if (!confirm(`A budget already exists for ${EXPENSE_CATEGORIES[payload.category]?.label || payload.category}. Replace it?`)) return;
+                    if (!confirm(`A budget already exists for ${getAllExpenseCategories(store)[payload.category]?.label || payload.category}. Replace it?`)) return;
                 }
                 store.addBudget(payload);
             }
@@ -366,7 +364,7 @@ function renderVarianceReport(store, budgets) {
                         </thead>
                         <tbody>
                             ${rows.map(r => {
-                                const cat = EXPENSE_CATEGORIES[r.budget.category] || EXPENSE_CATEGORIES['other'];
+                                const cat = getAllExpenseCategories(store)[r.budget.category] || getAllExpenseCategories(store)['other'];
                                 return `
                                     <tr>
                                         <td style="font-weight:600;">

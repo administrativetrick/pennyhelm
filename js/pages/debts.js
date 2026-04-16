@@ -4,7 +4,7 @@ import { showVehicleDetail } from './vehicle-detail.js';
 import { auth } from '../auth.js';
 import { capabilities } from '../mode/mode.js';
 import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
-import { EXPENSE_CATEGORIES, getExpenseCategoryBadge } from '../expense-categories.js';
+import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions } from '../expense-categories.js';
 
 let activeDebtsTab = 'debts';
 
@@ -904,9 +904,7 @@ function showExpenseForm(store, existingExpense = null) {
         <div class="form-group">
             <label>Category</label>
             <select class="form-select" id="expense-category">
-                ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
-                    `<option value="${key}" ${expense.category === key ? 'selected' : ''}>${val.label}</option>`
-                ).join('')}
+                ${renderCategoryOptions(expense.category, store)}
             </select>
         </div>
         ${showTypeField ? `
@@ -948,6 +946,25 @@ function showExpenseForm(store, existingExpense = null) {
     `;
 
     openModal(isEdit ? 'Edit Expense' : 'Add Expense', formHtml);
+
+    // "Create new category" handler
+    const catSelect = document.getElementById('expense-category');
+    if (catSelect) {
+        catSelect.addEventListener('change', () => {
+            if (catSelect.value === '__create_new__') {
+                const name = prompt('New category name:');
+                if (!name || !name.trim()) { catSelect.value = expense.category || 'other'; return; }
+                const color = '#94a3b8';
+                try {
+                    const created = store.addCustomExpenseCategory({ name: name.trim(), color });
+                    catSelect.innerHTML = renderCategoryOptions(created.key, store);
+                } catch (err) {
+                    alert(err.message);
+                    catSelect.value = expense.category || 'other';
+                }
+            }
+        });
+    }
 
     // Show/hide business name based on expense type
     const typeSelect = document.getElementById('expense-type');
@@ -1750,9 +1767,7 @@ function showSplitForm(store, expense) {
                                 <div class="form-group" style="flex:2;">
                                     <label style="font-size:11px;">Category</label>
                                     <select class="form-select split-category" data-idx="${i}">
-                                        ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
-                                            `<option value="${key}" ${p.category === key ? 'selected' : ''}>${val.label}</option>`
-                                        ).join('')}
+                                        ${renderCategoryOptions(p.category, store)}
                                     </select>
                                 </div>
                             </div>
