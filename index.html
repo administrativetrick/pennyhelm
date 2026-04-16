@@ -298,6 +298,12 @@
         </div>
     </footer>
 
+    <!-- Lightbox -->
+    <div class="lightbox-overlay" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged screenshot">
+        <button class="lightbox-close" type="button" id="lightbox-close" aria-label="Close">&times;</button>
+        <img id="lightbox-img" src="" alt="">
+    </div>
+
     <script>
         // Mobile menu toggle
         const menuBtn = document.getElementById('mobile-menu-btn');
@@ -385,6 +391,43 @@
             setActiveSlide(0);
             startRotation();
         }
+
+        // Lightbox
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+        const lightboxClose = document.getElementById('lightbox-close');
+
+        function openLightbox(src, alt) {
+            lightboxImg.src = src;
+            lightboxImg.alt = alt || '';
+            lightbox.classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeLightbox() {
+            lightbox.classList.remove('open');
+            document.body.style.overflow = '';
+            // Free the image so it can be GC'd
+            setTimeout(() => { lightboxImg.src = ''; }, 250);
+        }
+
+        // Any image with class screenshot-* or inside a showcase-slide is clickable
+        document.querySelectorAll('.screenshot-card img, .showcase-slide img').forEach(img => {
+            img.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openLightbox(img.src, img.alt);
+            });
+        });
+
+        lightboxClose.addEventListener('click', closeLightbox);
+        lightbox.addEventListener('click', (e) => {
+            // Click anywhere outside the image to close
+            if (e.target === lightbox) closeLightbox();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox();
+        });
     </script>
 </body>
 </html>
