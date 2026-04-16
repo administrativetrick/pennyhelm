@@ -3,7 +3,7 @@ import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
 import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
-import { EXPENSE_CATEGORIES, renderCategoryOptions } from '../expense-categories.js';
+import { EXPENSE_CATEGORIES, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -858,8 +858,11 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
 
     openModal(isEdit ? 'Edit Bill' : 'Add New Bill', formHtml);
 
-    // Setup category picker dropdown
+    // Setup category picker dropdown (bill category — the Housing/Utilities taxonomy)
     setupCategoryPicker();
+
+    // Searchable category picker for the budget-category field
+    mountSearchableCategoryPicker(document.getElementById('bill-expense-category'), store);
 
     // Show/hide covering checkbox based on owner
     const ownerSelect = document.getElementById('bill-owner');
