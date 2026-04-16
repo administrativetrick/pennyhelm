@@ -8,7 +8,7 @@
 
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { formatCurrency, escapeHtml } from '../utils.js';
-import { EXPENSE_CATEGORIES, getAllExpenseCategories, renderCategoryOptions } from '../expense-categories.js';
+import { EXPENSE_CATEGORIES, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 import { monthKey, addMonth } from '../services/budget-service.js';
 
 // Track the month the page is currently showing. Defaults to the current month
@@ -273,6 +273,11 @@ function showBudgetForm(store, existing = null) {
     `;
 
     openModal(isEdit ? 'Edit Budget' : 'Add Budget', html);
+
+    // Searchable category picker (only on new budgets — category is locked on edit)
+    if (!isEdit) {
+        mountSearchableCategoryPicker(document.getElementById('budget-category'), store);
+    }
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
     document.getElementById('modal-save').addEventListener('click', () => {
