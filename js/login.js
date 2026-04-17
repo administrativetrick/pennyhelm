@@ -1,5 +1,14 @@
 import { firebaseConfig } from './firebase-config.js';
 import { APP_MODE } from './mode-config.js';
+import {
+    captureAcquisitionParams,
+    getAcquisitionSourceForSignup,
+    clearAcquisition,
+} from './acquisition.js';
+
+// Capture any UTM / ref / gclid / fbclid params that landed the user here.
+// Runs before Firebase init so it's captured even if Firebase fails to load.
+captureAcquisitionParams();
 
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
@@ -467,7 +476,14 @@ async function registerUser(firebaseUser, referralCode) {
         if (referralCode) {
             userData.referredBy = referralCode;
         }
+        // Attach UTM / gclid / fbclid / referrer captured on landing so we can
+        // measure paid-ad ROI and organic attribution in the admin panel.
+        const acquisitionSource = getAcquisitionSourceForSignup();
+        if (acquisitionSource) {
+            userData.acquisitionSource = acquisitionSource;
+        }
         await db.collection('users').doc(firebaseUser.uid).set(userData);
+        clearAcquisition();
     } catch (e) {
         console.error('Failed to register user in Firestore:', e);
     }
