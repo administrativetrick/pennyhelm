@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/health` endpoint on the self-host server returning JSON `{status, mode, uptime}`. Returns 503 if SQLite is unreachable.
 - Docker `HEALTHCHECK` directive so `docker compose ps` reports accurate container health (30s interval, 5s timeout, 10s start period).
 
+### Changed
+- Sidebar nav icons refreshed to the v2 custom icon set (`assets/icons/pennyhelm-v2/`). Rounded line style with disciplined negative space, 1.8px stroke, `currentColor` for theming.
+
 ### Fixed
 - Admin panel "Create Test User" button did nothing — the click handler was accidentally deleted in the waitlist-removal sweep (commit `b658b88`). Restored handler so the modal opens and the `createTestUser` Cloud Function is invoked again.
 
