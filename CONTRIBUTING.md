@@ -58,4 +58,35 @@ Open a GitHub issue. Please include:
 - Browser + OS version if it's a frontend bug
 - Node version if it's a backend bug
 
+## Releases & CHANGELOG
+
+Every new version **must** update [CHANGELOG.md](CHANGELOG.md) before the release tag is created.
+
+### Format
+
+- Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [SemVer](https://semver.org/).
+- Section headings per release: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`. Omit empty sections.
+- Entries use past tense, user-visible language. "Added category budgets" beats "refactor budget-service.js".
+- Security fixes always get their own `### Security` section, even if one line.
+
+### Workflow for cutting a release
+
+1. **Collect the changes**: `git log --oneline --no-merges v{last-tag}..HEAD`
+2. **Edit `CHANGELOG.md`**: move entries from `[Unreleased]` into a new `## [X.Y.Z] — YYYY-MM-DD` section, add the link reference at the bottom.
+3. **Commit**: `Prep v{X.Y.Z} changelog` (or roll into the release commit).
+4. **Tag annotated**: `git tag -a vX.Y.Z -m "short human summary"`
+5. **Push**: `git push origin master && git push origin vX.Y.Z`
+6. **GitHub Release**: `gh release create vX.Y.Z --title "..." --notes "..."` — this is what awesome-selfhosted and most scrapers read.
+7. **Deploy** (cloud): `npm run deploy:cloud -- --only hosting --project cashpilot-c58d5`
+
+### What to leave in `[Unreleased]` during normal development
+
+Any PR that changes user-visible behavior should append a bullet to `[Unreleased]`. Pure internal refactors, test additions, CI tweaks, and dependency bumps that don't affect behavior do not need a changelog entry.
+
+### SemVer rules of thumb
+
+- **MAJOR** — breaking change to data model, public API, or self-host config env vars.
+- **MINOR** — new feature, new page, new category, new cloud function.
+- **PATCH** — bug fix, copy tweak, non-breaking performance work.
+
 Thanks for helping make PennyHelm better.
