@@ -250,6 +250,82 @@ export async function renderAdmin(container, store) {
 
 
 
+    // === Test User Handlers ===
+
+    document.getElementById('create-test-user').addEventListener('click', () => {
+        openModal('Create Test User', `
+            <div class="form-group">
+                <label>Display Name</label>
+                <input type="text" class="form-input" id="tu-name" placeholder="Test User 1">
+            </div>
+            <div class="form-group">
+                <label>Email (for identification only)</label>
+                <input type="email" class="form-input" id="tu-email" placeholder="test1@pennyhelm.test">
+            </div>
+            <div class="form-group">
+                <label>Subscription Status</label>
+                <select class="form-select" id="tu-status">
+                    <option value="trial">Trial</option>
+                    <option value="active">Active</option>
+                    <option value="expired">Expired</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="modal-save">Create</button>
+            </div>
+        `);
+
+        document.getElementById('modal-cancel').addEventListener('click', closeModal);
+        document.getElementById('modal-save').addEventListener('click', async () => {
+            const name = document.getElementById('tu-name').value.trim();
+            const email = document.getElementById('tu-email').value.trim();
+            const status = document.getElementById('tu-status').value;
+
+            if (!name) { alert('Please enter a name'); return; }
+
+            const saveBtn = document.getElementById('modal-save');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Creating...';
+
+            try {
+                const createTestUserFn = firebase.functions().httpsCallable('createTestUser');
+                const result = await createTestUserFn({
+                    displayName: name,
+                    email: email || undefined,
+                    subscriptionStatus: status,
+                });
+
+                closeModal();
+
+                // Show the generated credentials — only chance to see the password
+                openModal('Test User Created', `
+                    <div style="text-align:center;">
+                        <p style="margin-bottom:8px;">User <strong>${escapeHtml(name)}</strong> created successfully.</p>
+                        <div style="background:var(--bg-secondary);border-radius:8px;padding:16px;margin:16px 0;text-align:left;">
+                            <p style="margin:0 0 8px 0;"><strong>UID:</strong> <code>${escapeHtml(result.data.uid)}</code></p>
+                            <p style="margin:0 0 8px 0;"><strong>Email:</strong> <code>${escapeHtml(result.data.email)}</code></p>
+                            <p style="margin:0;"><strong>Temporary Password:</strong> <code style="color:var(--accent);font-weight:600;">${escapeHtml(result.data.tempPassword)}</code></p>
+                        </div>
+                        <p style="color:var(--text-secondary);font-size:13px;">Save this password — it won't be shown again.</p>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-primary" id="modal-ok">OK</button>
+                    </div>
+                `);
+                document.getElementById('modal-ok').addEventListener('click', () => {
+                    closeModal();
+                    refreshPage();
+                });
+            } catch (e) {
+                console.error('Failed to create test user:', e);
+                alert('Failed to create test user: ' + (e.message || 'Check console for details.'));
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Create';
+            }
+        });
+    });
+
     // Load and render test users
     loadTestUsers(container, db, store);
 
