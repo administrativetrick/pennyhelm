@@ -6,6 +6,36 @@
     <title>PennyHelm - Take Control of Your Finances</title>
     <meta name="description" content="Track bills, accounts, debts, and taxes in one place. Self-host for total privacy or use PennyHelm Cloud for seamless access anywhere.">
     <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
+    <script>
+        // First-touch acquisition capture: stash UTM/ref/gclid/fbclid params on
+        // landing so they survive the navigation to /login → signup. Kept inline
+        // (not a module) so it runs synchronously before any click can fire.
+        (function(){
+            try {
+                var p = new URLSearchParams(window.location.search);
+                var utms = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
+                var hasAny = p.has('ref') || p.has('gclid') || p.has('fbclid');
+                for (var i = 0; i < utms.length && !hasAny; i++) if (p.has(utms[i])) hasAny = true;
+                if (!hasAny) return;
+                var key = 'pennyhelm-acquisition';
+                var existing = {};
+                try { existing = JSON.parse(sessionStorage.getItem(key) || '{}') || {}; } catch(_) {}
+                utms.forEach(function(k){ var v = p.get(k); if (v) existing[k] = String(v).slice(0, 200); });
+                var ref = p.get('ref'); if (ref) existing.ref = String(ref).slice(0, 50).toUpperCase();
+                var g = p.get('gclid'); if (g) existing.gclid = String(g).slice(0, 200);
+                var f = p.get('fbclid'); if (f) existing.fbclid = String(f).slice(0, 200);
+                if (!existing.referrer && document.referrer) {
+                    try {
+                        var ru = new URL(document.referrer);
+                        if (ru.host !== window.location.host) existing.referrer = document.referrer.slice(0, 500);
+                    } catch(_) {}
+                }
+                if (!existing.landingPath) existing.landingPath = window.location.pathname.slice(0, 200);
+                if (!existing.capturedAt) existing.capturedAt = new Date().toISOString();
+                sessionStorage.setItem(key, JSON.stringify(existing));
+            } catch(_) { /* sessionStorage disabled — attribution is best-effort */ }
+        })();
+    </script>
     <link rel="stylesheet" href="css/landing.css">
 </head>
 <body>

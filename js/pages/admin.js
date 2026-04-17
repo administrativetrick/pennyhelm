@@ -11,6 +11,40 @@ function debounce(fn, delay) {
     };
 }
 
+// Render the acquisition source block for the admin user detail view. Returns
+// empty string if the user has no tracking data (old accounts, or landed with
+// no UTM/ref params).
+function renderAcquisitionSource(src) {
+    if (!src || typeof src !== 'object') return '';
+    const keys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','ref','gclid','fbclid','referrer','landingPath','capturedAt'];
+    const present = keys.filter(k => src[k]);
+    if (present.length === 0) return '';
+    const labels = {
+        utm_source: 'source',
+        utm_medium: 'medium',
+        utm_campaign: 'campaign',
+        utm_content: 'content',
+        utm_term: 'term',
+        ref: 'ref',
+        gclid: 'gclid',
+        fbclid: 'fbclid',
+        referrer: 'referrer',
+        landingPath: 'landing',
+        capturedAt: 'captured',
+    };
+    const chips = present.map(k => {
+        const v = String(src[k]);
+        const shown = v.length > 60 ? v.slice(0, 57) + '...' : v;
+        return `<span title="${escapeHtml(v)}" style="display:inline-block;background:var(--bg-input);padding:2px 8px;border-radius:3px;font-size:11px;margin-right:6px;margin-top:4px;"><strong>${labels[k]}:</strong> ${escapeHtml(shown)}</span>`;
+    }).join('');
+    return `
+        <div style="margin-top:10px;font-size:12px;color:var(--text-secondary);">
+            <div style="margin-bottom:2px;">Acquisition:</div>
+            ${chips}
+        </div>
+    `;
+}
+
 export async function renderAdmin(container, store) {
     const db = firebase.firestore();
 
@@ -553,6 +587,7 @@ async function lookupUser(db) {
                     &middot; Referral code: ${userData.referralCode ? '<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.referralCode) + '</code>' : 'Not generated'}
                     &middot; Paid referrals: ${userData.paidReferralCount || 0}${userData.referralRewardApplied ? ' &middot; <span style="color:var(--green);">Free year earned</span>' : ''}
                 </div>
+                ${renderAcquisitionSource(userData.acquisitionSource)}
                 <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-secondary btn-sm" id="extend-trial-btn">Extend Trial</button>
                     <button class="btn btn-secondary btn-sm" id="reset-trial-btn">Reset Trial</button>
