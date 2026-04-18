@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `/health` endpoint on the self-host server returning JSON `{status, mode, uptime}`. Returns 503 if SQLite is unreachable.
 - Docker `HEALTHCHECK` directive so `docker compose ps` reports accurate container health (30s interval, 5s timeout, 10s start period).
+- Unit test suite for `financial-service` and `recurring-service` — 82 tests covering net-worth math, monthly-income conversion, pay-date generation, bill expansion, financial-health score, merchant normalization, and recurring-transaction detection. Runs with `npm test` (Node built-in test runner, no new dependencies).
 
 ### Changed
 - Sidebar nav icons refreshed to the v2 custom icon set (`assets/icons/pennyhelm-v2/`). Rounded line style with disciplined negative space, 1.8px stroke, `currentColor` for theming.
