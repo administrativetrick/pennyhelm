@@ -76,10 +76,16 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
         return emptyStatus(budget, asOfMonth, true);
     }
 
+    // Compare categories case-insensitively. Legacy data + user-typed rule
+    // values mix capitalized labels and lowercase keys (e.g. "Mortgage" vs
+    // "mortgage", "Groceries" vs "groceries"). A one-time migration backfills
+    // canonical keys, but this comparator is the safety net so a single
+    // stray value can't silently zero out a whole budget.
+    const budgetCat = String(budget.category || '').toLowerCase();
     const qualifies = (e) =>
         !e.ignored
         && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0)
-        && (e.category || 'other') === budget.category;
+        && String(e.category || 'other').toLowerCase() === budgetCat;
 
     // Walk every month from startMonth to asOfMonth, computing rolledOut each step.
     let rolledIn = 0;

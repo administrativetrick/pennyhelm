@@ -1,9 +1,9 @@
 import { StorageAdapter } from './services/storage-adapter.js';
-import { migrateKeyNames, migrateBalanceHistory } from './services/migration-manager.js';
+import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
 import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
-import { EXPENSE_CATEGORIES as _builtinExpenseCategories } from './expense-categories.js';
+import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
 
 const defaultData = {
@@ -76,6 +76,18 @@ const defaultData = {
     setupComplete: false // set to true after first-run welcome screen
 };
 
+/**
+ * Return a shallow-cloned rule whose actions.category is normalized to a
+ * canonical EXPENSE_CATEGORIES key. Safe to call with partial updates.
+ */
+function normalizeRuleCategory(rule, storeLike) {
+    if (!rule) return rule;
+    if (!rule.actions || !rule.actions.category) return rule;
+    const canonical = normalizeCategoryKey(rule.actions.category, storeLike);
+    if (canonical === rule.actions.category) return rule;
+    return { ...rule, actions: { ...rule.actions, category: canonical } };
+}
+
 class Store {
     constructor() {
         this._data = null;
@@ -115,6 +127,15 @@ class Store {
         // Migrate entity links (accounts ↔ debts ↔ bills)
         const linksMigrated = migrateEntityLinks(this._data);
         if (linksMigrated) this._syncToServer();
+
+        // Normalize category keys across expenses/bills/rules/budgets so the
+        // budget matcher lines up with Plaid imports + user-typed rule values.
+        // Idempotent: re-running rewrites nothing once keys are canonical.
+        const categoriesMigrated = migrateCategoryKeys(
+            this._data,
+            (value) => normalizeCategoryKey(value, this),
+        );
+        if (categoriesMigrated) this._syncToServer();
 
         return this._data;
     }
@@ -298,6 +319,12 @@ class Store {
     addBill(bill) {
         const data = this._load();
         bill.id = crypto.randomUUID();
+        // Coerce expenseCategory to its canonical key so budget matching works
+        // regardless of whether the caller passed "Mortgage", "mortgage", or a
+        // custom slug. Unknown strings pass through unchanged.
+        if (bill.expenseCategory) {
+            bill.expenseCategory = normalizeCategoryKey(bill.expenseCategory, this);
+        }
         data.bills.push(bill);
         this._save();
         return bill;
@@ -307,6 +334,9 @@ class Store {
         const data = this._load();
         const idx = data.bills.findIndex(b => b.id === id);
         if (idx !== -1) {
+            if (updates && 'expenseCategory' in updates && updates.expenseCategory) {
+                updates = { ...updates, expenseCategory: normalizeCategoryKey(updates.expenseCategory, this) };
+            }
             data.bills[idx] = { ...data.bills[idx], ...updates };
             this._save();
             syncFromBill(data.bills[idx], data, () => this._save());
@@ -921,6 +951,10 @@ class Store {
         if (!data.expenses) data.expenses = [];
         expense.id = crypto.randomUUID();
         expense.createdDate = new Date().toISOString();
+        // Normalize category so budget rollups and reports see canonical keys.
+        if (expense.category) {
+            expense.category = normalizeCategoryKey(expense.category, this);
+        }
         data.expenses.push(expense);
         this._save();
         return expense;
@@ -931,6 +965,9 @@ class Store {
         if (!data.expenses) return;
         const idx = data.expenses.findIndex(e => e.id === id);
         if (idx !== -1) {
+            if (updates && 'category' in updates && updates.category) {
+                updates = { ...updates, category: normalizeCategoryKey(updates.category, this) };
+            }
             data.expenses[idx] = { ...data.expenses[idx], ...updates };
             this._save();
         }
@@ -1040,7 +1077,10 @@ class Store {
                 id: crypto.randomUUID(),
                 name: txn.name,
                 amount: txn.amount,
-                category: txn.category || 'other',
+                // Plaid returns labels like "Groceries"/"Food and Drink" — normalize
+                // to the canonical EXPENSE_CATEGORIES key so downstream budget
+                // rollups match by value, not by capitalization.
+                category: normalizeCategoryKey(txn.category, this) || 'other',
                 date: txn.date,
                 vendor: txn.merchantName || '',
                 notes: '',
@@ -1075,11 +1115,16 @@ class Store {
         if (err) throw new Error(err);
         const data = this._load();
         if (!data.transactionRules) data.transactionRules = [];
+        // The rules UI is a plain text input — users type "Mortgage" or
+        // "Groceries" (display labels), which never match lowercase budget
+        // keys. Coerce here so rules written today apply cleanly to every
+        // downstream consumer (budgets, variance reports, Sankey).
+        const normalizedRule = normalizeRuleCategory(rule, this);
         const next = {
             id: crypto.randomUUID(),
             enabled: true,
             priority: data.transactionRules.length, // append to end
-            ...rule,
+            ...normalizedRule,
         };
         data.transactionRules.push(next);
         this._save();
@@ -1091,7 +1136,8 @@ class Store {
         if (!data.transactionRules) return;
         const idx = data.transactionRules.findIndex(r => r.id === id);
         if (idx === -1) return;
-        const merged = { ...data.transactionRules[idx], ...updates };
+        const normalizedUpdates = normalizeRuleCategory(updates, this);
+        const merged = { ...data.transactionRules[idx], ...normalizedUpdates };
         const err = validateRule(merged);
         if (err) throw new Error(err);
         data.transactionRules[idx] = merged;
@@ -1226,13 +1272,20 @@ class Store {
         if (err) throw new Error(err);
         const data = this._load();
         if (!data.categoryBudgets) data.categoryBudgets = [];
-        // One active budget per category — replace rather than duplicate.
-        data.categoryBudgets = data.categoryBudgets.filter(b => b.category !== budget.category);
+        // Normalize so the "one active budget per category" dedupe below
+        // treats "Mortgage" and "mortgage" as the same bucket.
+        const normalized = budget.category
+            ? { ...budget, category: normalizeCategoryKey(budget.category, this) }
+            : budget;
+        const needle = String(normalized.category || '').toLowerCase();
+        data.categoryBudgets = data.categoryBudgets.filter(b =>
+            String(b.category || '').toLowerCase() !== needle
+        );
         const next = {
             id: crypto.randomUUID(),
             rollover: false,
             startMonth: monthKey(),
-            ...budget,
+            ...normalized,
         };
         data.categoryBudgets.push(next);
         this._save();
@@ -1244,6 +1297,9 @@ class Store {
         if (!data.categoryBudgets) return;
         const idx = data.categoryBudgets.findIndex(b => b.id === id);
         if (idx === -1) return;
+        if (updates && 'category' in updates && updates.category) {
+            updates = { ...updates, category: normalizeCategoryKey(updates.category, this) };
+        }
         const merged = { ...data.categoryBudgets[idx], ...updates };
         const err = validateBudget(merged);
         if (err) throw new Error(err);
@@ -1282,7 +1338,13 @@ class Store {
         const month = m - 1; // JS Date: 0-indexed
 
         const data = this._load();
-        const bills = (data.bills || []).filter(b => !b.frozen && b.expenseCategory === category);
+        // Case-insensitive match — same reason as budget-service. A one-time
+        // migration normalizes expenseCategory to the canonical key, but we
+        // lowercase here too so mixed-casing data never yields a silent 0.
+        const needle = String(category || '').toLowerCase();
+        const bills = (data.bills || []).filter(b =>
+            !b.frozen && String(b.expenseCategory || '').toLowerCase() === needle
+        );
         if (bills.length === 0) return 0;
 
         const monthStart = new Date(year, month, 1);
