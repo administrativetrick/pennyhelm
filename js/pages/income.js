@@ -287,20 +287,32 @@ export function renderIncome(container, store, subTab = null) {
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card">
+            <div class="stat-card" style="position:relative;">
+                <button class="btn-icon stat-card-edit" data-edit-target="user-pay" title="Edit pay amount"
+                    style="position:absolute;top:10px;right:10px;padding:4px 8px;font-size:11px;color:var(--text-muted);background:transparent;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+                    Edit
+                </button>
                 <div class="stat-label">${escapeHtml(userName)}'s Pay</div>
                 <div class="stat-value">${formatCurrency(userMonthlyPay)}</div>
                 <div class="stat-sub">/month (${formatCurrency(income.user.payAmount)}/${paySchedule.frequency === 'biweekly' ? 'check' : paySchedule.frequency === 'weekly' ? 'week' : 'mo'})</div>
             </div>
             ${depEnabled ? `
-            <div class="stat-card${!combineDepIncome ? ' muted' : ''}">
+            <div class="stat-card${!combineDepIncome ? ' muted' : ''}" style="position:relative;">
+                <button class="btn-icon stat-card-edit" data-edit-target="dependent-pay" title="Edit partner's pay"
+                    style="position:absolute;top:10px;right:10px;padding:4px 8px;font-size:11px;color:var(--text-muted);background:transparent;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+                    Edit
+                </button>
                 <div class="stat-label">${escapeHtml(depName)}'s Pay${!combineDepIncome ? ' <span style="font-size:10px;color:var(--text-muted);">(separate)</span>' : ''}</div>
                 <div class="stat-value">${formatCurrency(depMonthlyPay)}</div>
                 <div class="stat-sub">/month ${income.dependent.employed ? '' : '<span style="color:var(--orange);">(Unemployed)</span>'}</div>
             </div>
             ` : ''}
             ${otherIncome.length > 0 ? `
-            <div class="stat-card">
+            <div class="stat-card" style="position:relative;">
+                <button class="btn-icon stat-card-edit" data-edit-target="other-income" title="Manage other income sources"
+                    style="position:absolute;top:10px;right:10px;padding:4px 8px;font-size:11px;color:var(--text-muted);background:transparent;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+                    Manage
+                </button>
                 <div class="stat-label">Other Income</div>
                 <div class="stat-value">${formatCurrency(otherMonthlyTotal)}</div>
                 <div class="stat-sub">/month from ${otherIncome.length} source${otherIncome.length !== 1 ? 's' : ''}</div>
@@ -549,6 +561,43 @@ export function renderIncome(container, store, subTab = null) {
             showOtherIncomeForm(store);
         });
     }
+
+    // Quick-edit buttons on summary cards — click routes to the existing
+    // in-page editor for that income type. Keeps users off the Settings
+    // page for basic pay/partner/other-income tweaks.
+    container.querySelectorAll('.stat-card-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.editTarget;
+            if (target === 'user-pay') {
+                const el = container.querySelector('#edit-user-pay');
+                if (el) el.click();
+            } else if (target === 'dependent-pay') {
+                const el = container.querySelector('#edit-dependent-pay');
+                if (el) el.click();
+                else {
+                    // Partner tracking isn't enabled or the partner card is
+                    // rendering in a degraded state — fall back to scrolling
+                    // to the partner income section if it exists.
+                    const section = container.querySelector('.settings-section h3')
+                        && Array.from(container.querySelectorAll('.settings-section'))
+                            .find(s => /Income$/.test(s.querySelector('h3')?.textContent || ''));
+                    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } else if (target === 'other-income') {
+                const list = container.querySelector('#add-other-income');
+                if (list) {
+                    list.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Subtle flash so the user sees where they landed.
+                    const card = list.closest('.card');
+                    if (card) {
+                        const orig = card.style.boxShadow;
+                        card.style.boxShadow = '0 0 0 2px var(--accent)';
+                        setTimeout(() => { card.style.boxShadow = orig; }, 900);
+                    }
+                }
+            }
+        });
+    });
 
     // Edit user pay
     container.querySelector('#edit-user-pay').addEventListener('click', () => {
