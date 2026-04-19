@@ -970,7 +970,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
         categoryTotals[cat] += getBillAnnualizedMonthly(bill);
     });
     if (depCoverageTotal > 0) {
-        categoryTotals['Dependent Coverage'] = depCoverageTotal;
+        categoryTotals['Partner Coverage'] = depCoverageTotal;
     }
     const sortedCategories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
     const annualizedOutflow = sortedCategories.reduce((s, [, v]) => s + v, 0);

@@ -256,16 +256,18 @@ export function renderSettings(container, store) {
                         { value: 'conservative', label: 'Conservative', pct: '50%', desc: 'Assumes market drawdowns and taxes eat half your brokerage in an emergency.' },
                         { value: 'balanced', label: 'Balanced', pct: '75%', desc: 'Default. Reflects typical drawdown, capital gains, and settlement drag.' },
                         { value: 'aggressive', label: 'Aggressive', pct: '100%', desc: 'Full dollar-for-dollar credit. Best for diversified long-horizon investors.' },
-                    ].map(opt => `
-                        <label data-risk-option="${opt.value}" style="display:block;cursor:pointer;padding:12px;border-radius:var(--radius-sm);border:2px solid ${currentRiskTolerance === opt.value ? 'var(--accent)' : 'var(--border)'};background:${currentRiskTolerance === opt.value ? 'var(--accent)15' : 'var(--bg-secondary)'};transition:border-color 0.15s, background 0.15s;">
-                            <input type="radio" name="risk-tolerance" value="${opt.value}" ${currentRiskTolerance === opt.value ? 'checked' : ''} style="display:none;">
+                    ].map(opt => {
+                        const active = currentRiskTolerance === opt.value;
+                        return `
+                        <button type="button" class="risk-option" data-risk-option="${opt.value}"
+                            style="display:block;text-align:left;cursor:pointer;padding:12px;border-radius:var(--radius-sm);border:2px solid ${active ? 'var(--accent)' : 'var(--border)'};background:var(--bg-secondary);${active ? 'box-shadow:inset 0 0 0 9999px rgba(99,102,241,0.08);' : ''}transition:border-color 0.15s, background 0.15s;width:100%;font-family:inherit;">
                             <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
-                                <span style="font-size:13px;font-weight:700;color:var(--text-primary);">${opt.label}</span>
-                                <span style="font-size:13px;font-weight:700;color:${currentRiskTolerance === opt.value ? 'var(--accent)' : 'var(--text-muted)'};">${opt.pct}</span>
+                                <span style="font-size:13px;font-weight:700;color:var(--text-primary);">${opt.label}${active ? ' ✓' : ''}</span>
+                                <span style="font-size:13px;font-weight:700;color:${active ? 'var(--accent)' : 'var(--text-muted)'};">${opt.pct}</span>
                             </div>
                             <div style="font-size:11px;color:var(--text-secondary);line-height:1.4;">${opt.desc}</div>
-                        </label>
-                    `).join('')}
+                        </button>`;
+                    }).join('')}
                 </div>
 
                 ${hasTaxableInvestments ? '' : `
@@ -278,13 +280,13 @@ export function renderSettings(container, store) {
 
         <div class="card mb-24">
             <div class="settings-section">
-                <h3>Dependent Coverage</h3>
+                <h3>Partner</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Track another person's bills and toggle whether you're covering them.
+                    Track a partner, spouse, or another household member's bills and toggle whether you're covering them.
                 </p>
                 <div class="settings-row">
                     <div>
-                        <div class="setting-label">Enable Dependent Tracking</div>
+                        <div class="setting-label">Enable partner tracking</div>
                         <div class="setting-desc">${depEnabled ? `Tracking <strong>${escapeHtml(depName)}</strong>'s bills` : 'Disabled'}</div>
                     </div>
                     <label class="toggle">
@@ -295,7 +297,7 @@ export function renderSettings(container, store) {
                 ${depEnabled ? `
                 <div class="settings-row">
                     <div>
-                        <div class="setting-label">Dependent Name</div>
+                        <div class="setting-label">Partner's name</div>
                         <div class="setting-desc">Currently: <strong>${escapeHtml(depName)}</strong></div>
                     </div>
                     <button class="btn btn-secondary btn-sm" id="edit-dep-name">Edit</button>
@@ -523,16 +525,16 @@ export function renderSettings(container, store) {
     });
 
     // Risk tolerance selector — clicking a card selects that preset and
-    // re-renders so the selection styling updates immediately.
-    container.querySelectorAll('[data-risk-option]').forEach(label => {
-        label.addEventListener('click', (e) => {
-            e.preventDefault();
-            const value = label.getAttribute('data-risk-option');
+    // re-renders the settings page so the active styling updates.
+    // Mirrors the theme-toggle pattern which also uses buttons + data attrs.
+    container.querySelectorAll('.risk-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const value = btn.dataset.riskOption;
             if (!value) return;
             const current = store.getHealthScoreSettings().riskTolerance;
             if (value === current) return;
             store.updateHealthScoreSettings({ riskTolerance: value });
-            refreshPage();
+            renderSettings(container, store);
         });
     });
 
@@ -1448,9 +1450,9 @@ export function renderSettings(container, store) {
     const editDepNameBtn = container.querySelector('#edit-dep-name');
     if (editDepNameBtn) {
         editDepNameBtn.addEventListener('click', () => {
-            openModal('Edit Dependent Name', `
+            openModal("Edit Partner's Name", `
                 <div class="form-group">
-                    <label>Dependent Name</label>
+                    <label>Partner's name</label>
                     <input type="text" class="form-input" id="dep-name-input" value="${escapeHtml(depName)}">
                 </div>
                 <div class="modal-actions">
@@ -1747,7 +1749,7 @@ export function renderSettings(container, store) {
             <div style="padding:8px 0 16px;font-size:14px;">
                 <p style="margin-bottom:12px;">This will remove all:</p>
                 <ul style="margin-left:20px;margin-bottom:16px;color:var(--text-secondary);font-size:13px;">
-                    <li>Bills (yours and dependent's)</li>
+                    <li>Bills (yours and partner's)</li>
                     <li>Bank accounts</li>
                     <li>Debts</li>
                     <li>Tax documents and deductions</li>

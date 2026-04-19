@@ -8,7 +8,7 @@ A personal finance tracker built with vanilla HTML, CSS, and JavaScript. Self-ho
 - **Bills** — Track recurring bills with due dates, categories, payment sources, and paid/unpaid status
 - **Calendar** — Visual month view of bill due dates and paydays
 - **Cashflow** — Waterfall charts, 6-month projections, income vs expenses breakdown
-- **Dependent Tracking** — Manage a dependent's bills separately and track which ones you're covering
+- **Partner Tracking** — Manage a partner's or household member's bills separately and track which ones you're covering
 - **Accounts** — Monitor checking, savings, credit cards, investments, retirement, and property accounts
 - **Debts** — Track loans and credit card debt with avalanche/snowball payoff strategy comparison
 - **Taxes** — Log tax deductions by category and year with receipt document storage
