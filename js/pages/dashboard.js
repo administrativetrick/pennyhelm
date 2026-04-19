@@ -830,6 +830,12 @@ function buildHealthScoreHtml(ctx) {
     const savingsBalance = accounts
         .filter(a => a.type === 'savings')
         .reduce((s, a) => s + (a.balance || 0), 0);
+    // Taxable brokerage ONLY — retirement accounts don't count as liquid
+    // reserves because the early-withdrawal penalty (10%) plus income tax
+    // makes them a poor emergency backstop.
+    const taxableInvestmentBalance = accounts
+        .filter(a => a.type === 'investment')
+        .reduce((s, a) => s + (a.balance || 0), 0);
     const billPaymentRate = store.getBillPaymentRate(3);
 
     const result = calculateFinancialHealthScore({
@@ -841,6 +847,7 @@ function buildHealthScoreHtml(ctx) {
         savingsBalance: savingsBalance,
         billPaymentRate: billPaymentRate,
         creditScore: userScore,
+        taxableInvestmentBalance: taxableInvestmentBalance,
     });
 
     const { score, grade, components, missingComponents, completeness } = result;

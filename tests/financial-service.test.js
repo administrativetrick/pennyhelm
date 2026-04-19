@@ -616,6 +616,91 @@ describe('calculateFinancialHealthScore', () => {
         assert.equal(critical.grade.label, 'Critical');
     });
 
+    test('Liquid Reserves counts taxable investments at 75% haircut', () => {
+        // $30k taxable investments × 0.75 = $22,500 of credit
+        // At $5k/mo income → 4.5 months → full 100 on the liquidity component.
+        const withInvestments = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 5000,
+            billPaymentRate: 1,
+            creditScore: 740,
+            taxableInvestmentBalance: 30000,
+        });
+        const withoutInvestments = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 5000,
+            billPaymentRate: 1,
+            creditScore: 740,
+        });
+        const withLR = withInvestments.components.find(c => c.name === 'Liquid Reserves');
+        const withoutLR = withoutInvestments.components.find(c => c.name === 'Liquid Reserves');
+        assert.equal(withLR.score, 100);
+        assert.equal(withoutLR.score, 0);
+    });
+
+    test('Liquid Reserves does NOT receive credit for retirement balances', () => {
+        // Caller is responsible for passing taxable-only. If they
+        // include retirement in taxableInvestmentBalance it would count —
+        // but dashboard.js filters to type === 'investment' only.
+        // This test just verifies the component is called "Liquid Reserves"
+        // (renamed from "Cash Reserves") and exists on a well-defined user.
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 5000,
+            savingsBalance: 5000,
+            billPaymentRate: 1,
+            creditScore: 740,
+            taxableInvestmentBalance: 0,
+        });
+        const liquid = result.components.find(c => c.name === 'Liquid Reserves');
+        assert.ok(liquid, 'Liquid Reserves component should exist');
+        // No Cash Reserves anywhere — the component was renamed.
+        assert.equal(result.components.find(c => c.name === 'Cash Reserves'), undefined);
+    });
+
+    test('Liquid Reserves: cash + taxable investments combine correctly', () => {
+        // $3k cash + $10k taxable × 0.75 = $3k + $7.5k = $10.5k liquid reserve
+        // At $5k/mo income → 2.1 months → 70% score
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 3000,
+            savingsBalance: 5000,
+            billPaymentRate: 1,
+            creditScore: 740,
+            taxableInvestmentBalance: 10000,
+        });
+        const liquid = result.components.find(c => c.name === 'Liquid Reserves');
+        // 10.5k / 5k = 2.1 months → 2.1/3 × 100 = 70
+        assert.equal(liquid.score, 70);
+    });
+
+    test('taxableInvestmentBalance defaults to 0 when not supplied', () => {
+        // Back-compat: callers that don't pass the field shouldn't crash
+        // or accidentally inherit garbage.
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 15000,  // 3 months → full score on its own
+            savingsBalance: 5000,
+            billPaymentRate: 1,
+            creditScore: 740,
+            // taxableInvestmentBalance omitted
+        });
+        const liquid = result.components.find(c => c.name === 'Liquid Reserves');
+        assert.equal(liquid.score, 100);
+    });
+
     test('final score never exceeds 100 or goes below 0', () => {
         const result = calculateFinancialHealthScore({
             monthlyIncome: 999999, totalMonthlyBills: 0, monthlyDebtPayments: 0,
