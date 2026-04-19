@@ -448,6 +448,86 @@ describe('calculateFinancialHealthScore', () => {
         assert.ok(dti.score < 40);
     });
 
+    test('mortgage-aware DTI: big mortgage alone does not crush the score', () => {
+        // $17k/mo income, $4k mortgage (24% housing), $200 in other debt
+        // Front-end: 4000/17000 = 23.5% (good)
+        // Back-end: 4200/17000 = 24.7% (good)
+        // Both well below 28%/36% thresholds → full score.
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 17000,
+            totalMonthlyBills: 4200,     // legacy input kept for back-compat
+            monthlyDebtPayments: 4200,   // legacy input
+            monthlyHousingPayment: 4000,
+            monthlyNonHousingDebt: 200,
+            cashTotal: 0, savingsBalance: 0,
+            billPaymentRate: 1, creditScore: 750,
+        });
+        const dti = result.components.find(c => c.name === 'Debt-to-Income');
+        assert.equal(dti.score, 100);
+        assert.match(dti.tip, /Housing 24% \/ total 25%/);
+    });
+
+    test('mortgage-aware DTI: stretched housing drops the score even with 0 other debt', () => {
+        // $5k/mo income, $2k mortgage (40% housing — way over 28%)
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            monthlyHousingPayment: 2000,
+            monthlyNonHousingDebt: 0,
+            cashTotal: 0, savingsBalance: 0,
+            billPaymentRate: 1, creditScore: 700,
+        });
+        const dti = result.components.find(c => c.name === 'Debt-to-Income');
+        assert.ok(dti.score < 60, `expected <60, got ${dti.score}`);
+        assert.match(dti.tip, /Housing 40%/);
+    });
+
+    test('mortgage-aware DTI: worst-of-two — good housing cannot hide bad consumer debt', () => {
+        // $10k/mo income, $0 housing, $4500 non-housing (45% back-end)
+        // Front-end: 0/10000 = 0% (perfect)
+        // Back-end: 4500/10000 = 45% (bad — above 43% FHA max)
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 10000,
+            monthlyHousingPayment: 0,
+            monthlyNonHousingDebt: 4500,
+            cashTotal: 0, savingsBalance: 0,
+            billPaymentRate: 1, creditScore: 700,
+        });
+        const dti = result.components.find(c => c.name === 'Debt-to-Income');
+        assert.ok(dti.score < 60, `expected <60, got ${dti.score}`);
+    });
+
+    test('debts without minimum payments → DTI treated as missing, not zero', () => {
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 17000,
+            totalMonthlyBills: 0,
+            monthlyDebtPayments: 0,
+            hasDebtsWithoutMinimumPayment: true,
+            cashTotal: 10000, savingsBalance: 10000,
+            billPaymentRate: 1, creditScore: 780,
+        });
+        const dti = result.components.find(c => c.name === 'Debt-to-Income');
+        assert.equal(dti, undefined, 'DTI should not be scored when minimums are missing');
+        const missing = result.missingComponents.find(c => c.name === 'Debt-to-Income');
+        assert.ok(missing, 'DTI should appear in missingComponents');
+        assert.match(missing.tip, /minimum monthly payment/);
+    });
+
+    test('legacy callers (no housing split) still get a DTI score', () => {
+        // Backwards-compat check: existing tests/callers don't pass
+        // monthlyHousingPayment or monthlyNonHousingDebt and should still
+        // score via the blended ratio.
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 10000,
+            totalMonthlyBills: 1500,
+            monthlyDebtPayments: 500,
+            cashTotal: 5000, savingsBalance: 5000,
+            billPaymentRate: 1, creditScore: 750,
+        });
+        const dti = result.components.find(c => c.name === 'Debt-to-Income');
+        assert.ok(dti);
+        assert.equal(dti.score, 100);
+    });
+
     test('6+ months of savings cushion produces full savings score', () => {
         const result = calculateFinancialHealthScore({
             monthlyIncome: 5000,
