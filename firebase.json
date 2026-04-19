@@ -61,6 +61,24 @@
         ]
       },
       {
+        "source": "/",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/@(app|login|accept-invite|oauth|delete-account)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/app/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        ]
+      },
+      {
         "source": "**/*.@(jpg|jpeg|png|gif|webp|svg|ico|avif)",
         "headers": [
           { "key": "Cache-Control", "value": "public, max-age=86400" }
