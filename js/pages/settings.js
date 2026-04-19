@@ -20,6 +20,9 @@ export function renderSettings(container, store) {
     const creditScores = store.getCreditScores();
     const totalCreditLimit = accounts.filter(a => a.type === 'credit').reduce((s, a) => s + a.balance, 0);
     const pref = getThemePreference();
+    const healthSettings = store.getHealthScoreSettings();
+    const currentRiskTolerance = healthSettings.riskTolerance || 'balanced';
+    const hasTaxableInvestments = accounts.some(a => a.type === 'investment');
 
     container.innerHTML = `
         <div class="page-header">
@@ -235,6 +238,41 @@ export function renderSettings(container, store) {
                 </div>
                 ` : ''}
                 ` : ''}
+            </div>
+        </div>
+
+        <div class="card mb-24">
+            <div class="settings-section">
+                <h3>Financial Health Score</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                    Pick how much of your taxable brokerage balance should count toward your
+                    <strong>Savings Cushion</strong> and <strong>Liquid Reserves</strong>. Retirement
+                    accounts (401k / IRA) are never counted — the early-withdrawal penalty makes them
+                    unsuitable as emergency reserves.
+                </p>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;">
+                    ${[
+                        { value: 'conservative', label: 'Conservative', pct: '50%', desc: 'Assumes market drawdowns and taxes eat half your brokerage in an emergency.' },
+                        { value: 'balanced', label: 'Balanced', pct: '75%', desc: 'Default. Reflects typical drawdown, capital gains, and settlement drag.' },
+                        { value: 'aggressive', label: 'Aggressive', pct: '100%', desc: 'Full dollar-for-dollar credit. Best for diversified long-horizon investors.' },
+                    ].map(opt => `
+                        <label data-risk-option="${opt.value}" style="display:block;cursor:pointer;padding:12px;border-radius:var(--radius-sm);border:2px solid ${currentRiskTolerance === opt.value ? 'var(--accent)' : 'var(--border)'};background:${currentRiskTolerance === opt.value ? 'var(--accent)15' : 'var(--bg-secondary)'};transition:border-color 0.15s, background 0.15s;">
+                            <input type="radio" name="risk-tolerance" value="${opt.value}" ${currentRiskTolerance === opt.value ? 'checked' : ''} style="display:none;">
+                            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
+                                <span style="font-size:13px;font-weight:700;color:var(--text-primary);">${opt.label}</span>
+                                <span style="font-size:13px;font-weight:700;color:${currentRiskTolerance === opt.value ? 'var(--accent)' : 'var(--text-muted)'};">${opt.pct}</span>
+                            </div>
+                            <div style="font-size:11px;color:var(--text-secondary);line-height:1.4;">${opt.desc}</div>
+                        </label>
+                    `).join('')}
+                </div>
+
+                ${hasTaxableInvestments ? '' : `
+                    <div style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px dashed var(--border);font-size:11px;color:var(--text-muted);">
+                        <span style="font-weight:600;">Tip:</span> this setting only matters once you have accounts marked as type "Investment". Retirement accounts aren't affected.
+                    </div>
+                `}
             </div>
         </div>
 
@@ -482,6 +520,20 @@ export function renderSettings(container, store) {
     container.querySelector('#replay-onboarding-btn').addEventListener('click', () => {
         resetOnboarding();
         startOnboarding();
+    });
+
+    // Risk tolerance selector — clicking a card selects that preset and
+    // re-renders so the selection styling updates immediately.
+    container.querySelectorAll('[data-risk-option]').forEach(label => {
+        label.addEventListener('click', (e) => {
+            e.preventDefault();
+            const value = label.getAttribute('data-risk-option');
+            if (!value) return;
+            const current = store.getHealthScoreSettings().riskTolerance;
+            if (value === current) return;
+            store.updateHealthScoreSettings({ riskTolerance: value });
+            refreshPage();
+        });
     });
 
     // Edit user name

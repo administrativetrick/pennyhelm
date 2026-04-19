@@ -10,9 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `/health` endpoint on the self-host server returning JSON `{status, mode, uptime}`. Returns 503 if SQLite is unreachable.
 - Docker `HEALTHCHECK` directive so `docker compose ps` reports accurate container health (30s interval, 5s timeout, 10s start period).
-- Unit test suite for `financial-service` and `recurring-service` — 109 tests covering net-worth math, monthly-income conversion, pay-date generation, bill expansion, financial-health score, Savings Cushion + Liquid Reserves (cash + taxable investments), Plaid bill-matching, merchant normalization, and recurring-transaction detection. Runs with `npm test` (Node built-in test runner, no new dependencies).
+- Unit test suite for `financial-service` and `recurring-service` — 117 tests covering net-worth math, monthly-income conversion, pay-date generation, bill expansion, financial-health score, Savings Cushion + Liquid Reserves (cash + taxable investments), configurable risk-tolerance haircut, Plaid bill-matching, merchant normalization, and recurring-transaction detection. Runs with `npm test` (Node built-in test runner, no new dependencies).
 - GitHub Actions CI workflow (`.github/workflows/test.yml`) runs `npm test` on every push and pull request to `master` (Node 22 LTS).
 - Dashboard Financial Health Score now lists "Add these to improve your score accuracy" when required inputs are missing — surfaces missing components (Credit Score, Payment History, etc.) with actionable tips, plus a "Partial" or "Not enough data" badge next to the grade.
+- **Risk tolerance picker** in Settings → Financial Health Score. Users choose Conservative (50%), Balanced (75%, default), or Aggressive (100%) to set how much of their taxable brokerage balance counts toward Savings Cushion and Liquid Reserves. Retirement accounts remain excluded regardless of tier.
 
 ### Changed
 - Sidebar nav icons refreshed to the v2 custom icon set (`assets/icons/pennyhelm-v2/`). Rounded line style with disciplined negative space, 1.8px stroke, `currentColor` for theming.
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Admin panel "Create Test User" button did nothing — the click handler was accidentally deleted in the waitlist-removal sweep (commit `b658b88`). Restored handler so the modal opens and the `createTestUser` Cloud Function is invoked again.
+- Financial Health Score grade badges (⚠️ at "Needs Work" and 🚨 at "Critical") in the card header read as calculation errors. Removed the header emoji — the colored score ring + grade label already communicate state without looking like a system alert. Replaced the alarming emojis on the grade object itself with neutral finance-flavored icons (📊 📉 🔻).
 
 ## [0.1.0] — 2026-04-17
 
