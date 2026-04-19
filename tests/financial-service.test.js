@@ -460,6 +460,56 @@ describe('calculateFinancialHealthScore', () => {
         assert.equal(savings.score, 100);
     });
 
+    test('Savings Cushion counts taxable investments at 75% haircut', () => {
+        // $1000/mo expenses, $0 savings, $27,492 brokerage
+        // Credit = 27492 × 0.75 = $20,619 → 20.6 months covered → full 100
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 0,
+            billPaymentRate: 1,
+            creditScore: 750,
+            taxableInvestmentBalance: 27492,
+        });
+        const savings = result.components.find(c => c.name === 'Savings Cushion');
+        assert.equal(savings.score, 100);
+    });
+
+    test('Savings Cushion: $0 savings + $0 investments still scores 0', () => {
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 0,
+            billPaymentRate: 1,
+            creditScore: 750,
+            taxableInvestmentBalance: 0,
+        });
+        const savings = result.components.find(c => c.name === 'Savings Cushion');
+        assert.equal(savings.score, 0);
+    });
+
+    test('Savings Cushion: partial investment credit scales linearly', () => {
+        // $1000/mo expenses, $0 savings, $4,000 brokerage
+        // Credit = 4000 × 0.75 = $3,000 → 3.0 months → 50% score
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 0,
+            billPaymentRate: 1,
+            creditScore: 750,
+            taxableInvestmentBalance: 4000,
+        });
+        const savings = result.components.find(c => c.name === 'Savings Cushion');
+        // 3 months / 6 months × 100 = 50
+        assert.equal(savings.score, 50);
+    });
+
     test('perfect payment history gives 100 payment score', () => {
         const result = calculateFinancialHealthScore({
             monthlyIncome: 5000,
