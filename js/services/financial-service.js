@@ -360,6 +360,12 @@ export function calculateFinancialHealthScore({
     creditScore,
     taxableInvestmentBalance = 0,  // brokerage only (NOT 401k/IRA)
     investmentHaircut = 0.75,      // 0.50 / 0.75 / 1.00 — see risk-tolerance presets
+    // Mortgage-aware DTI inputs — when provided, we score housing and total
+    // debt separately (lender-standard front-end / back-end DTI) instead
+    // of lumping all bills into one ratio.
+    monthlyHousingPayment = 0,     // mortgage/rent + escrow-equivalent
+    monthlyNonHousingDebt = 0,     // auto loans, student loans, credit cards, etc.
+    hasDebtsWithoutMinimumPayment = false, // true when user has debts but no minimums set
 }) {
     // Guard: clamp haircut to [0, 1] in case a caller passes garbage.
     const haircut = Math.max(0, Math.min(1, Number(investmentHaircut) || 0));
@@ -370,19 +376,76 @@ export function calculateFinancialHealthScore({
     const missingComponents = [];
 
     // ── 1. Debt-to-Income (25%) ──────────────
-    // Requires income to produce a meaningful ratio.
+    // Uses the lender-standard split: front-end DTI is housing cost
+    // over gross income (healthy ≤28%), back-end DTI is all debt
+    // obligations over gross income (healthy ≤36%, FHA max 43%).
+    // A mortgage doesn't "ruin" DTI the way credit-card debt does —
+    // lenders explicitly expect a housing payment and score it on a
+    // separate ratio. We take the WORSE of the two so a user can't get
+    // a 100 by having $0 housing if their consumer debt is crushing them.
+    //
+    // Callers that haven't been updated still pass the legacy
+    // monthlyDebtPayments + totalMonthlyBills pair — we fall back to the
+    // blended ratio in that case (behaviour-preserving).
+    const hasHousingAwareInputs = monthlyHousingPayment > 0 || monthlyNonHousingDebt > 0;
     const hasDtiData = monthlyIncome > 0 ||
-        (totalMonthlyBills > 0 || monthlyDebtPayments > 0);
-    if (hasDtiData) {
+        (totalMonthlyBills > 0 || monthlyDebtPayments > 0 || hasHousingAwareInputs);
+
+    if (hasDebtsWithoutMinimumPayment && monthlyDebtPayments === 0 && !hasHousingAwareInputs) {
+        // User has debts on file but hasn't set minimum payments.
+        // Computing DTI from this would be a lie — surface it as
+        // missing data instead so the health score renormalizes and
+        // the UI can nudge the user to fill in minimums.
+        missingComponents.push({
+            name: 'Debt-to-Income',
+            icon: '📉',
+            tip: 'Add a minimum monthly payment to each debt so DTI can be scored.'
+        });
+    } else if (hasDtiData) {
         let dtiScore = 100;
+        let tipText;
         if (monthlyIncome > 0) {
-            const dti = (monthlyDebtPayments + totalMonthlyBills) / monthlyIncome;
-            if (dti <= 0.30) dtiScore = 100;
-            else if (dti <= 0.40) dtiScore = 80 - (dti - 0.30) * 200; // 80→60
-            else if (dti <= 0.50) dtiScore = 60 - (dti - 0.40) * 300; // 60→30
-            else dtiScore = Math.max(0, 30 - (dti - 0.50) * 100);
+            if (hasHousingAwareInputs) {
+                // Lender-standard breakdown
+                const frontEndDti = monthlyHousingPayment / monthlyIncome;
+                const backEndDti = (monthlyHousingPayment + monthlyNonHousingDebt) / monthlyIncome;
+
+                const scoreFrontEnd = (r) => {
+                    if (r <= 0.28) return 100;
+                    if (r <= 0.35) return 85 - (r - 0.28) * (25 / 0.07);   // 85→60
+                    if (r <= 0.43) return 60 - (r - 0.35) * (30 / 0.08);   // 60→30
+                    return Math.max(0, 30 - (r - 0.43) * 100);
+                };
+                const scoreBackEnd = (r) => {
+                    if (r <= 0.36) return 100;
+                    if (r <= 0.43) return 85 - (r - 0.36) * (25 / 0.07);   // 85→60 (FHA band)
+                    if (r <= 0.50) return 60 - (r - 0.43) * (30 / 0.07);   // 60→30
+                    return Math.max(0, 30 - (r - 0.50) * 100);
+                };
+                dtiScore = Math.min(scoreFrontEnd(frontEndDti), scoreBackEnd(backEndDti));
+
+                const feP = Math.round(frontEndDti * 100);
+                const beP = Math.round(backEndDti * 100);
+                tipText = `Housing ${feP}% / total ${beP}% of income. `
+                    + (dtiScore >= 80 ? 'Both ratios are in healthy ranges.'
+                    : dtiScore >= 50 ? (frontEndDti > 0.28 ? 'Housing ratio is high (aim for ≤28%).'
+                                                            : 'Non-housing debt is pushing your back-end ratio up (aim for ≤36%).')
+                    : 'Both housing and total-debt ratios are stretched — focus on paying down non-mortgage debt first.');
+            } else {
+                // Legacy blended calculation
+                const dti = (monthlyDebtPayments + totalMonthlyBills) / monthlyIncome;
+                if (dti <= 0.30) dtiScore = 100;
+                else if (dti <= 0.40) dtiScore = 80 - (dti - 0.30) * 200; // 80→60
+                else if (dti <= 0.50) dtiScore = 60 - (dti - 0.40) * 300; // 60→30
+                else dtiScore = Math.max(0, 30 - (dti - 0.50) * 100);
+
+                tipText = dtiScore >= 80 ? 'Great! Your debt load is manageable.'
+                    : dtiScore >= 50 ? 'Consider reducing monthly obligations.'
+                    : 'High debt relative to income — focus on payoff.';
+            }
         } else {
             dtiScore = 0; // bills/debt but no income
+            tipText = 'Add your income to score this component.';
         }
         dtiScore = clamp(dtiScore);
         components.push({
@@ -391,9 +454,7 @@ export function calculateFinancialHealthScore({
             weight: 0.25,
             weighted: Math.round(dtiScore * 0.25),
             icon: '📉',
-            tip: dtiScore >= 80 ? 'Great! Your debt load is manageable.'
-                : dtiScore >= 50 ? 'Consider reducing monthly obligations.'
-                : 'High debt relative to income — focus on payoff.'
+            tip: tipText
         });
     } else {
         missingComponents.push({
