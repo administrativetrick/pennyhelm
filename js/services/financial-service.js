@@ -376,34 +376,46 @@ export function calculateFinancialHealthScore({
     }
 
     // ── 2. Savings Cushion (25%) ─────────────
-    // Requires either expenses or savings data.
+    // Measures months of expenses a user could cover from their
+    // emergency buffer. Counts dedicated savings accounts PLUS taxable
+    // investments at 75% (same haircut as Liquid Reserves — reflects
+    // market risk, capital gains, and settlement delay). Retirement
+    // accounts are NOT counted: the 10% early-withdrawal penalty plus
+    // income tax makes them an expensive backstop.
+    const savingsInvestmentCredit = Math.max(0, Number(taxableInvestmentBalance) || 0) * 0.75;
+    const effectiveSavings = (savingsBalance || 0) + savingsInvestmentCredit;
     const monthlyExpenses = totalMonthlyBills + monthlyDebtPayments;
-    const hasSavingsData = monthlyExpenses > 0 || savingsBalance > 0;
+    const hasSavingsData = monthlyExpenses > 0 || effectiveSavings > 0;
     if (hasSavingsData) {
         let savingsScore = 0;
         if (monthlyExpenses > 0) {
-            const monthsCovered = savingsBalance / monthlyExpenses;
+            const monthsCovered = effectiveSavings / monthlyExpenses;
             if (monthsCovered >= 6) savingsScore = 100;
             else savingsScore = (monthsCovered / 6) * 100;
-        } else if (savingsBalance > 0) {
-            savingsScore = 100; // savings and no tracked expenses
+        } else if (effectiveSavings > 0) {
+            savingsScore = 100; // reserves and no tracked expenses
         }
         savingsScore = clamp(savingsScore);
+        const hasInvestedPortion = savingsInvestmentCredit > 0;
         components.push({
             name: 'Savings Cushion',
             score: Math.round(savingsScore),
             weight: 0.25,
             weighted: Math.round(savingsScore * 0.25),
             icon: '🏦',
-            tip: savingsScore >= 80 ? 'Excellent savings buffer!'
-                : savingsScore >= 50 ? 'Building toward 6 months of expenses.'
-                : 'Try to build an emergency fund.'
+            tip: savingsScore >= 80
+                ? (hasInvestedPortion
+                    ? 'Excellent buffer — savings + taxable investments cover 6+ months.'
+                    : 'Excellent savings buffer!')
+                : savingsScore >= 50
+                    ? 'Building toward 6 months of expenses (cash or brokerage counts).'
+                    : 'Try to build an emergency fund — savings or taxable brokerage both count.'
         });
     } else {
         missingComponents.push({
             name: 'Savings Cushion',
             icon: '🏦',
-            tip: 'Add bills or a savings balance to score this component.'
+            tip: 'Add bills, a savings balance, or a taxable brokerage account to score this.'
         });
     }
 
