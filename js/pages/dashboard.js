@@ -863,11 +863,16 @@ function buildHealthScoreHtml(ctx) {
             default: return amt;
         }
     };
+    // Only count bills NOT already represented by a debt's minimumPayment.
+    // PennyHelm's entity-linker attaches `linkedDebtId` when a bill mirrors
+    // a debt — counting both the debt min AND the linked bill would double
+    // the real payment (caught by james.l.curtis on 2026-04-19, where a
+    // linked mortgage bill drove DTI to 86% vs. the correct ~44%).
     const housingBillMonthly = bills
-        .filter(b => HOUSING_BILL_CATEGORIES.has(b.category))
+        .filter(b => HOUSING_BILL_CATEGORIES.has(b.category) && !b.linkedDebtId)
         .reduce((s, b) => s + billMonthly(b), 0);
     const debtBillMonthly = bills
-        .filter(b => DEBT_BILL_CATEGORIES.has(b.category))
+        .filter(b => DEBT_BILL_CATEGORIES.has(b.category) && !b.linkedDebtId)
         .reduce((s, b) => s + billMonthly(b), 0);
     const monthlyHousingPayment = mortgageMinimums + housingBillMonthly;
     const monthlyNonHousingDebt = nonMortgageMinimums + debtBillMonthly;
