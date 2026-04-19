@@ -10,10 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `/health` endpoint on the self-host server returning JSON `{status, mode, uptime}`. Returns 503 if SQLite is unreachable.
 - Docker `HEALTHCHECK` directive so `docker compose ps` reports accurate container health (30s interval, 5s timeout, 10s start period).
-- Unit test suite for `financial-service` and `recurring-service` — 82 tests covering net-worth math, monthly-income conversion, pay-date generation, bill expansion, financial-health score, merchant normalization, and recurring-transaction detection. Runs with `npm test` (Node built-in test runner, no new dependencies).
+- Unit test suite for `financial-service` and `recurring-service` — 102 tests covering net-worth math, monthly-income conversion, pay-date generation, bill expansion, financial-health score, Plaid bill-matching, merchant normalization, and recurring-transaction detection. Runs with `npm test` (Node built-in test runner, no new dependencies).
+- GitHub Actions CI workflow (`.github/workflows/test.yml`) runs `npm test` on every push and pull request to `master` (Node 22 LTS).
+- Dashboard Financial Health Score now lists "Add these to improve your score accuracy" when required inputs are missing — surfaces missing components (Credit Score, Payment History, etc.) with actionable tips, plus a "Partial" or "Not enough data" badge next to the grade.
 
 ### Changed
 - Sidebar nav icons refreshed to the v2 custom icon set (`assets/icons/pennyhelm-v2/`). Rounded line style with disciplined negative space, 1.8px stroke, `currentColor` for theming.
+- Financial Health Score now uses **conditional weighting**: components without input data (e.g., no credit score entered, no bills yet) are excluded rather than defaulting to 50. Remaining component weights renormalize so the visible score reflects only what the user has told us. Fixes the "fake 50%" problem where brand-new empty accounts showed up as mediocre-health by default.
+- Bill payment history now falls back to Plaid transaction evidence — if a bill wasn't manually ticked as paid but a Plaid-synced expense exists within ±3 days and ±5% (or ±$1 floor) of the bill amount, the bill is inferred as paid. Stops penalizing users who autopay but forget to tick the checkbox.
 
 ### Fixed
 - Admin panel "Create Test User" button did nothing — the click handler was accidentally deleted in the waitlist-removal sweep (commit `b658b88`). Restored handler so the modal opens and the `createTestUser` Cloud Function is invoked again.

@@ -843,7 +843,7 @@ function buildHealthScoreHtml(ctx) {
         creditScore: userScore,
     });
 
-    const { score, grade, components } = result;
+    const { score, grade, components, missingComponents, completeness } = result;
 
     // SVG circular gauge
     const radius = 58;
@@ -875,9 +875,17 @@ function buildHealthScoreHtml(ctx) {
 
     // ── Grade + Legend ──
     html += '<div style="flex:1;min-width:0;">';
-    html += '<div style="font-size:18px;font-weight:700;color:' + grade.color + ';margin-bottom:6px;">' + grade.label + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">';
+    html += '<div style="font-size:18px;font-weight:700;color:' + grade.color + ';">' + grade.label + '</div>';
+    if (completeness !== 'full') {
+        const badgeLabel = completeness === 'insufficient' ? 'Not enough data' : 'Partial';
+        const badgeColor = completeness === 'insufficient' ? 'var(--orange)' : 'var(--yellow)';
+        html += '<span style="font-size:10px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase;padding:2px 8px;border-radius:10px;background:' + badgeColor + '22;color:' + badgeColor + ';border:1px solid ' + badgeColor + '55;">' + badgeLabel + '</span>';
+    }
+    html += '</div>';
     html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">';
-    if (score >= 90) html += 'Your finances are in outstanding shape. Keep it up!';
+    if (completeness === 'insufficient') html += 'Add more data below — your score will become meaningful once 3+ components are filled in.';
+    else if (score >= 90) html += 'Your finances are in outstanding shape. Keep it up!';
     else if (score >= 75) html += 'Solid financial health. A few areas to optimize.';
     else if (score >= 55) html += 'You\'re on the right track — focus on the weak spots below.';
     else if (score >= 35) html += 'Several areas need attention. Follow the tips below.';
@@ -894,6 +902,22 @@ function buildHealthScoreHtml(ctx) {
     html += '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);">';
     html += '<span>0</span><span>35</span><span>55</span><span>75</span><span>100</span></div>';
     html += '</div></div>';
+
+    // ── Missing Components (onboarding nudge) ──
+    if (missingComponents && missingComponents.length > 0) {
+        html += '<div style="background:var(--bg-secondary);padding:12px 14px;border-radius:var(--radius-sm);border:1px dashed var(--border);margin-bottom:12px;">';
+        html += '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">';
+        html += 'Add these to improve your score accuracy:';
+        html += '</div>';
+        html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+        missingComponents.forEach(function(m) {
+            html += '<div style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:var(--text-secondary);">';
+            html += '<span style="font-size:14px;opacity:0.5;">' + m.icon + '</span>';
+            html += '<div><span style="font-weight:600;color:var(--text-primary);">' + m.name + '</span> — ' + m.tip + '</div>';
+            html += '</div>';
+        });
+        html += '</div></div>';
+    }
 
     // ── Component Breakdown ──
     html += '<div style="display:flex;flex-direction:column;gap:10px;">';
