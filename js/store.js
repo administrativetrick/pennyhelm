@@ -8,7 +8,7 @@ import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeB
 
 const defaultData = {
     userName: 'User',
-    dependentName: 'Dependent',
+    dependentName: 'Partner',
     dependentEnabled: false,
     income: {
         user: {
@@ -176,7 +176,7 @@ class Store {
     }
 
     getDependentName() {
-        return this._load().dependentName || 'Dependent';
+        return this._load().dependentName || 'Partner';
     }
 
     setDependentName(name) {
