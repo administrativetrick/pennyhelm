@@ -822,11 +822,56 @@ function getPaymentSourceBreakdown(bills, store, year, month) {
 // ─────────────────────────────────────────────
 
 function buildHealthScoreHtml(ctx) {
-    const { store, userMonthlyIncome, totalBills, cashTotal, debts,
+    const { store, userMonthlyIncome, totalBills, cashTotal, debts, bills,
             totalDebtBalance, userScore, accounts } = ctx;
 
     // Gather inputs for the score engine
     const monthlyDebtPayments = debts.reduce((s, d) => s + (d.minimumPayment || 0), 0);
+    // Flag for the DTI engine when the user has debt balances recorded but
+    // no minimum payments set — computing DTI without minimums would lie.
+    const hasDebtsWithoutMinimumPayment = debts.some(d => (d.currentBalance || 0) > 0)
+        && debts.every(d => !(d.minimumPayment > 0));
+
+    // ── Mortgage-aware DTI ──
+    // Housing = mortgage debt minimums + bills categorized as housing/rent.
+    // Non-housing = all other debt minimums + bills categorized as
+    // auto/student/personal/credit-card payments. Lenders treat these
+    // on separate ratios (28% housing vs 36% total) — this gives users
+    // with a large mortgage but otherwise low debt an accurate score.
+    const HOUSING_BILL_CATEGORIES = new Set(['Mortgage', 'Rent']);
+    const DEBT_BILL_CATEGORIES = new Set(['Auto Loan', 'Student Loan', 'Personal Loan',
+        'Credit Card', 'Loan', 'Debt Payment']);
+    const mortgageMinimums = debts
+        .filter(d => d.type === 'mortgage')
+        .reduce((s, d) => s + (d.minimumPayment || 0), 0);
+    const nonMortgageMinimums = debts
+        .filter(d => d.type !== 'mortgage')
+        .reduce((s, d) => s + (d.minimumPayment || 0), 0);
+    // Annualize bills consistently with the rest of the app (treat one-time
+    // / frozen / excluded bills as 0).
+    const billMonthly = (bill) => {
+        if (bill.frozen || bill.excludeFromTotal) return 0;
+        const freq = bill.frequency || 'monthly';
+        const amt = bill.amount || 0;
+        switch (freq) {
+            case 'weekly': return amt * 52 / 12;
+            case 'biweekly': return amt * 26 / 12;
+            case 'monthly': return amt;
+            case 'quarterly': return amt / 3;
+            case 'semiannual': return amt / 6;
+            case 'yearly': case 'annually': return amt / 12;
+            default: return amt;
+        }
+    };
+    const housingBillMonthly = bills
+        .filter(b => HOUSING_BILL_CATEGORIES.has(b.category))
+        .reduce((s, b) => s + billMonthly(b), 0);
+    const debtBillMonthly = bills
+        .filter(b => DEBT_BILL_CATEGORIES.has(b.category))
+        .reduce((s, b) => s + billMonthly(b), 0);
+    const monthlyHousingPayment = mortgageMinimums + housingBillMonthly;
+    const monthlyNonHousingDebt = nonMortgageMinimums + debtBillMonthly;
+
     const savingsBalance = accounts
         .filter(a => a.type === 'savings')
         .reduce((s, a) => s + (a.balance || 0), 0);
@@ -845,6 +890,9 @@ function buildHealthScoreHtml(ctx) {
         totalMonthlyBills: totalBills,
         totalDebtBalance: totalDebtBalance,
         monthlyDebtPayments: monthlyDebtPayments,
+        monthlyHousingPayment: monthlyHousingPayment,
+        monthlyNonHousingDebt: monthlyNonHousingDebt,
+        hasDebtsWithoutMinimumPayment: hasDebtsWithoutMinimumPayment,
         cashTotal: cashTotal,
         savingsBalance: savingsBalance,
         billPaymentRate: billPaymentRate,
