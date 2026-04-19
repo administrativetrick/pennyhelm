@@ -1,7 +1,7 @@
 import { formatCurrency, getCategoryBadgeClass, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
-import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier } from '../services/financial-service.js';
+import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { EXPENSE_CATEGORIES, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 
@@ -1360,17 +1360,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
 }
 
 // Helper: other income source to monthly amount
-function getOtherIncomeMonthly(src) {
-    const amt = src.amount || 0;
-    switch (src.frequency) {
-        case 'weekly': return amt * 52 / 12;
-        case 'biweekly': return amt * 26 / 12;
-        case 'monthly': return amt;
-        case 'quarterly': return amt / 3;
-        case 'yearly': return amt / 12;
-        default: return 0;
-    }
-}
+const getOtherIncomeMonthly = (src) => frequencyToMonthly(src?.amount, src?.frequency);
 
 // Helper: count occurrences of a day-of-week in a given month
 function countDayOfWeekInMonth(targetDay, yr, mo) {
@@ -1413,15 +1403,6 @@ function getBillMonthlyAmount(bill, targetMonth, store) {
     return bill.amount;
 }
 
-// Helper: annualized monthly amount for waterfall
-function getBillAnnualizedMonthly(bill) {
-    if (bill.frozen || bill.excludeFromTotal) return 0;
-    if (bill.frequency === 'per-paycheck') return bill.amount * 2;
-    if (bill.frequency === 'twice-monthly') return bill.amount * 2;
-    if (bill.frequency === 'weekly') return bill.amount * 52 / 12;
-    if (bill.frequency === 'biweekly') return bill.amount * 26 / 12;
-    if (bill.frequency === 'yearly') return bill.amount / 12;
-    if (bill.frequency === 'semi-annual') return bill.amount / 6;
-    return bill.amount;
-}
+// Helper: annualized monthly amount for waterfall (delegates to service)
+const getBillAnnualizedMonthly = calculateBillMonthlyAmount;
 

@@ -1,6 +1,7 @@
 import { formatCurrency, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
-import { getMonthlyMultiplier } from '../services/financial-service.js';
+import { getMonthlyMultiplier, frequencyToMonthly } from '../services/financial-service.js';
+import { openFormModal } from '../services/modal-manager.js';
 import {
     renderTaxes,
     getSelectedYear, setSelectedYear,
@@ -63,18 +64,7 @@ const OTHER_INCOME_FREQ = {
     biweekly: 'Biweekly'
 };
 
-function getOtherIncomeMonthly(source) {
-    const amt = source.amount || 0;
-    switch (source.frequency) {
-        case 'weekly': return amt * 52 / 12;
-        case 'biweekly': return amt * 26 / 12;
-        case 'monthly': return amt;
-        case 'quarterly': return amt / 3;
-        case 'yearly': return amt / 12;
-        case 'one-time': return 0; // doesn't count toward monthly
-        default: return amt;
-    }
-}
+const getOtherIncomeMonthly = (source) => frequencyToMonthly(source?.amount, source?.frequency);
 
 let balanceHistoryView = 'monthly'; // 'daily' | 'monthly' | 'yearly'
 
@@ -601,76 +591,54 @@ export function renderIncome(container, store, subTab = null) {
 
     // Edit user pay
     container.querySelector('#edit-user-pay').addEventListener('click', () => {
-        openModal('Edit Pay Amount', `
-            <div class="form-group">
-                <label>Pay Amount (per check)</label>
-                <input type="number" class="form-input" id="user-pay-input" step="0.01" value="${income.user.payAmount}">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = parseFloat(document.getElementById('user-pay-input').value);
-            if (val > 0) {
-                store.updateIncome('user', { payAmount: val });
-                closeModal();
-                refreshPage();
-            }
+        openFormModal({
+            title: 'Edit Pay Amount',
+            refreshPage,
+            fields: [{
+                id: 'user-pay-input', label: 'Pay Amount (per check)',
+                type: 'number', step: '0.01', value: income.user.payAmount,
+                required: true, min: 0.01, autofocus: true,
+            }],
+            onSave: (values) => {
+                store.updateIncome('user', { payAmount: values['user-pay-input'] });
+            },
         });
     });
 
     // Edit pay frequency
     container.querySelector('#edit-pay-freq').addEventListener('click', () => {
-        openModal('Change Pay Frequency', `
-            <div class="form-group">
-                <label>How often do you get paid?</label>
-                <select class="form-select" id="pay-freq-select">
-                    <option value="weekly" ${paySchedule.frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
-                    <option value="biweekly" ${paySchedule.frequency === 'biweekly' ? 'selected' : ''}>Biweekly (every 2 weeks)</option>
-                    <option value="semimonthly" ${paySchedule.frequency === 'semimonthly' ? 'selected' : ''}>Semi-Monthly (1st & 15th, etc.)</option>
-                    <option value="monthly" ${paySchedule.frequency === 'monthly' ? 'selected' : ''}>Monthly</option>
-                </select>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = document.getElementById('pay-freq-select').value;
-            store.updatePaySchedule({ frequency: val });
-            closeModal();
-            refreshPage();
+        openFormModal({
+            title: 'Change Pay Frequency',
+            refreshPage,
+            fields: [{
+                id: 'pay-freq-select', label: 'How often do you get paid?',
+                type: 'select', value: paySchedule.frequency,
+                options: [
+                    { value: 'weekly', label: 'Weekly' },
+                    { value: 'biweekly', label: 'Biweekly (every 2 weeks)' },
+                    { value: 'semimonthly', label: 'Semi-Monthly (1st & 15th, etc.)' },
+                    { value: 'monthly', label: 'Monthly' },
+                ],
+            }],
+            onSave: (values) => {
+                store.updatePaySchedule({ frequency: values['pay-freq-select'] });
+            },
         });
     });
 
     // Edit pay start date
     container.querySelector('#edit-pay-start').addEventListener('click', () => {
-        openModal('Set Known Pay Date', `
-            <div class="form-group">
-                <label>Enter any date you got (or will get) paid</label>
-                <input type="date" class="form-input" id="pay-start-input" value="${paySchedule.startDate || ''}">
-                <p style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
-                    This anchors the schedule. All other pay dates are calculated from this date using your frequency.
-                </p>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = document.getElementById('pay-start-input').value;
-            if (val) {
-                store.updatePaySchedule({ startDate: val });
-                closeModal();
-                refreshPage();
-            }
+        openFormModal({
+            title: 'Set Known Pay Date',
+            refreshPage,
+            fields: [{
+                id: 'pay-start-input', label: 'Enter any date you got (or will get) paid',
+                type: 'date', value: paySchedule.startDate || '', required: true,
+                hint: 'This anchors the schedule. All other pay dates are calculated from this date using your frequency.',
+            }],
+            onSave: (values) => {
+                store.updatePaySchedule({ startDate: values['pay-start-input'] });
+            },
         });
     });
 
@@ -696,24 +664,17 @@ export function renderIncome(container, store, subTab = null) {
     const editDependentPayBtn = container.querySelector('#edit-dependent-pay');
     if (editDependentPayBtn) {
         editDependentPayBtn.addEventListener('click', () => {
-            openModal(`Edit ${escapeHtml(depName)} Pay`, `
-                <div class="form-group">
-                    <label>Monthly Pay Amount</label>
-                    <input type="number" class="form-input" id="dependent-pay-input" step="0.01" value="${income.dependent.payAmount}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const val = parseFloat(document.getElementById('dependent-pay-input').value);
-                if (val >= 0) {
-                    store.updateIncome('dependent', { payAmount: val });
-                    closeModal();
-                    refreshPage();
-                }
+            openFormModal({
+                title: `Edit ${depName} Pay`,
+                refreshPage,
+                fields: [{
+                    id: 'dependent-pay-input', label: 'Monthly Pay Amount',
+                    type: 'number', step: '0.01', value: income.dependent.payAmount,
+                    required: true, min: 0, autofocus: true,
+                }],
+                onSave: (values) => {
+                    store.updateIncome('dependent', { payAmount: values['dependent-pay-input'] });
+                },
             });
         });
     }

@@ -5,6 +5,22 @@
  * All functions are stateless and operate on data passed in.
  */
 
+// ─── Bill category constants ──────────────────────
+//
+// Used by Financial Health Score DTI (mortgage-aware front-end / back-end
+// ratios), and will be reused for cashflow reports, budget variance, and any
+// future "housing vs. other debt" breakdown. Kept as Sets because that's how
+// callers consume them (fast .has() lookup in .filter()).
+//
+// These ARE the canonical source of truth — don't redefine them inline.
+
+export const HOUSING_BILL_CATEGORIES = new Set(['Mortgage', 'Rent']);
+
+export const DEBT_BILL_CATEGORIES = new Set([
+    'Auto Loan', 'Student Loan', 'Personal Loan',
+    'Credit Card', 'Loan', 'Debt Payment'
+]);
+
 // ─── Net Worth ────────────────────────────────────
 
 export function calculateNetWorth(accounts, debts) {
@@ -48,11 +64,36 @@ export function calculateNetWorth(accounts, debts) {
     };
 }
 
+// ─── Debt helpers ─────────────────────────────────
+
+/**
+ * Sum of debt minimum payments, with optional filtering.
+ *
+ * Examples:
+ *   sumDebtMinimums(debts)                       // all debts
+ *   sumDebtMinimums(debts, { type: 'mortgage' }) // only mortgages
+ *   sumDebtMinimums(debts, { excludeType: 'mortgage' }) // everything except mortgages
+ */
+export function sumDebtMinimums(debts, opts = {}) {
+    if (!debts) return 0;
+    const { type, excludeType } = opts;
+    return debts
+        .filter(d => {
+            if (type && d.type !== type) return false;
+            if (excludeType && d.type === excludeType) return false;
+            return true;
+        })
+        .reduce((s, d) => s + (d.minimumPayment || 0), 0);
+}
+
 // ─── Frequency math ───────────────────────────────
 
 /**
  * Multiplier that converts a periodic amount into its monthly equivalent.
  * 52/12 for weekly, 26/12 for biweekly, 2 for semimonthly, 1 otherwise.
+ *
+ * Narrow helper for income-style frequencies. For the full frequency vocabulary
+ * used across bills, other-income, and chatbot totals, use frequencyToMonthly().
  */
 export function getMonthlyMultiplier(freq) {
     switch (freq) {
@@ -63,30 +104,81 @@ export function getMonthlyMultiplier(freq) {
     }
 }
 
+/**
+ * Canonical "amount + frequency → monthly equivalent" converter.
+ *
+ * Covers every frequency string the app persists: weekly, biweekly,
+ * semimonthly/twice-monthly, monthly, quarterly, semiannual, yearly/annually,
+ * one-time. Unknown frequencies are treated as monthly for backwards
+ * compatibility with legacy data that sometimes omits the field.
+ *
+ * NOTE: per-paycheck is intentionally NOT handled here because its monthly
+ * equivalent depends on actual pay-date count in the target month — callers
+ * that need per-paycheck should use calculateBillMonthlyAmount() (annualized,
+ * approximated as amount × 2) or getBillMonthlyAmount() (exact, month-specific).
+ */
+export function frequencyToMonthly(amount, frequency) {
+    const amt = amount || 0;
+    switch (frequency) {
+        case 'weekly':        return amt * 52 / 12;
+        case 'biweekly':      return amt * 26 / 12;
+        case 'semimonthly':
+        case 'twice-monthly': return amt * 2;
+        case 'monthly':       return amt;
+        case 'quarterly':     return amt / 3;
+        case 'semiannual':
+        case 'semi-annual':   return amt / 6;
+        case 'yearly':
+        case 'annually':      return amt / 12;
+        case 'one-time':      return 0;
+        default:              return amt;
+    }
+}
+
+/**
+ * Annualized monthly amount for a bill, used by the bills waterfall, dashboard
+ * health score, and any other "what does this bill cost per month on average?"
+ * consumer. Honors `frozen` and `excludeFromTotal` flags.
+ *
+ * per-paycheck bills are approximated at amount × 2 (≈ twice-monthly). For an
+ * exact count that respects the actual pay-date distribution in a given month,
+ * use getBillMonthlyAmount() in bills.js.
+ */
+export function calculateBillMonthlyAmount(bill) {
+    if (!bill) return 0;
+    if (bill.frozen || bill.excludeFromTotal) return 0;
+    if (bill.frequency === 'per-paycheck') return (bill.amount || 0) * 2;
+    return frequencyToMonthly(bill.amount, bill.frequency);
+}
+
 // ─── Monthly Income ───────────────────────────────
 
-export function calculateMonthlyIncome(income, otherIncomeSources) {
+/**
+ * Roll user pay + dependent pay + other-income sources into a monthly total.
+ *
+ * `paySchedule` is optional — when provided, its `.frequency` overrides
+ * `income.user.frequency` (the real store keeps pay frequency on the
+ * separate paySchedule object; legacy callers / tests inline it on
+ * income.user instead). Callers supplying a paySchedule get the correct
+ * answer for real app data.
+ *
+ * Returns { userPayMonthly, depMonthlyPay, otherIncomeMonthly, totalMonthly }.
+ */
+export function calculateMonthlyIncome(income, otherIncomeSources, paySchedule) {
     if (!income) return { userPayMonthly: 0, depMonthlyPay: 0, otherIncomeMonthly: 0, totalMonthly: 0 };
 
-    const freqMultiplier = {
-        weekly: 52 / 12,
-        biweekly: 26 / 12,
-        semimonthly: 2,
-        monthly: 1
-    };
-
-    const userFreq = income.user?.frequency || 'biweekly';
-    const userPayMonthly = (income.user?.payAmount || 0) * (freqMultiplier[userFreq] || 1);
+    const userFreq = paySchedule?.frequency || income.user?.frequency || 'biweekly';
+    const userPayMonthly = frequencyToMonthly(income.user?.payAmount, userFreq);
 
     const depFreq = income.dependent?.frequency || 'monthly';
     const depMonthlyPay = income.dependent?.employed
-        ? (income.dependent?.payAmount || 0) * (freqMultiplier[depFreq] || 1)
+        ? frequencyToMonthly(income.dependent?.payAmount, depFreq)
         : 0;
 
-    const otherIncomeMonthly = (otherIncomeSources || []).reduce((sum, src) => {
-        const f = src.frequency || 'monthly';
-        return sum + (src.amount || 0) * (freqMultiplier[f] || 1);
-    }, 0);
+    const otherIncomeMonthly = (otherIncomeSources || []).reduce(
+        (sum, src) => sum + frequencyToMonthly(src.amount, src.frequency || 'monthly'),
+        0,
+    );
 
     const totalMonthly = userPayMonthly + otherIncomeMonthly +
         (income.combineDependentIncome !== false ? depMonthlyPay : 0);
