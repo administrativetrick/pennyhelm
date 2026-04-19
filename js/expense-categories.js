@@ -232,6 +232,55 @@ export const EXPENSE_CATEGORIES = {
 
 // ─── Runtime helpers ──────────────────────────────
 
+/**
+ * Normalize any user-supplied category string to a canonical EXPENSE_CATEGORIES key.
+ *
+ * The app historically let bills, rules, and Plaid ingestion write whatever
+ * casing or label the user typed (e.g. "Mortgage", "Groceries", "groceries"),
+ * which broke the budget matcher because it compares by strict `===`. This
+ * helper returns the canonical lowercase key whenever we can confidently
+ * recognize the input; unknown/custom strings are passed through UNCHANGED so
+ * we don't nuke a user's bespoke category.
+ *
+ * Accepts (in priority order):
+ *   1. Exact key match (case-insensitive)             → that canonical key
+ *   2. Exact label match (case-insensitive)           → that canonical key
+ *   3. Slugified label match (lowercase, hyphenated)  → that canonical key
+ *   4. Anything else                                  → input trimmed, unchanged
+ *
+ * Null / undefined / empty → null (callers decide the fallback).
+ *
+ * @param {string} input — the category string from a form, rule, or import
+ * @param {object} [store] — optional; includes custom categories in the lookup
+ * @returns {string|null}
+ */
+export function normalizeCategoryKey(input, store) {
+    if (input == null) return null;
+    const raw = String(input).trim();
+    if (raw === '') return null;
+
+    const all = store ? getAllExpenseCategories(store) : EXPENSE_CATEGORIES;
+    const needle = raw.toLowerCase();
+
+    // 1. Exact key match (case-insensitive).
+    for (const key of Object.keys(all)) {
+        if (key.toLowerCase() === needle) return key;
+    }
+
+    // 2. Exact label match (case-insensitive).
+    for (const [key, cat] of Object.entries(all)) {
+        if ((cat.label || '').toLowerCase() === needle) return key;
+    }
+
+    // 3. Slugified label (e.g. "Credit Card Payment" → "credit-card-payment").
+    //    Useful when a stored value happens to match a key after normalizing.
+    const slug = needle.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (slug && all[slug]) return slug;
+
+    // 4. Unknown → pass through (trimmed) so custom categories survive.
+    return raw;
+}
+
 /** All unique group names in display order. */
 export function getCategoryGroups() {
     const seen = new Set();
