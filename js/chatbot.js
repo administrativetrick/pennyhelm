@@ -87,7 +87,7 @@ function buildFinancialSummary() {
     // Build summary
     let s = `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.\n`;
     s += `User: ${data.userName || 'User'}\n`;
-    if (data.dependentEnabled) s += `Partner: ${data.dependentName || 'Dependent'}\n`;
+    if (data.dependentEnabled) s += `Partner: ${data.dependentName || 'Partner'}\n`;
 
     s += `\nMONTHLY INCOME: ${formatCurrency(totalMonthlyIncome)}`;
     s += ` (take-home pay: ${formatCurrency(userMonthlyPay)}`;
