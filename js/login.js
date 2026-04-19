@@ -1,10 +1,11 @@
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, APP_CHECK_SITE_KEY } from './firebase-config.js';
 import { APP_MODE } from './mode-config.js';
 import {
     captureAcquisitionParams,
     getAcquisitionSourceForSignup,
     clearAcquisition,
 } from './acquisition.js';
+import { activateAppCheck } from './app-check-boot.js';
 
 // Capture any UTM / ref / gclid / fbclid params that landed the user here.
 // Runs before Firebase init so it's captured even if Firebase fails to load.
@@ -12,6 +13,9 @@ captureAcquisitionParams();
 
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
+// App Check activation must precede any service getter so tokens are attached
+// to the very first auth / functions call. No-op if site key is empty.
+activateAppCheck(firebase, APP_CHECK_SITE_KEY);
 const auth = firebase.auth();
 const functions = firebase.functions();
 

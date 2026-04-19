@@ -61,6 +61,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check-compat.js"></script>
     <!-- Plaid Link SDK -->
     <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 
@@ -74,6 +75,21 @@
             messagingSenderId: "348712070883",
             appId: "1:348712070883:web:147ed5974770faedbf9fd6"
         });
+
+        // App Check — keep in sync with APP_CHECK_SITE_KEY in js/firebase-config.js
+        // Empty string = no-op (legacy behavior). Set once registered in
+        // Firebase Console → App Check → Apps → Web.
+        const APP_CHECK_SITE_KEY = "";
+        if (APP_CHECK_SITE_KEY) {
+            try {
+                if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+                    self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+                }
+                firebase.appCheck().activate(APP_CHECK_SITE_KEY, /* autoRefresh */ true);
+            } catch (e) {
+                console.error('[AppCheck] activation failed:', e);
+            }
+        }
 
         const statusEl = document.getElementById('status');
         const errorEl = document.getElementById('error');
