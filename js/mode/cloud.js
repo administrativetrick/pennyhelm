@@ -7,7 +7,8 @@
  */
 
 import { loadFirebaseSdk } from '../cloud-loader.js';
-import { firebaseConfig } from '../firebase-config.js';
+import { firebaseConfig, APP_CHECK_SITE_KEY } from '../firebase-config.js';
+import { activateAppCheck } from '../app-check-boot.js';
 
 const cloud = Object.freeze({
     name: 'cloud',
@@ -129,6 +130,10 @@ function makeCloudAuthStrategy() {
 
             if (!firebase.apps.length) {
                 firebase.initializeApp(firebaseConfig);
+                // App Check must activate before any auth/firestore/functions
+                // calls — tokens are attached to outgoing requests from that
+                // point on. No-op if APP_CHECK_SITE_KEY is empty.
+                activateAppCheck(firebase, APP_CHECK_SITE_KEY);
             }
 
             return new Promise((resolve) => {
