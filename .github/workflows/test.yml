@@ -19,7 +19,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Node 22 LTS — `node --test` gained glob-pattern support in v21,
+          # which the test script relies on (`tests/**/*.test.js`).
+          node-version: '22'
 
       - name: Run tests
         run: npm test
