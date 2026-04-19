@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-19
+
 ### Added
 - `/health` endpoint on the self-host server returning JSON `{status, mode, uptime}`. Returns 503 if SQLite is unreachable.
 - Docker `HEALTHCHECK` directive so `docker compose ps` reports accurate container health (30s interval, 5s timeout, 10s start period).
@@ -93,5 +95,6 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/administrativetrick/pennyhelm/releases/tag/v0.1.0
