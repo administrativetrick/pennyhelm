@@ -1,5 +1,6 @@
 import { formatCurrency, escapeHtml, getScoreRating, estimateScoreImpact } from '../utils.js';
 import { openModal, closeModal, refreshPage, updateDependentNav } from '../app.js';
+import { openFormModal } from '../services/modal-manager.js';
 import { auth } from '../auth.js';
 import { CATEGORY_COLORS } from '../categories.js';
 import { hasPlaidConnections } from '../plaid.js';
@@ -540,20 +541,15 @@ export function renderSettings(container, store) {
 
     // Edit user name
     container.querySelector('#edit-user-name').addEventListener('click', () => {
-        openModal('Edit Your Name', `
-            <div class="form-group">
-                <label>Your Name</label>
-                <input type="text" class="form-input" id="user-name-input" value="${escapeHtml(userName)}">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = document.getElementById('user-name-input').value.trim();
-            if (val) {
+        openFormModal({
+            title: 'Edit Your Name',
+            refreshPage,
+            fields: [{
+                id: 'user-name-input', label: 'Your Name', type: 'text',
+                value: userName, required: true, autofocus: true,
+            }],
+            onSave: (values) => {
+                const val = values['user-name-input'];
                 store.setUserName(val);
                 // Update sidebar and page title dynamically
                 const logoText = document.querySelector('.logo-text');
@@ -561,9 +557,7 @@ export function renderSettings(container, store) {
                 const logo = document.querySelector('.logo');
                 if (logo) logo.textContent = val.charAt(0).toUpperCase() + 'F';
                 document.title = val + ' Finances';
-                closeModal();
-                refreshPage();
-            }
+            },
         });
     });
 
@@ -1338,26 +1332,18 @@ export function renderSettings(container, store) {
 
     // Credit score - user
     container.querySelector('#update-user-score').addEventListener('click', () => {
-        openModal(`Update ${escapeHtml(userName)}'s Credit Score`, `
-            <div class="form-group">
-                <label>FICO Score (300–850)</label>
-                <input type="number" class="form-input" id="credit-score-input" min="300" max="850" value="${creditScores.user.score || ''}">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = parseInt(document.getElementById('credit-score-input').value);
-            if (val >= 300 && val <= 850) {
-                store.updateCreditScore('user', val);
-                closeModal();
-                refreshPage();
-            } else {
-                alert('Please enter a score between 300 and 850');
-            }
+        openFormModal({
+            title: `Update ${userName}'s Credit Score`,
+            refreshPage,
+            fields: [{
+                id: 'credit-score-input', label: 'FICO Score (300–850)',
+                type: 'number', min: 300, max: 850,
+                value: creditScores.user.score || '',
+                required: true, autofocus: true,
+            }],
+            onSave: (values) => {
+                store.updateCreditScore('user', Math.round(values['credit-score-input']));
+            },
         });
     });
 
@@ -1386,26 +1372,18 @@ export function renderSettings(container, store) {
     const updateDependentScoreBtn = container.querySelector('#update-dependent-score');
     if (updateDependentScoreBtn) {
         updateDependentScoreBtn.addEventListener('click', () => {
-            openModal(`Update ${escapeHtml(depName)}'s Credit Score`, `
-                <div class="form-group">
-                    <label>FICO Score (300–850)</label>
-                    <input type="number" class="form-input" id="credit-score-input" min="300" max="850" value="${creditScores.dependent && creditScores.dependent.score ? creditScores.dependent.score : ''}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const val = parseInt(document.getElementById('credit-score-input').value);
-                if (val >= 300 && val <= 850) {
-                    store.updateCreditScore('dependent', val);
-                    closeModal();
-                    refreshPage();
-                } else {
-                    alert('Please enter a score between 300 and 850');
-                }
+            openFormModal({
+                title: `Update ${depName}'s Credit Score`,
+                refreshPage,
+                fields: [{
+                    id: 'credit-score-input', label: 'FICO Score (300–850)',
+                    type: 'number', min: 300, max: 850,
+                    value: (creditScores.dependent && creditScores.dependent.score) || '',
+                    required: true, autofocus: true,
+                }],
+                onSave: (values) => {
+                    store.updateCreditScore('dependent', Math.round(values['credit-score-input']));
+                },
             });
         });
     }
@@ -1446,29 +1424,21 @@ export function renderSettings(container, store) {
         refreshPage();
     });
 
-    // Edit dependent name
+    // Edit dependent (partner) name
     const editDepNameBtn = container.querySelector('#edit-dep-name');
     if (editDepNameBtn) {
         editDepNameBtn.addEventListener('click', () => {
-            openModal("Edit Partner's Name", `
-                <div class="form-group">
-                    <label>Partner's name</label>
-                    <input type="text" class="form-input" id="dep-name-input" value="${escapeHtml(depName)}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const val = document.getElementById('dep-name-input').value.trim();
-                if (val) {
-                    store.setDependentName(val);
+            openFormModal({
+                title: "Edit Partner's Name",
+                refreshPage,
+                fields: [{
+                    id: 'dep-name-input', label: "Partner's name", type: 'text',
+                    value: depName, required: true, autofocus: true,
+                }],
+                onSave: (values) => {
+                    store.setDependentName(values['dep-name-input']);
                     updateDependentNav();
-                    closeModal();
-                    refreshPage();
-                }
+                },
             });
         });
     }
@@ -1491,34 +1461,19 @@ export function renderSettings(container, store) {
     container.querySelectorAll('.edit-source').forEach(btn => {
         btn.addEventListener('click', () => {
             const oldName = btn.dataset.source;
-            openModal('Rename Payment Source', `
-                <div class="form-group">
-                    <label>Source Name</label>
-                    <input type="text" class="form-input" id="rename-source-input" value="${escapeHtml(oldName)}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            const input = document.getElementById('rename-source-input');
-            input.focus();
-            input.select();
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const newName = input.value.trim();
-                if (newName && newName !== oldName) {
-                    store.renamePaymentSource(oldName, newName);
-                    closeModal();
-                    refreshPage();
-                } else if (!newName) {
-                    alert('Please enter a name');
-                } else {
-                    closeModal();
-                }
-            });
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') document.getElementById('modal-save').click();
+            openFormModal({
+                title: 'Rename Payment Source',
+                refreshPage,
+                fields: [{
+                    id: 'rename-source-input', label: 'Source Name', type: 'text',
+                    value: oldName, required: true, autofocus: true,
+                }],
+                onSave: (values) => {
+                    const newName = values['rename-source-input'];
+                    if (newName && newName !== oldName) {
+                        store.renamePaymentSource(oldName, newName);
+                    }
+                },
             });
         });
     });

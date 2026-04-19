@@ -15,6 +15,11 @@ import assert from 'node:assert/strict';
 import {
     calculateNetWorth,
     getMonthlyMultiplier,
+    frequencyToMonthly,
+    calculateBillMonthlyAmount,
+    sumDebtMinimums,
+    HOUSING_BILL_CATEGORIES,
+    DEBT_BILL_CATEGORIES,
     calculateMonthlyIncome,
     generatePayDates,
     createBalanceSnapshot,
@@ -145,6 +150,140 @@ describe('getMonthlyMultiplier', () => {
     });
 });
 
+// ─── frequencyToMonthly ───────────────────────────────────────────────
+
+describe('frequencyToMonthly', () => {
+    test('weekly is amount * 52 / 12', () => {
+        assert.equal(frequencyToMonthly(100, 'weekly'), 100 * 52 / 12);
+    });
+    test('biweekly is amount * 26 / 12', () => {
+        assert.equal(frequencyToMonthly(100, 'biweekly'), 100 * 26 / 12);
+    });
+    test('semimonthly and twice-monthly both return amount * 2', () => {
+        assert.equal(frequencyToMonthly(100, 'semimonthly'), 200);
+        assert.equal(frequencyToMonthly(100, 'twice-monthly'), 200);
+    });
+    test('monthly returns amount', () => {
+        assert.equal(frequencyToMonthly(100, 'monthly'), 100);
+    });
+    test('quarterly divides by 3', () => {
+        assert.equal(frequencyToMonthly(300, 'quarterly'), 100);
+    });
+    test('semiannual and semi-annual both divide by 6', () => {
+        assert.equal(frequencyToMonthly(600, 'semiannual'), 100);
+        assert.equal(frequencyToMonthly(600, 'semi-annual'), 100);
+    });
+    test('yearly and annually both divide by 12', () => {
+        assert.equal(frequencyToMonthly(1200, 'yearly'), 100);
+        assert.equal(frequencyToMonthly(1200, 'annually'), 100);
+    });
+    test('one-time returns 0', () => {
+        assert.equal(frequencyToMonthly(500, 'one-time'), 0);
+    });
+    test('null or undefined amount returns 0', () => {
+        assert.equal(frequencyToMonthly(null, 'monthly'), 0);
+        assert.equal(frequencyToMonthly(undefined, 'weekly'), 0);
+    });
+    test('unknown frequency falls through as monthly (no double-counting)', () => {
+        assert.equal(frequencyToMonthly(100, 'zzz'), 100);
+        assert.equal(frequencyToMonthly(100, undefined), 100);
+    });
+});
+
+// ─── calculateBillMonthlyAmount ───────────────────────────────────────
+
+describe('calculateBillMonthlyAmount', () => {
+    test('returns 0 when bill is null/undefined', () => {
+        assert.equal(calculateBillMonthlyAmount(null), 0);
+        assert.equal(calculateBillMonthlyAmount(undefined), 0);
+    });
+    test('frozen bills return 0', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 500, frequency: 'monthly', frozen: true }), 0);
+    });
+    test('excludeFromTotal bills return 0', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 500, frequency: 'monthly', excludeFromTotal: true }), 0);
+    });
+    test('per-paycheck bills approximate as amount * 2', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 250, frequency: 'per-paycheck' }), 500);
+    });
+    test('twice-monthly bills return amount * 2', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 250, frequency: 'twice-monthly' }), 500);
+    });
+    test('weekly bills return amount * 52 / 12', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 100, frequency: 'weekly' }), 100 * 52 / 12);
+    });
+    test('biweekly bills return amount * 26 / 12', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 100, frequency: 'biweekly' }), 100 * 26 / 12);
+    });
+    test('yearly bills return amount / 12', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 1200, frequency: 'yearly' }), 100);
+    });
+    test('semi-annual bills return amount / 6', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 600, frequency: 'semi-annual' }), 100);
+    });
+    test('monthly (default) returns amount', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 100, frequency: 'monthly' }), 100);
+    });
+    test('no frequency specified falls through as monthly', () => {
+        assert.equal(calculateBillMonthlyAmount({ amount: 100 }), 100);
+    });
+    test('missing amount treated as 0', () => {
+        assert.equal(calculateBillMonthlyAmount({ frequency: 'monthly' }), 0);
+    });
+});
+
+// ─── sumDebtMinimums ──────────────────────────────────────────────────
+
+describe('sumDebtMinimums', () => {
+    const debts = [
+        { type: 'mortgage', minimumPayment: 2500 },
+        { type: 'mortgage', minimumPayment: 1500 },
+        { type: 'credit_card', minimumPayment: 100 },
+        { type: 'auto_loan', minimumPayment: 400 },
+        { type: 'student_loan', minimumPayment: 300 },
+        { type: 'personal_loan' }, // no minimum set — should be treated as 0
+    ];
+
+    test('returns 0 for null or missing debts', () => {
+        assert.equal(sumDebtMinimums(null), 0);
+        assert.equal(sumDebtMinimums(undefined), 0);
+        assert.equal(sumDebtMinimums([]), 0);
+    });
+
+    test('sums all minimums with no filter', () => {
+        assert.equal(sumDebtMinimums(debts), 2500 + 1500 + 100 + 400 + 300);
+    });
+
+    test('filters by type when type option provided', () => {
+        assert.equal(sumDebtMinimums(debts, { type: 'mortgage' }), 4000);
+        assert.equal(sumDebtMinimums(debts, { type: 'credit_card' }), 100);
+    });
+
+    test('filters out a type when excludeType provided', () => {
+        assert.equal(sumDebtMinimums(debts, { excludeType: 'mortgage' }), 100 + 400 + 300);
+    });
+
+    test('missing minimumPayment treated as 0', () => {
+        const noMins = [{ type: 'credit_card' }, { type: 'credit_card' }];
+        assert.equal(sumDebtMinimums(noMins), 0);
+    });
+});
+
+// ─── HOUSING_BILL_CATEGORIES / DEBT_BILL_CATEGORIES ───────────────────
+
+describe('Bill category constants', () => {
+    test('HOUSING_BILL_CATEGORIES contains Mortgage and Rent', () => {
+        assert.ok(HOUSING_BILL_CATEGORIES.has('Mortgage'));
+        assert.ok(HOUSING_BILL_CATEGORIES.has('Rent'));
+        assert.ok(!HOUSING_BILL_CATEGORIES.has('Auto Loan'));
+    });
+    test('DEBT_BILL_CATEGORIES contains auto/student/personal/card/loan/debt', () => {
+        ['Auto Loan', 'Student Loan', 'Personal Loan', 'Credit Card', 'Loan', 'Debt Payment']
+            .forEach(c => assert.ok(DEBT_BILL_CATEGORIES.has(c), `${c} missing`));
+        assert.ok(!DEBT_BILL_CATEGORIES.has('Mortgage'));
+    });
+});
+
 // ─── calculateMonthlyIncome ───────────────────────────────────────────
 
 describe('calculateMonthlyIncome', () => {
@@ -222,6 +361,21 @@ describe('calculateMonthlyIncome', () => {
         const result = calculateMonthlyIncome(income, other);
         const expected = 500 + 100 * 52 / 12;
         assert.ok(Math.abs(result.otherIncomeMonthly - expected) < 0.001);
+    });
+
+    test('paySchedule.frequency overrides income.user.frequency (real store shape)', () => {
+        // Real store keeps pay frequency on paySchedule, not on income.user.
+        const income = { user: { payAmount: 2000 } }; // no frequency on income.user
+        const paySchedule = { frequency: 'weekly' };
+        const result = calculateMonthlyIncome(income, [], paySchedule);
+        assert.ok(Math.abs(result.userPayMonthly - (2000 * 52 / 12)) < 0.001);
+    });
+
+    test('paySchedule.frequency wins even when income.user.frequency is set', () => {
+        const income = { user: { payAmount: 2000, frequency: 'monthly' } };
+        const paySchedule = { frequency: 'biweekly' };
+        const result = calculateMonthlyIncome(income, [], paySchedule);
+        assert.ok(Math.abs(result.userPayMonthly - (2000 * 26 / 12)) < 0.001);
     });
 });
 

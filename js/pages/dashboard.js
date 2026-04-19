@@ -1,6 +1,18 @@
 import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating, formatDate, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage, navigate } from '../app.js';
-import { calculateFinancialHealthScore, expandBillOccurrences, buildPayPeriods, resolveInvestmentHaircut } from '../services/financial-service.js';
+import {
+    calculateFinancialHealthScore,
+    calculateMonthlyIncome,
+    expandBillOccurrences,
+    buildPayPeriods,
+    resolveInvestmentHaircut,
+    getMonthlyMultiplier,
+    frequencyToMonthly,
+    calculateBillMonthlyAmount,
+    sumDebtMinimums,
+    HOUSING_BILL_CATEGORIES,
+    DEBT_BILL_CATEGORIES,
+} from '../services/financial-service.js';
 import { detectRecurringTransactions, buildBillSuggestion } from '../services/recurring-service.js';
 import { EXPENSE_CATEGORIES, getAllExpenseCategories } from '../expense-categories.js';
 
@@ -426,24 +438,17 @@ export function renderDashboard(container, store, subTab) {
     const dependentBills = bills.filter(b => b.owner === 'dependent');
     const payDates = store.getPayDates();
 
-    // Calculate totals
+    // Calculate totals (via shared financial-service helper)
     const paySchedule = store.getPaySchedule();
     const otherIncome = store.getOtherIncome();
     const combineDepIncome = income.combineDependentIncome !== false;
-    const monthlyMultiplier = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    const userPayMonthly = income.user.payAmount * monthlyMultiplier;
-    const otherIncomeMonthly = otherIncome.reduce((s, src) => {
-        const amt = src.amount || 0;
-        switch (src.frequency) {
-            case 'weekly': return s + amt * 52 / 12;
-            case 'biweekly': return s + amt * 26 / 12;
-            case 'monthly': return s + amt;
-            case 'quarterly': return s + amt / 3;
-            case 'yearly': return s + amt / 12;
-            default: return s;
-        }
-    }, 0);
-    const depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    const monthlyMultiplier = getMonthlyMultiplier(paySchedule.frequency);
+    const {
+        userPayMonthly,
+        otherIncomeMonthly,
+        depMonthlyPay: rawDepMonthly,
+    } = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    const depMonthlyPay = depEnabled && combineDepIncome ? rawDepMonthly : 0;
     const userMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
     const countDayOfWeekInMonth = (targetDay, yr, mo) => {
         const lastOfMonth = new Date(yr, mo + 1, 0);
@@ -838,31 +843,11 @@ function buildHealthScoreHtml(ctx) {
     // auto/student/personal/credit-card payments. Lenders treat these
     // on separate ratios (28% housing vs 36% total) — this gives users
     // with a large mortgage but otherwise low debt an accurate score.
-    const HOUSING_BILL_CATEGORIES = new Set(['Mortgage', 'Rent']);
-    const DEBT_BILL_CATEGORIES = new Set(['Auto Loan', 'Student Loan', 'Personal Loan',
-        'Credit Card', 'Loan', 'Debt Payment']);
-    const mortgageMinimums = debts
-        .filter(d => d.type === 'mortgage')
-        .reduce((s, d) => s + (d.minimumPayment || 0), 0);
-    const nonMortgageMinimums = debts
-        .filter(d => d.type !== 'mortgage')
-        .reduce((s, d) => s + (d.minimumPayment || 0), 0);
+    const mortgageMinimums = sumDebtMinimums(debts, { type: 'mortgage' });
+    const nonMortgageMinimums = sumDebtMinimums(debts, { excludeType: 'mortgage' });
     // Annualize bills consistently with the rest of the app (treat one-time
-    // / frozen / excluded bills as 0).
-    const billMonthly = (bill) => {
-        if (bill.frozen || bill.excludeFromTotal) return 0;
-        const freq = bill.frequency || 'monthly';
-        const amt = bill.amount || 0;
-        switch (freq) {
-            case 'weekly': return amt * 52 / 12;
-            case 'biweekly': return amt * 26 / 12;
-            case 'monthly': return amt;
-            case 'quarterly': return amt / 3;
-            case 'semiannual': return amt / 6;
-            case 'yearly': case 'annually': return amt / 12;
-            default: return amt;
-        }
-    };
+    // / frozen / excluded bills as 0). Canonical helper in financial-service.
+    const billMonthly = calculateBillMonthlyAmount;
     // Only count bills NOT already represented by a debt's minimumPayment.
     // PennyHelm's entity-linker attaches `linkedDebtId` when a bill mirrors
     // a debt — counting both the debt min AND the linked bill would double
@@ -1862,20 +1847,13 @@ function buildDashboardPdfContent(store, dateLabel) {
     var paySchedule = store.getPaySchedule();
     var otherIncome = store.getOtherIncome();
 
-    var monthlyMult = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    var userPayMonthly = income.user.payAmount * monthlyMult;
-    var otherIncomeMonthly = otherIncome.reduce(function(s, src) {
-        var amt = src.amount || 0;
-        if (src.frequency === 'weekly') return s + amt * 52 / 12;
-        if (src.frequency === 'biweekly') return s + amt * 26 / 12;
-        if (src.frequency === 'monthly') return s + amt;
-        if (src.frequency === 'quarterly') return s + amt / 3;
-        if (src.frequency === 'yearly') return s + amt / 12;
-        return s;
-    }, 0);
+    var monthlyMult = getMonthlyMultiplier(paySchedule.frequency);
     var depEnabled = store.isDependentEnabled();
     var combineDepIncome = income.combineDependentIncome !== false;
-    var depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    var incomeBreakdown = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    var userPayMonthly = incomeBreakdown.userPayMonthly;
+    var otherIncomeMonthly = incomeBreakdown.otherIncomeMonthly;
+    var depMonthlyPay = depEnabled && combineDepIncome ? incomeBreakdown.depMonthlyPay : 0;
     var totalMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
 
     var payDatesAll = store.getPayDates();
@@ -1957,8 +1935,8 @@ function buildIncomePdfContent(store, dateLabel) {
     var paySchedule = store.getPaySchedule();
     var depEnabled = store.isDependentEnabled();
 
-    var monthlyMult = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    var userPayMonthly = income.user.payAmount * monthlyMult;
+    var incomeBreakdown = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    var userPayMonthly = incomeBreakdown.userPayMonthly;
 
     var html = '<h2>Primary Income</h2>';
     html += '<div class="summary-grid">';
@@ -1983,16 +1961,8 @@ function buildIncomePdfContent(store, dateLabel) {
     }
 
     // Total
-    var otherMonthly = otherIncome.reduce(function(s, src) {
-        var amt = src.amount || 0;
-        if (src.frequency === 'weekly') return s + amt * 52 / 12;
-        if (src.frequency === 'biweekly') return s + amt * 26 / 12;
-        if (src.frequency === 'monthly') return s + amt;
-        if (src.frequency === 'quarterly') return s + amt / 3;
-        if (src.frequency === 'yearly') return s + amt / 12;
-        return s;
-    }, 0);
-    var totalHousehold = userPayMonthly + otherMonthly + (depEnabled ? (income.dependent.payAmount || 0) : 0);
+    var otherMonthly = incomeBreakdown.otherIncomeMonthly;
+    var totalHousehold = userPayMonthly + otherMonthly + (depEnabled ? incomeBreakdown.depMonthlyPay : 0);
     html += '<h2>Total Household Income</h2>';
     html += '<div class="summary-grid">';
     html += '<div class="summary-card"><div class="label">Total Monthly</div><div class="value text-green">' + formatCurrency(totalHousehold) + '</div></div>';
@@ -2011,19 +1981,11 @@ function buildCashflowPdfContent(store, dateLabel) {
     var depEnabled = store.isDependentEnabled();
     var combineDepIncome = income.combineDependentIncome !== false;
 
-    // Monthly income
-    var monthlyMult = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    var userPayMonthly = (income.user.payAmount || 0) * monthlyMult;
-    var otherIncomeMonthly = otherIncome.reduce(function(s, src) {
-        var amt = src.amount || 0;
-        if (src.frequency === 'weekly') return s + amt * 52 / 12;
-        if (src.frequency === 'biweekly') return s + amt * 26 / 12;
-        if (src.frequency === 'monthly') return s + amt;
-        if (src.frequency === 'quarterly') return s + amt / 3;
-        if (src.frequency === 'yearly') return s + amt / 12;
-        return s;
-    }, 0);
-    var depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    // Monthly income (via shared financial-service helper)
+    var incomeBreakdown = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    var userPayMonthly = incomeBreakdown.userPayMonthly;
+    var otherIncomeMonthly = incomeBreakdown.otherIncomeMonthly;
+    var depMonthlyPay = depEnabled && combineDepIncome ? incomeBreakdown.depMonthlyPay : 0;
     var totalMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
 
     // Income sources list
@@ -2031,8 +1993,7 @@ function buildCashflowPdfContent(store, dateLabel) {
     if (userPayMonthly > 0) incomeSources.push({ name: store.getUserName() + "'s Pay", amount: userPayMonthly });
     if (depMonthlyPay > 0) incomeSources.push({ name: store.getDependentName() + "'s Pay", amount: depMonthlyPay });
     otherIncome.forEach(function(src) {
-        var amt = src.amount || 0;
-        var m = src.frequency === 'weekly' ? amt * 52/12 : src.frequency === 'biweekly' ? amt * 26/12 : src.frequency === 'monthly' ? amt : src.frequency === 'quarterly' ? amt/3 : src.frequency === 'yearly' ? amt/12 : 0;
+        var m = frequencyToMonthly(src.amount, src.frequency);
         if (m > 0) incomeSources.push({ name: src.name || 'Other income', amount: m });
     });
 
@@ -2056,10 +2017,7 @@ function buildCashflowPdfContent(store, dateLabel) {
     } else {
         bills.filter(function(b) { return !b.frozen && !b.excludeFromTotal; }).forEach(function(bill) {
             var cat = bill.category || 'Uncategorized';
-            var amt = bill.amount || 0;
-            var freq = bill.frequency || 'monthly';
-            var monthly = freq === 'weekly' ? amt * 52/12 : freq === 'biweekly' ? amt * 26/12 : freq === 'quarterly' ? amt/3 : freq === 'yearly' ? amt/12 : amt;
-            categoryTotals[cat] = (categoryTotals[cat] || 0) + monthly;
+            categoryTotals[cat] = (categoryTotals[cat] || 0) + calculateBillMonthlyAmount(bill);
         });
     }
     var sortedCategories = Object.entries(categoryTotals).sort(function(a, b) { return b[1] - a[1]; });
