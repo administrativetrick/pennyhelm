@@ -1,6 +1,6 @@
 import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating, formatDate, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage, navigate } from '../app.js';
-import { calculateFinancialHealthScore, expandBillOccurrences, buildPayPeriods } from '../services/financial-service.js';
+import { calculateFinancialHealthScore, expandBillOccurrences, buildPayPeriods, resolveInvestmentHaircut } from '../services/financial-service.js';
 import { detectRecurringTransactions, buildBillSuggestion } from '../services/recurring-service.js';
 import { EXPENSE_CATEGORIES, getAllExpenseCategories } from '../expense-categories.js';
 
@@ -837,6 +837,8 @@ function buildHealthScoreHtml(ctx) {
         .filter(a => a.type === 'investment')
         .reduce((s, a) => s + (a.balance || 0), 0);
     const billPaymentRate = store.getBillPaymentRate(3);
+    const healthSettings = store.getHealthScoreSettings();
+    const investmentHaircut = resolveInvestmentHaircut(healthSettings.riskTolerance);
 
     const result = calculateFinancialHealthScore({
         monthlyIncome: userMonthlyIncome,
@@ -848,6 +850,7 @@ function buildHealthScoreHtml(ctx) {
         billPaymentRate: billPaymentRate,
         creditScore: userScore,
         taxableInvestmentBalance: taxableInvestmentBalance,
+        investmentHaircut: investmentHaircut,
     });
 
     const { score, grade, components, missingComponents, completeness } = result;
@@ -858,8 +861,10 @@ function buildHealthScoreHtml(ctx) {
     const dashOffset = circumference - (score / 100) * circumference;
 
     var html = '<div class="card health-score-widget">';
-    html += '<div class="flex-between mb-16"><h3>Financial Health Score</h3>';
-    html += '<span style="font-size:18px;">' + grade.emoji + '</span></div>';
+    // The colored score ring + grade label below already communicate the
+    // grade — dropping the header-corner emoji avoids it reading as an
+    // error/alert icon when the grade is Needs Work or Critical.
+    html += '<div class="flex-between mb-16"><h3>Financial Health Score</h3></div>';
 
     // ── Score Ring ──
     html += '<div style="display:flex;align-items:center;gap:24px;margin-bottom:20px;">';

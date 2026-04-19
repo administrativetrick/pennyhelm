@@ -62,6 +62,12 @@ const defaultData = {
         preferredTime: '09:00',
         includeAutoPay: false
     },
+    healthScoreSettings: {
+        // conservative (50%) | balanced (75%) | aggressive (100%)
+        // Controls how much credit taxable brokerage balances get toward
+        // Liquid Reserves & Savings Cushion. See resolveInvestmentHaircut().
+        riskTolerance: 'balanced'
+    },
     dashboardLayout: null, // { order: [...widgetIds], hidden: [...widgetIds] }
     usageType: null, // 'personal' | 'business' | 'both' — set during onboarding
     businessNames: [], // ['Acme Corp', 'Side Hustle LLC'] — user-defined business names
@@ -1544,6 +1550,19 @@ class Store {
     updateNotificationPreferences(updates) {
         const data = this._load();
         data.notificationPreferences = { ...data.notificationPreferences, ...updates };
+        this._save();
+    }
+
+    // ─── Health-Score Settings ───────────────────────────────
+
+    getHealthScoreSettings() {
+        const data = this._load();
+        return data.healthScoreSettings || { riskTolerance: 'balanced' };
+    }
+
+    updateHealthScoreSettings(updates) {
+        const data = this._load();
+        data.healthScoreSettings = { ...(data.healthScoreSettings || {}), ...updates };
         this._save();
     }
 }

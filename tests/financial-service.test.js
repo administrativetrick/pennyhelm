@@ -22,6 +22,8 @@ import {
     calculateFinancialHealthScore,
     buildPayPeriods,
     matchBillToPlaidTransactions,
+    resolveInvestmentHaircut,
+    INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE,
 } from '../js/services/financial-service.js';
 
 // ─── calculateNetWorth ────────────────────────────────────────────────
@@ -751,6 +753,78 @@ describe('calculateFinancialHealthScore', () => {
         assert.equal(liquid.score, 100);
     });
 
+    test('Conservative haircut (0.50) gives smaller credit than Balanced (0.75)', () => {
+        // $1000/mo expenses, $0 savings, $10k brokerage
+        // Conservative: 5000 / 1000 = 5 months → 83%
+        // Balanced:     7500 / 1000 = 7.5 months → 100% (capped at 6mo)
+        // Aggressive:  10000 / 1000 = 10 months → 100%
+        const makeResult = (haircut) => calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 0,
+            billPaymentRate: 1,
+            creditScore: 750,
+            taxableInvestmentBalance: 10000,
+            investmentHaircut: haircut,
+        });
+        const conservative = makeResult(0.50).components.find(c => c.name === 'Savings Cushion');
+        const balanced = makeResult(0.75).components.find(c => c.name === 'Savings Cushion');
+        const aggressive = makeResult(1.00).components.find(c => c.name === 'Savings Cushion');
+        assert.ok(conservative.score < balanced.score);
+        assert.equal(balanced.score, 100);
+        assert.equal(aggressive.score, 100);
+        // 5 / 6 × 100 = 83.3 → rounds to 83
+        assert.equal(conservative.score, 83);
+    });
+
+    test('investmentHaircut defaults to 0.75 (balanced) when not supplied', () => {
+        const withDefault = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 0,
+            billPaymentRate: 1,
+            creditScore: 750,
+            taxableInvestmentBalance: 10000,
+            // investmentHaircut omitted
+        });
+        const withExplicit = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 0,
+            billPaymentRate: 1,
+            creditScore: 750,
+            taxableInvestmentBalance: 10000,
+            investmentHaircut: 0.75,
+        });
+        const defaultSav = withDefault.components.find(c => c.name === 'Savings Cushion');
+        const explicitSav = withExplicit.components.find(c => c.name === 'Savings Cushion');
+        assert.equal(defaultSav.score, explicitSav.score);
+    });
+
+    test('invalid / out-of-range haircut is clamped safely', () => {
+        // Negative → treated as 0 (no credit at all). Super-large → clamped to 1.
+        const negative = calculateFinancialHealthScore({
+            monthlyIncome: 5000, totalMonthlyBills: 1000, monthlyDebtPayments: 0,
+            cashTotal: 0, savingsBalance: 0, billPaymentRate: 1, creditScore: 750,
+            taxableInvestmentBalance: 10000, investmentHaircut: -5,
+        });
+        const huge = calculateFinancialHealthScore({
+            monthlyIncome: 5000, totalMonthlyBills: 1000, monthlyDebtPayments: 0,
+            cashTotal: 0, savingsBalance: 0, billPaymentRate: 1, creditScore: 750,
+            taxableInvestmentBalance: 10000, investmentHaircut: 99,
+        });
+        const negSav = negative.components.find(c => c.name === 'Savings Cushion');
+        const hugeSav = huge.components.find(c => c.name === 'Savings Cushion');
+        assert.equal(negSav.score, 0);        // no credit → 0
+        assert.equal(hugeSav.score, 100);     // capped at 1.00 → 10k, 10 months
+    });
+
     test('final score never exceeds 100 or goes below 0', () => {
         const result = calculateFinancialHealthScore({
             monthlyIncome: 999999, totalMonthlyBills: 0, monthlyDebtPayments: 0,
@@ -812,6 +886,35 @@ describe('buildPayPeriods', () => {
         ];
         const periods = buildPayPeriods(payDates, bills, {}, { user: { payAmount: 2000 } }, 2026, 2);
         assert.equal(periods[0].billsTotal, 500);
+    });
+});
+
+// ─── resolveInvestmentHaircut ─────────────────────────────────────────
+
+describe('resolveInvestmentHaircut', () => {
+    test('maps conservative → 0.50', () => {
+        assert.equal(resolveInvestmentHaircut('conservative'), 0.50);
+    });
+
+    test('maps balanced → 0.75', () => {
+        assert.equal(resolveInvestmentHaircut('balanced'), 0.75);
+    });
+
+    test('maps aggressive → 1.00', () => {
+        assert.equal(resolveInvestmentHaircut('aggressive'), 1.00);
+    });
+
+    test('unknown / missing preset falls back to balanced (0.75)', () => {
+        assert.equal(resolveInvestmentHaircut('foo'), 0.75);
+        assert.equal(resolveInvestmentHaircut(undefined), 0.75);
+        assert.equal(resolveInvestmentHaircut(null), 0.75);
+        assert.equal(resolveInvestmentHaircut(''), 0.75);
+    });
+
+    test('exported preset table is the public source of truth', () => {
+        assert.equal(INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE.conservative, 0.50);
+        assert.equal(INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE.balanced, 0.75);
+        assert.equal(INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE.aggressive, 1.00);
     });
 });
 
