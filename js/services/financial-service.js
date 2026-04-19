@@ -308,7 +308,7 @@ export function matchBillToPlaidTransactions(bill, dueDate, expenses, options = 
  *   2. Savings Cushion        (25 pts)
  *   3. Bill Payment History  (25 pts)
  *   4. Credit Score           (15 pts)
- *   5. Liquid Reserves        (10 pts)  — cash + taxable investments (at 75%)
+ *   5. Liquid Reserves        (10 pts)  — cash + taxable investments (at haircut)
  *
  * Components with no usable input are EXCLUDED (not defaulted to a
  * middle value that looks like real signal). The remaining components'
@@ -324,6 +324,31 @@ export function matchBillToPlaidTransactions(bill, dueDate, expenses, options = 
  *   - `missingComponents` is the list of names skipped (for UI nudge)
  *   - `completeness` is 'full' (5/5), 'partial' (3-4), or 'insufficient' (<3)
  */
+/**
+ * Map a user-facing risk-tolerance preset to the haircut applied to
+ * taxable investments when computing Savings Cushion / Liquid Reserves.
+ *
+ *   conservative (0.50) — treats stocks as unreliable in an emergency.
+ *                          Good choice for people close to retirement or
+ *                          living paycheck-to-paycheck.
+ *   balanced (0.75)      — default. Reflects market drawdown, realized
+ *                          capital gains, and 1-3 day settlement drag.
+ *   aggressive (1.00)    — stocks count dollar-for-dollar. Appropriate
+ *                          for diversified long-horizon investors who
+ *                          are confident they can weather a drawdown
+ *                          without forced selling.
+ */
+export const INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE = {
+    conservative: 0.50,
+    balanced: 0.75,
+    aggressive: 1.00,
+};
+
+export function resolveInvestmentHaircut(riskTolerance) {
+    const value = INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE[riskTolerance];
+    return typeof value === 'number' ? value : 0.75; // default = balanced
+}
+
 export function calculateFinancialHealthScore({
     monthlyIncome,
     totalMonthlyBills,
@@ -334,7 +359,10 @@ export function calculateFinancialHealthScore({
     billPaymentRate,
     creditScore,
     taxableInvestmentBalance = 0,  // brokerage only (NOT 401k/IRA)
+    investmentHaircut = 0.75,      // 0.50 / 0.75 / 1.00 — see risk-tolerance presets
 }) {
+    // Guard: clamp haircut to [0, 1] in case a caller passes garbage.
+    const haircut = Math.max(0, Math.min(1, Number(investmentHaircut) || 0));
     // Each entry is evaluated, and only added to `components` if it has
     // enough input data to mean something. `missingComponents` collects
     // the rest for UI onboarding prompts.
@@ -382,7 +410,7 @@ export function calculateFinancialHealthScore({
     // market risk, capital gains, and settlement delay). Retirement
     // accounts are NOT counted: the 10% early-withdrawal penalty plus
     // income tax makes them an expensive backstop.
-    const savingsInvestmentCredit = Math.max(0, Number(taxableInvestmentBalance) || 0) * 0.75;
+    const savingsInvestmentCredit = Math.max(0, Number(taxableInvestmentBalance) || 0) * haircut;
     const effectiveSavings = (savingsBalance || 0) + savingsInvestmentCredit;
     const monthlyExpenses = totalMonthlyBills + monthlyDebtPayments;
     const hasSavingsData = monthlyExpenses > 0 || effectiveSavings > 0;
@@ -471,7 +499,7 @@ export function calculateFinancialHealthScore({
     // early-withdrawal penalty plus income tax makes them a poor
     // emergency backstop. Caller passes `taxableInvestmentBalance`
     // from `type === 'investment'` accounts only.
-    const investmentCredit = Math.max(0, Number(taxableInvestmentBalance) || 0) * 0.75;
+    const investmentCredit = Math.max(0, Number(taxableInvestmentBalance) || 0) * haircut;
     const liquidReserves = cashTotal + investmentCredit;
     const hasLiquidityData = monthlyIncome > 0 || liquidReserves > 0;
     if (hasLiquidityData) {
@@ -543,11 +571,13 @@ function clamp(v) {
 }
 
 function getHealthGrade(score) {
+    // Emojis chosen to read as grade badges, not system alerts — no
+    // "⚠️" or "🚨" which look like calculation errors in UI chrome.
     if (score >= 90) return { label: 'Excellent',  color: 'var(--green)',  emoji: '🌟' };
     if (score >= 75) return { label: 'Good',       color: 'var(--accent)', emoji: '👍' };
-    if (score >= 55) return { label: 'Fair',        color: 'var(--yellow)', emoji: '⚡' };
-    if (score >= 35) return { label: 'Needs Work',  color: 'var(--orange)', emoji: '⚠️' };
-    return                   { label: 'Critical',   color: 'var(--red)',    emoji: '🚨' };
+    if (score >= 55) return { label: 'Fair',        color: 'var(--yellow)', emoji: '📊' };
+    if (score >= 35) return { label: 'Needs Work',  color: 'var(--orange)', emoji: '📉' };
+    return                   { label: 'Critical',   color: 'var(--red)',    emoji: '🔻' };
 }
 
 // ─── Pay Period Building ──────────────────────────
