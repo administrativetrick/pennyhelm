@@ -308,7 +308,7 @@ export function matchBillToPlaidTransactions(bill, dueDate, expenses, options = 
  *   2. Savings Cushion        (25 pts)
  *   3. Bill Payment History  (25 pts)
  *   4. Credit Score           (15 pts)
- *   5. Cash Reserves          (10 pts)
+ *   5. Liquid Reserves        (10 pts)  — cash + taxable investments (at 75%)
  *
  * Components with no usable input are EXCLUDED (not defaulted to a
  * middle value that looks like real signal). The remaining components'
@@ -333,6 +333,7 @@ export function calculateFinancialHealthScore({
     savingsBalance,
     billPaymentRate,
     creditScore,
+    taxableInvestmentBalance = 0,  // brokerage only (NOT 401k/IRA)
 }) {
     // Each entry is evaluated, and only added to `components` if it has
     // enough input data to mean something. `missingComponents` collects
@@ -450,34 +451,47 @@ export function calculateFinancialHealthScore({
         });
     }
 
-    // ── 5. Cash Reserves (10%) ───────────────
-    // Requires either income or cash data.
-    const hasCashData = monthlyIncome > 0 || cashTotal > 0;
-    if (hasCashData) {
-        let emergencyScore = 0;
+    // ── 5. Liquid Reserves (10%) ─────────────
+    // Emergency-fund component. Counts cash (checking/savings) PLUS
+    // taxable investments at 75% to reflect market risk (~10-20%
+    // drawdown), capital-gains tax (~15-20% on realized gains), and
+    // 1-3 day settlement. Retirement accounts are EXCLUDED — the 10%
+    // early-withdrawal penalty plus income tax makes them a poor
+    // emergency backstop. Caller passes `taxableInvestmentBalance`
+    // from `type === 'investment'` accounts only.
+    const investmentCredit = Math.max(0, Number(taxableInvestmentBalance) || 0) * 0.75;
+    const liquidReserves = cashTotal + investmentCredit;
+    const hasLiquidityData = monthlyIncome > 0 || liquidReserves > 0;
+    if (hasLiquidityData) {
+        let liquidityScore = 0;
         if (monthlyIncome > 0) {
-            const cashMonths = cashTotal / monthlyIncome;
-            if (cashMonths >= 3) emergencyScore = 100;
-            else emergencyScore = (cashMonths / 3) * 100;
-        } else if (cashTotal > 0) {
-            emergencyScore = 75;
+            const liquidMonths = liquidReserves / monthlyIncome;
+            if (liquidMonths >= 3) liquidityScore = 100;
+            else liquidityScore = (liquidMonths / 3) * 100;
+        } else if (liquidReserves > 0) {
+            liquidityScore = 75;
         }
-        emergencyScore = clamp(emergencyScore);
+        liquidityScore = clamp(liquidityScore);
+        const hasInvestedPortion = investmentCredit > 0;
         components.push({
-            name: 'Cash Reserves',
-            score: Math.round(emergencyScore),
+            name: 'Liquid Reserves',
+            score: Math.round(liquidityScore),
             weight: 0.10,
-            weighted: Math.round(emergencyScore * 0.10),
+            weighted: Math.round(liquidityScore * 0.10),
             icon: '💵',
-            tip: emergencyScore >= 80 ? 'Strong cash position!'
-                : emergencyScore >= 40 ? 'Building your cash reserves.'
-                : 'Try to keep 3 months of income liquid.'
+            tip: liquidityScore >= 80
+                ? (hasInvestedPortion
+                    ? 'Strong liquidity — cash + taxable investments cover 3+ months.'
+                    : 'Strong cash position!')
+                : liquidityScore >= 40
+                    ? 'Building toward 3 months of income in liquid assets.'
+                    : 'Aim for 3 months of income in cash or taxable brokerage.'
         });
     } else {
         missingComponents.push({
-            name: 'Cash Reserves',
+            name: 'Liquid Reserves',
             icon: '💵',
-            tip: 'Add an income or account balance to score this component.'
+            tip: 'Add an income or account balance (cash or brokerage) to score this component.'
         });
     }
 
