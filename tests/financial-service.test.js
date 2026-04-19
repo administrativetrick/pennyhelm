@@ -21,6 +21,7 @@ import {
     expandBillOccurrences,
     calculateFinancialHealthScore,
     buildPayPeriods,
+    matchBillToPlaidTransactions,
 } from '../js/services/financial-service.js';
 
 // ─── calculateNetWorth ────────────────────────────────────────────────
@@ -473,7 +474,10 @@ describe('calculateFinancialHealthScore', () => {
         assert.equal(pay.score, 100);
     });
 
-    test('missing billPaymentRate defaults to 50', () => {
+    test('missing billPaymentRate excludes Payment History entirely (no fake default)', () => {
+        // Previously this defaulted to 50 — which polluted new users' scores
+        // with 12.5 "free" synthetic points. New behavior: skip it, renormalize
+        // the remaining components, and surface it in `missingComponents`.
         const result = calculateFinancialHealthScore({
             monthlyIncome: 5000,
             totalMonthlyBills: 1000,
@@ -484,7 +488,101 @@ describe('calculateFinancialHealthScore', () => {
             creditScore: 750,
         });
         const pay = result.components.find(c => c.name === 'Payment History');
-        assert.equal(pay.score, 50);
+        assert.equal(pay, undefined);
+        assert.ok(result.missingComponents.some(m => m.name === 'Payment History'));
+    });
+
+    test('missing creditScore excludes Credit Score (no fake 50)', () => {
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 10000,
+            savingsBalance: 5000,
+            billPaymentRate: 1.0,
+            creditScore: null,
+        });
+        assert.equal(result.components.find(c => c.name === 'Credit Score'), undefined);
+        assert.ok(result.missingComponents.some(m => m.name === 'Credit Score'));
+    });
+
+    test('renormalizes weights when components are missing', () => {
+        // With Credit Score (0.15) and Payment History (0.25) missing,
+        // remaining weights (0.25 + 0.25 + 0.10 = 0.60) should expand to
+        // cover the full score. A perfect DTI+Savings+Cash should reach ~100.
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 10000,
+            totalMonthlyBills: 500,      // very low DTI → 100
+            monthlyDebtPayments: 0,
+            cashTotal: 60000,            // 6 months income → 100
+            savingsBalance: 60000,       // 120x expenses → capped at 100
+            billPaymentRate: null,
+            creditScore: null,
+        });
+        // Only 3 components scored — the remaining weights should renormalize
+        // to sum to 1.0, and a perfect user across those 3 should score ~100.
+        assert.equal(result.components.length, 3);
+        assert.ok(result.score >= 99, `expected renormalized perfect ≥ 99, got ${result.score}`);
+    });
+
+    test('completeness is "full" when all 5 components scored', () => {
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 200,
+            cashTotal: 10000,
+            savingsBalance: 5000,
+            billPaymentRate: 0.9,
+            creditScore: 740,
+        });
+        assert.equal(result.completeness, 'full');
+        assert.equal(result.components.length, 5);
+        assert.equal(result.missingComponents.length, 0);
+    });
+
+    test('completeness is "partial" when 3-4 components scored', () => {
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 5000,
+            totalMonthlyBills: 1000,
+            monthlyDebtPayments: 0,
+            cashTotal: 10000,
+            savingsBalance: 5000,
+            billPaymentRate: null,
+            creditScore: null,
+        });
+        assert.equal(result.completeness, 'partial');
+        assert.equal(result.components.length, 3);
+        assert.equal(result.missingComponents.length, 2);
+    });
+
+    test('completeness is "insufficient" when <3 components scored', () => {
+        // Brand-new user with only a cash balance set.
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 0,
+            totalMonthlyBills: 0,
+            monthlyDebtPayments: 0,
+            cashTotal: 500,
+            savingsBalance: 0,
+            billPaymentRate: null,
+            creditScore: null,
+        });
+        assert.equal(result.completeness, 'insufficient');
+        assert.ok(result.components.length < 3);
+    });
+
+    test('empty user (no data at all) produces zero components, not a fake score', () => {
+        const result = calculateFinancialHealthScore({
+            monthlyIncome: 0,
+            totalMonthlyBills: 0,
+            monthlyDebtPayments: 0,
+            cashTotal: 0,
+            savingsBalance: 0,
+            billPaymentRate: null,
+            creditScore: null,
+        });
+        assert.equal(result.components.length, 0);
+        assert.equal(result.completeness, 'insufficient');
+        assert.equal(result.score, 0);
     });
 
     test('credit score 300 → low subscore, 850 → 100', () => {
@@ -579,5 +677,118 @@ describe('buildPayPeriods', () => {
         ];
         const periods = buildPayPeriods(payDates, bills, {}, { user: { payAmount: 2000 } }, 2026, 2);
         assert.equal(periods[0].billsTotal, 500);
+    });
+});
+
+// ─── matchBillToPlaidTransactions ─────────────────────────────────────
+
+describe('matchBillToPlaidTransactions', () => {
+    const bill = { id: 'b1', name: 'Electric', amount: 120 };
+    const dueDate = new Date('2026-04-10T12:00:00');
+
+    test('exact amount + exact date → matched:true', () => {
+        const expenses = [
+            { source: 'plaid', amount: 120, date: '2026-04-10T12:00:00' },
+        ];
+        const result = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        assert.equal(result.matched, true);
+        assert.equal(result.expense.amount, 120);
+    });
+
+    test('amount within ±5% tolerance → matched:true', () => {
+        // $120 × 0.05 = $6 allowed. $125 is within, $127 is not.
+        const within = [{ source: 'plaid', amount: 125, date: '2026-04-10T12:00:00' }];
+        const beyond = [{ source: 'plaid', amount: 127, date: '2026-04-10T12:00:00' }];
+        assert.equal(matchBillToPlaidTransactions(bill, dueDate, within).matched, true);
+        assert.equal(matchBillToPlaidTransactions(bill, dueDate, beyond).matched, false);
+    });
+
+    test('small bills use $1 absolute floor instead of 5%', () => {
+        // $10 × 5% = $0.50 — too tight. Floor bumps tolerance to $1.
+        const smallBill = { id: 'b2', amount: 10 };
+        const expenses = [{ source: 'plaid', amount: 10.75, date: '2026-04-10T12:00:00' }];
+        const result = matchBillToPlaidTransactions(smallBill, dueDate, expenses);
+        assert.equal(result.matched, true);
+    });
+
+    test('date within ±3 days → matched, outside → unmatched', () => {
+        const within = [{ source: 'plaid', amount: 120, date: '2026-04-13T12:00:00' }]; // +3 days
+        const outside = [{ source: 'plaid', amount: 120, date: '2026-04-14T12:00:00' }]; // +4 days
+        assert.equal(matchBillToPlaidTransactions(bill, dueDate, within).matched, true);
+        assert.equal(matchBillToPlaidTransactions(bill, dueDate, outside).matched, false);
+    });
+
+    test('handles negative plaid amounts (debits stored as negatives)', () => {
+        const expenses = [{ source: 'plaid', amount: -120, date: '2026-04-10T12:00:00' }];
+        const result = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        assert.equal(result.matched, true);
+    });
+
+    test('source !== "plaid" is ignored (manual expenses do not match)', () => {
+        const expenses = [{ source: 'manual', amount: 120, date: '2026-04-10T12:00:00' }];
+        const result = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        assert.equal(result.matched, false);
+    });
+
+    test('ignored expenses are skipped even when source is plaid', () => {
+        const expenses = [
+            { source: 'plaid', amount: 120, date: '2026-04-10T12:00:00', ignored: true },
+        ];
+        const result = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        assert.equal(result.matched, false);
+    });
+
+    test('empty / missing expenses → matched:false (no throw)', () => {
+        assert.equal(matchBillToPlaidTransactions(bill, dueDate, []).matched, false);
+        assert.equal(matchBillToPlaidTransactions(bill, dueDate, null).matched, false);
+        assert.equal(matchBillToPlaidTransactions(bill, dueDate, undefined).matched, false);
+    });
+
+    test('missing bill or amount → matched:false (no throw)', () => {
+        const expenses = [{ source: 'plaid', amount: 120, date: '2026-04-10T12:00:00' }];
+        assert.equal(matchBillToPlaidTransactions(null, dueDate, expenses).matched, false);
+        assert.equal(matchBillToPlaidTransactions({ id: 'x' }, dueDate, expenses).matched, false);
+        assert.equal(matchBillToPlaidTransactions({ id: 'x', amount: 0 }, dueDate, expenses).matched, false);
+    });
+
+    test('missing dueDate → matched:false', () => {
+        const expenses = [{ source: 'plaid', amount: 120, date: '2026-04-10T12:00:00' }];
+        assert.equal(matchBillToPlaidTransactions(bill, null, expenses).matched, false);
+    });
+
+    test('picks the first matching expense and stops', () => {
+        const expenses = [
+            { source: 'plaid', amount: 120, date: '2026-04-10T12:00:00', id: 'exp-1' },
+            { source: 'plaid', amount: 120, date: '2026-04-11T12:00:00', id: 'exp-2' },
+        ];
+        const result = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        assert.equal(result.matched, true);
+        assert.equal(result.expense.id, 'exp-1');
+    });
+
+    test('honors custom amountTolerance option', () => {
+        // Allow 20% slop — normally 5%.
+        const expenses = [{ source: 'plaid', amount: 140, date: '2026-04-10T12:00:00' }];
+        const strict = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        const lenient = matchBillToPlaidTransactions(bill, dueDate, expenses, { amountTolerance: 0.20 });
+        assert.equal(strict.matched, false);
+        assert.equal(lenient.matched, true);
+    });
+
+    test('honors custom dateToleranceDays option', () => {
+        const expenses = [{ source: 'plaid', amount: 120, date: '2026-04-17T12:00:00' }]; // +7 days
+        const strict = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        const lenient = matchBillToPlaidTransactions(bill, dueDate, expenses, { dateToleranceDays: 7 });
+        assert.equal(strict.matched, false);
+        assert.equal(lenient.matched, true);
+    });
+
+    test('invalid date strings are skipped, not thrown', () => {
+        const expenses = [
+            { source: 'plaid', amount: 120, date: 'not-a-date' },
+            { source: 'plaid', amount: 120, date: '2026-04-10T12:00:00' },
+        ];
+        const result = matchBillToPlaidTransactions(bill, dueDate, expenses);
+        assert.equal(result.matched, true);
     });
 });
