@@ -243,19 +243,86 @@ export function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRang
     return occurrences;
 }
 
+// ─── Plaid Payment Matching ──────────────────────
+
+/**
+ * Decide whether a bill was paid based on Plaid transaction evidence.
+ *
+ * Problem this solves: the manual paid/unpaid flag punishes users who
+ * pay on autopay but forget to tick the checkbox. This checks whether a
+ * Plaid-synced expense exists around the bill's due date with a matching
+ * amount. If so, the bill is inferred to have been paid regardless of
+ * the manual flag.
+ *
+ * @param {object} bill — bill record (needs `amount`)
+ * @param {Date}   dueDate — expected due date for this period
+ * @param {Array}  expenses — all expenses (only source:'plaid' are considered)
+ * @param {object} [options]
+ * @param {number} [options.amountTolerance=0.05] — ±5% of bill amount
+ * @param {number} [options.amountFloor=1]         — or ±$1 absolute, whichever larger
+ * @param {number} [options.dateToleranceDays=3]   — ±N days from due date
+ * @returns {{ matched: boolean, expense: object|null }}
+ */
+export function matchBillToPlaidTransactions(bill, dueDate, expenses, options = {}) {
+    const amountTolerance = options.amountTolerance ?? 0.05;
+    const amountFloor = options.amountFloor ?? 1;
+    const dateToleranceDays = options.dateToleranceDays ?? 3;
+
+    if (!bill || !bill.amount || !dueDate || !Array.isArray(expenses)) {
+        return { matched: false, expense: null };
+    }
+
+    const billAmount = Number(bill.amount);
+    if (!billAmount || billAmount <= 0) {
+        return { matched: false, expense: null };
+    }
+
+    const windowMs = dateToleranceDays * 24 * 60 * 60 * 1000;
+    const dueMs = dueDate.getTime();
+    const allowedDiff = Math.max(billAmount * amountTolerance, amountFloor);
+
+    for (const exp of expenses) {
+        if (!exp || exp.source !== 'plaid' || exp.ignored) continue;
+        if (!exp.amount || !exp.date) continue;
+
+        const expDate = new Date(exp.date);
+        if (isNaN(expDate.getTime())) continue;
+
+        const dateDiff = Math.abs(expDate.getTime() - dueMs);
+        if (dateDiff > windowMs) continue;
+
+        const amountDiff = Math.abs(Math.abs(Number(exp.amount)) - billAmount);
+        if (amountDiff > allowedDiff) continue;
+
+        return { matched: true, expense: exp };
+    }
+
+    return { matched: false, expense: null };
+}
+
 // ─── Financial Health Score ──────────────────────
 
 /**
- * Calculate a 0-100 Financial Health Score from five weighted components:
+ * Calculate a 0-100 Financial Health Score from up to five weighted components:
  *   1. Debt-to-Income Ratio  (25 pts)
- *   2. Savings Rate          (25 pts)
+ *   2. Savings Cushion        (25 pts)
  *   3. Bill Payment History  (25 pts)
  *   4. Credit Score           (15 pts)
- *   5. Emergency Fund          (10 pts)
+ *   5. Cash Reserves          (10 pts)
  *
- * Each sub-score is 0-100, then multiplied by its weight.
- * Returns { score, grade, components[] } where each component
- * has { name, score, weight, weighted, color, tip }.
+ * Components with no usable input are EXCLUDED (not defaulted to a
+ * middle value that looks like real signal). The remaining components'
+ * weights are renormalized so they sum to 1.0. This prevents a new user
+ * with no credit score and no bill history from getting a fake "Fair"
+ * grade driven by 40% synthetic defaults.
+ *
+ * Returns:
+ *   { score, grade, components[], missingComponents[], completeness }
+ * where:
+ *   - `score` is 0-100 computed from scored components only
+ *   - `components` only contains components that had real data
+ *   - `missingComponents` is the list of names skipped (for UI nudge)
+ *   - `completeness` is 'full' (5/5), 'partial' (3-4), or 'insufficient' (<3)
  */
 export function calculateFinancialHealthScore({
     monthlyIncome,
@@ -267,127 +334,181 @@ export function calculateFinancialHealthScore({
     billPaymentRate,
     creditScore,
 }) {
+    // Each entry is evaluated, and only added to `components` if it has
+    // enough input data to mean something. `missingComponents` collects
+    // the rest for UI onboarding prompts.
     const components = [];
+    const missingComponents = [];
 
     // ── 1. Debt-to-Income (25%) ──────────────
-    // DTI = monthly debt payments / gross monthly income
-    // 0% = perfect (100), >50% = poor (0)
-    let dtiScore = 100;
-    if (monthlyIncome > 0) {
-        const dti = (monthlyDebtPayments + totalMonthlyBills) / monthlyIncome;
-        if (dti <= 0.30) dtiScore = 100;
-        else if (dti <= 0.40) dtiScore = 80 - (dti - 0.30) * 200; // 80-60
-        else if (dti <= 0.50) dtiScore = 60 - (dti - 0.40) * 300; // 60-30
-        else dtiScore = Math.max(0, 30 - (dti - 0.50) * 100);
-    } else if (totalMonthlyBills > 0 || monthlyDebtPayments > 0) {
-        dtiScore = 0; // debt but no income
+    // Requires income to produce a meaningful ratio.
+    const hasDtiData = monthlyIncome > 0 ||
+        (totalMonthlyBills > 0 || monthlyDebtPayments > 0);
+    if (hasDtiData) {
+        let dtiScore = 100;
+        if (monthlyIncome > 0) {
+            const dti = (monthlyDebtPayments + totalMonthlyBills) / monthlyIncome;
+            if (dti <= 0.30) dtiScore = 100;
+            else if (dti <= 0.40) dtiScore = 80 - (dti - 0.30) * 200; // 80→60
+            else if (dti <= 0.50) dtiScore = 60 - (dti - 0.40) * 300; // 60→30
+            else dtiScore = Math.max(0, 30 - (dti - 0.50) * 100);
+        } else {
+            dtiScore = 0; // bills/debt but no income
+        }
+        dtiScore = clamp(dtiScore);
+        components.push({
+            name: 'Debt-to-Income',
+            score: Math.round(dtiScore),
+            weight: 0.25,
+            weighted: Math.round(dtiScore * 0.25),
+            icon: '📉',
+            tip: dtiScore >= 80 ? 'Great! Your debt load is manageable.'
+                : dtiScore >= 50 ? 'Consider reducing monthly obligations.'
+                : 'High debt relative to income — focus on payoff.'
+        });
+    } else {
+        missingComponents.push({
+            name: 'Debt-to-Income',
+            icon: '📉',
+            tip: 'Add your income to score this component.'
+        });
     }
-    dtiScore = clamp(dtiScore);
-    components.push({
-        name: 'Debt-to-Income',
-        score: Math.round(dtiScore),
-        weight: 0.25,
-        weighted: Math.round(dtiScore * 0.25),
-        icon: '📉',
-        tip: dtiScore >= 80 ? 'Great! Your debt load is manageable.'
-            : dtiScore >= 50 ? 'Consider reducing monthly obligations.'
-            : 'High debt relative to income — focus on payoff.'
-    });
 
-    // ── 2. Savings Rate (25%) ────────────────
-    // Savings as months of expenses covered
-    // 6+ months = 100, 0 = 0
-    let savingsScore = 0;
+    // ── 2. Savings Cushion (25%) ─────────────
+    // Requires either expenses or savings data.
     const monthlyExpenses = totalMonthlyBills + monthlyDebtPayments;
-    if (monthlyExpenses > 0) {
-        const monthsCovered = savingsBalance / monthlyExpenses;
-        if (monthsCovered >= 6) savingsScore = 100;
-        else savingsScore = (monthsCovered / 6) * 100;
-    } else if (savingsBalance > 0) {
-        savingsScore = 100; // savings and no expenses
+    const hasSavingsData = monthlyExpenses > 0 || savingsBalance > 0;
+    if (hasSavingsData) {
+        let savingsScore = 0;
+        if (monthlyExpenses > 0) {
+            const monthsCovered = savingsBalance / monthlyExpenses;
+            if (monthsCovered >= 6) savingsScore = 100;
+            else savingsScore = (monthsCovered / 6) * 100;
+        } else if (savingsBalance > 0) {
+            savingsScore = 100; // savings and no tracked expenses
+        }
+        savingsScore = clamp(savingsScore);
+        components.push({
+            name: 'Savings Cushion',
+            score: Math.round(savingsScore),
+            weight: 0.25,
+            weighted: Math.round(savingsScore * 0.25),
+            icon: '🏦',
+            tip: savingsScore >= 80 ? 'Excellent savings buffer!'
+                : savingsScore >= 50 ? 'Building toward 6 months of expenses.'
+                : 'Try to build an emergency fund.'
+        });
+    } else {
+        missingComponents.push({
+            name: 'Savings Cushion',
+            icon: '🏦',
+            tip: 'Add bills or a savings balance to score this component.'
+        });
     }
-    savingsScore = clamp(savingsScore);
-    components.push({
-        name: 'Savings Cushion',
-        score: Math.round(savingsScore),
-        weight: 0.25,
-        weighted: Math.round(savingsScore * 0.25),
-        icon: '🏦',
-        tip: savingsScore >= 80 ? 'Excellent savings buffer!'
-            : savingsScore >= 50 ? 'Building toward 6 months of expenses.'
-            : 'Try to build an emergency fund.'
-    });
 
     // ── 3. Bill Payment History (25%) ────────
-    // % of bills paid on time over recent months
-    // 100% = 100, 0% = 0
-    let paymentScore = billPaymentRate != null ? billPaymentRate * 100 : 50; // default 50 if no history
-    paymentScore = clamp(paymentScore);
-    components.push({
-        name: 'Payment History',
-        score: Math.round(paymentScore),
-        weight: 0.25,
-        weighted: Math.round(paymentScore * 0.25),
-        icon: '✅',
-        tip: paymentScore >= 90 ? 'Outstanding payment track record!'
-            : paymentScore >= 70 ? 'Good — try to pay all bills on time.'
-            : 'Late or missed payments hurt your score.'
-    });
+    // Requires actual payment-rate data. null = insufficient history.
+    if (billPaymentRate != null) {
+        const paymentScore = clamp(billPaymentRate * 100);
+        components.push({
+            name: 'Payment History',
+            score: Math.round(paymentScore),
+            weight: 0.25,
+            weighted: Math.round(paymentScore * 0.25),
+            icon: '✅',
+            tip: paymentScore >= 90 ? 'Outstanding payment track record!'
+                : paymentScore >= 70 ? 'Good — try to pay all bills on time.'
+                : 'Late or missed payments hurt your score.'
+        });
+    } else {
+        missingComponents.push({
+            name: 'Payment History',
+            icon: '✅',
+            tip: 'Add bills and track payments to score this component.'
+        });
+    }
 
     // ── 4. Credit Score (15%) ────────────────
-    // Map 300-850 range to 0-100
-    let creditSubScore = 50; // default if not set
+    // Requires a user-provided credit score in the valid FICO range.
     if (creditScore && creditScore >= 300) {
-        creditSubScore = ((creditScore - 300) / 550) * 100;
+        const creditSubScore = clamp(((creditScore - 300) / 550) * 100);
+        components.push({
+            name: 'Credit Score',
+            score: Math.round(creditSubScore),
+            weight: 0.15,
+            weighted: Math.round(creditSubScore * 0.15),
+            icon: '📊',
+            tip: creditSubScore >= 80 ? 'Excellent credit standing!'
+                : creditSubScore >= 55 ? 'Good credit — keep it up.'
+                : 'Work on improving your credit score.'
+        });
+    } else {
+        missingComponents.push({
+            name: 'Credit Score',
+            icon: '📊',
+            tip: 'Add your credit score in Settings to score this component.'
+        });
     }
-    creditSubScore = clamp(creditSubScore);
-    components.push({
-        name: 'Credit Score',
-        score: Math.round(creditSubScore),
-        weight: 0.15,
-        weighted: Math.round(creditSubScore * 0.15),
-        icon: '📊',
-        tip: creditSubScore >= 80 ? 'Excellent credit standing!'
-            : creditSubScore >= 55 ? 'Good credit — keep it up.'
-            : 'Work on improving your credit score.'
-    });
 
-    // ── 5. Emergency Fund (10%) ──────────────
-    // Cash + savings as ratio of monthly income
-    // 3+ months income in cash = 100
-    let emergencyScore = 0;
-    if (monthlyIncome > 0) {
-        const cashMonths = cashTotal / monthlyIncome;
-        if (cashMonths >= 3) emergencyScore = 100;
-        else emergencyScore = (cashMonths / 3) * 100;
-    } else if (cashTotal > 0) {
-        emergencyScore = 75;
+    // ── 5. Cash Reserves (10%) ───────────────
+    // Requires either income or cash data.
+    const hasCashData = monthlyIncome > 0 || cashTotal > 0;
+    if (hasCashData) {
+        let emergencyScore = 0;
+        if (monthlyIncome > 0) {
+            const cashMonths = cashTotal / monthlyIncome;
+            if (cashMonths >= 3) emergencyScore = 100;
+            else emergencyScore = (cashMonths / 3) * 100;
+        } else if (cashTotal > 0) {
+            emergencyScore = 75;
+        }
+        emergencyScore = clamp(emergencyScore);
+        components.push({
+            name: 'Cash Reserves',
+            score: Math.round(emergencyScore),
+            weight: 0.10,
+            weighted: Math.round(emergencyScore * 0.10),
+            icon: '💵',
+            tip: emergencyScore >= 80 ? 'Strong cash position!'
+                : emergencyScore >= 40 ? 'Building your cash reserves.'
+                : 'Try to keep 3 months of income liquid.'
+        });
+    } else {
+        missingComponents.push({
+            name: 'Cash Reserves',
+            icon: '💵',
+            tip: 'Add an income or account balance to score this component.'
+        });
     }
-    emergencyScore = clamp(emergencyScore);
-    components.push({
-        name: 'Cash Reserves',
-        score: Math.round(emergencyScore),
-        weight: 0.10,
-        weighted: Math.round(emergencyScore * 0.10),
-        icon: '💵',
-        tip: emergencyScore >= 80 ? 'Strong cash position!'
-            : emergencyScore >= 40 ? 'Building your cash reserves.'
-            : 'Try to keep 3 months of income liquid.'
-    });
 
-    // ── Overall Score ────────────────────────
-    const totalScore = Math.round(
-        dtiScore * 0.25 +
-        savingsScore * 0.25 +
-        paymentScore * 0.25 +
-        creditSubScore * 0.15 +
-        emergencyScore * 0.10
-    );
+    // ── Overall Score (renormalized) ─────────
+    // If Credit Score is missing we don't want a 15pt hole in the total —
+    // the remaining components expand proportionally to cover the gap.
+    const totalWeight = components.reduce((s, c) => s + c.weight, 0);
+    let totalScore = 0;
+    if (totalWeight > 0) {
+        totalScore = components.reduce(
+            (s, c) => s + c.score * (c.weight / totalWeight),
+            0
+        );
+    }
+    totalScore = Math.round(clamp(totalScore));
+
+    // ── Completeness ─────────────────────────
+    // 'full'         — all 5 components had data
+    // 'partial'      — 3-4 components (score is meaningful but flagged)
+    // 'insufficient' — 0-2 components (show as "not ready yet")
+    let completeness;
+    if (components.length >= 5) completeness = 'full';
+    else if (components.length >= 3) completeness = 'partial';
+    else completeness = 'insufficient';
 
     return {
-        score: clamp(totalScore),
+        score: totalScore,
         grade: getHealthGrade(totalScore),
-        components
+        components,
+        missingComponents,
+        completeness,
     };
 }
 

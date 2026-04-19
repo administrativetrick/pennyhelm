@@ -1,7 +1,7 @@
 import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot, expandBillOccurrences } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 import { EXPENSE_CATEGORIES as _builtinExpenseCategories } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
@@ -345,13 +345,23 @@ class Store {
 
     /**
      * Calculate bill payment rate over the last N months (0-1).
-     * Looks at each active (non-frozen) bill per month and checks paid status.
+     *
+     * A bill counts as paid in a given month if EITHER:
+     *   (a) it is marked paid manually in `paidHistory`, OR
+     *   (b) a Plaid-synced expense exists around the bill's due date
+     *       with a matching amount (±5% or ±$1).
+     *
+     * This fixes the "I paid on autopay but forgot to tick the box" issue
+     * that was artificially tanking users' payment score.
+     *
+     * Returns null if there is insufficient data to score (no bills at all).
      */
     getBillPaymentRate(months = 3) {
         const data = this._load();
         const bills = (data.bills || []).filter(b => !b.frozen && !b.excludeFromTotal);
         if (bills.length === 0) return null;
 
+        const expenses = data.expenses || [];
         const now = new Date();
         let totalBills = 0;
         let paidBills = 0;
@@ -372,15 +382,32 @@ class Store {
                     if (bill.dueMonth !== m && secondMonth !== m) continue;
                 }
                 totalBills++;
-                // Check if paid (by billId or any occurrence key)
+
+                // (a) Manually marked paid — either by billId or any occurrence key
                 if (monthHistory[bill.id]) {
                     paidBills++;
-                } else {
-                    const prefix = bill.id + '_';
-                    if (Object.keys(monthHistory).some(k => k.startsWith(prefix) && monthHistory[k])) {
-                        paidBills++;
-                    }
+                    continue;
                 }
+                const prefix = bill.id + '_';
+                if (Object.keys(monthHistory).some(k => k.startsWith(prefix) && monthHistory[k])) {
+                    paidBills++;
+                    continue;
+                }
+
+                // (b) Plaid fallback — scan for a matching transaction near the
+                // expected due date. Covers users who pay on autopay but haven't
+                // ticked the paid checkbox in the app.
+                const dueDay = bill.dueDay || 1;
+                let dueDate;
+                if (bill.frequency === 'semi-annual') {
+                    // Semi-annual: use whichever of the two cycle months equals
+                    // the loop month.
+                    dueDate = new Date(y, m, dueDay);
+                } else {
+                    dueDate = new Date(y, m, dueDay);
+                }
+                const { matched } = matchBillToPlaidTransactions(bill, dueDate, expenses);
+                if (matched) paidBills++;
             }
         }
 
