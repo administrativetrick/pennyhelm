@@ -71,6 +71,7 @@ Every new version **must** update [CHANGELOG.md](CHANGELOG.md) before the releas
 
 ### Workflow for cutting a release
 
+0. **Run tests**: `npm test` — must be green before tagging. If a test fails, fix it (or the underlying bug) before going further.
 1. **Collect the changes**: `git log --oneline --no-merges v{last-tag}..HEAD`
 2. **Edit `CHANGELOG.md`**: move entries from `[Unreleased]` into a new `## [X.Y.Z] — YYYY-MM-DD` section, add the link reference at the bottom.
 3. **Commit**: `Prep v{X.Y.Z} changelog` (or roll into the release commit).
