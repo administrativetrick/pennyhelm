@@ -102,7 +102,9 @@ const secrets = {
 
 // ─── Load Domain Modules ─────────────────────────────────────
 
-const shared = { admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets };
+const { enforceRateLimit } = require("./rate-limit");
+
+const shared = { admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets, enforceRateLimit };
 
 const authFns      = require("./auth")(shared);
 const plaidFns     = require("./plaid")(shared);

@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
 
-module.exports = function({ admin, db, getEmailTransporter, secrets }) {
+module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRateLimit }) {
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = secrets;
     const exports = {};
 
@@ -41,6 +41,13 @@ module.exports = function({ admin, db, getEmailTransporter, secrets }) {
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Sends an email — the attractive vector for abuse is using your
+            // verified SMTP sender to phish via forwarded invite copy.
+            await enforceRateLimit({
+                db, request, name: 'sendInvite', limit: 10, windowSec: 3600,
+                message: 'You can send up to 10 invites per hour.',
+            });
 
             const uid = request.auth.uid;
             const inviterEmail = request.auth.token.email;
@@ -163,6 +170,11 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Guessing a valid inviteId is infeasible, but rate-limit anyway.
+            await enforceRateLimit({
+                db, request, name: 'acceptInvite', limit: 20, windowSec: 3600,
+            });
 
             const inviteeUid = request.auth.uid;
             const inviteeEmail = request.auth.token.email;
@@ -313,6 +325,10 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            await enforceRateLimit({
+                db, request, name: 'declineInvite', limit: 20, windowSec: 3600,
+            });
 
             const inviteeEmail = request.auth.token.email;
             const { inviteId } = request.data || {};
