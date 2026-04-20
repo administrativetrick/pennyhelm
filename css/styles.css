@@ -258,6 +258,16 @@ body {
     margin-bottom: 24px;
 }
 
+/* Compact stats grid used on Debts / Income / Taxes / Assets.
+   Tighter minmax than .card-grid because these cards are smaller
+   (label + value only, no sub-text). */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
 .stat-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -265,7 +275,13 @@ body {
     padding: 18px 20px;
 }
 
-.stat-card .label {
+/* Make the compact summary cards a bit tighter to fit more per row */
+.stats-grid .stat-card {
+    padding: 14px 16px;
+}
+
+.stat-card .label,
+.stat-card .stat-label {
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
@@ -274,9 +290,15 @@ body {
     margin-bottom: 6px;
 }
 
-.stat-card .value {
+.stat-card .value,
+.stat-card .stat-value {
     font-size: 26px;
     font-weight: 700;
+}
+
+/* Compact stat-value in .stats-grid — trimmed size so 4 cards fit comfortably */
+.stats-grid .stat-card .stat-value {
+    font-size: 20px;
 }
 
 .stat-card .sub {
