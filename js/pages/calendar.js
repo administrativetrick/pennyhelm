@@ -289,7 +289,7 @@ function showDayDetail(container, day, data, store, year, month) {
 
     data.bills.forEach(bill => {
         const isPaid = store.isBillPaid(bill.id, year, month, bill._occurrenceKey);
-        html += `<div class="upcoming-item" style="margin-bottom:8px;">
+        html += `<div class="upcoming-item mb-8">
             <div>
                 <div class="bill-name" style="${isPaid ? 'text-decoration:line-through;opacity:0.6;' : ''}">${escapeHtml(bill.name)}</div>
                 <div class="bill-due" style="font-size:11px;">${escapeHtml(bill.paymentSource || 'No source')} &middot; <span class="${isPaid ? 'status-paid' : 'status-unpaid'}">${isPaid ? 'Paid' : 'Unpaid'}</span></div>

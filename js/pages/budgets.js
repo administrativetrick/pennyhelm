@@ -111,7 +111,7 @@ export function renderBudgets(container, store) {
             <div class="card">
                 <div class="settings-section" style="text-align:center;padding:40px 20px;">
                     <div style="font-size:40px;margin-bottom:12px;">🎯</div>
-                    <h3 style="margin-bottom:8px;">No budgets yet</h3>
+                    <h3 class="mb-8">No budgets yet</h3>
                     <p style="color:var(--text-secondary);margin-bottom:20px;max-width:520px;margin-left:auto;margin-right:auto;">
                         Set a monthly limit per category. Spending is tracked automatically
                         from your expenses. Optionally enable rollover to carry unused
@@ -133,7 +133,7 @@ export function renderBudgets(container, store) {
                                 <div class="settings-row" style="gap:16px;">
                                     <div style="flex:1;">
                                         <div style="font-weight:600;">${escapeHtml(label)}</div>
-                                        <div style="font-size:12px;color:var(--text-muted);">Starts ${budget?.startMonth ? formatMonth(budget.startMonth) : '—'}</div>
+                                        <div class="text-muted-sm">Starts ${budget?.startMonth ? formatMonth(budget.startMonth) : '—'}</div>
                                     </div>
                                     <div style="display:flex;gap:4px;">
                                         <button class="btn-icon edit-budget" data-budget-id="${budget?.id || ''}" title="Edit"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>

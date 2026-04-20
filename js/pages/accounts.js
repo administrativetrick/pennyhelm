@@ -94,7 +94,7 @@ export function renderAccounts(container, store) {
         ` : ''}
 
         <div class="card" style="margin-top:${hasPlaid ? '12' : '24'}px;">
-            <h3 style="margin-bottom:16px;">All Accounts</h3>
+            <h3 class="mb-16">All Accounts</h3>
             <div id="accounts-list">
                 ${accounts.map(a => {
                     const updated = a.lastUpdated ? new Date(a.lastUpdated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never';
@@ -127,7 +127,7 @@ export function renderAccounts(container, store) {
                             </div>
                             <div class="setting-desc">${typeLabel} &middot; Updated ${updated}${linkedDebt ? `${linkedDebt.interestRate ? ` &middot; ${linkedDebt.interestRate.toFixed(1)}% APR` : ''}${linkedDebt.minimumPayment ? ` &middot; ${formatCurrency(linkedDebt.minimumPayment)} min` : ''}` : ''}</div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="flex-align-center gap-8">
                             ${balanceHtml}
                             <button class="btn btn-secondary btn-sm update-balance-btn" data-account-id="${a.id}" style="font-size:11px;padding:2px 8px;">Update</button>
                             <button class="btn-icon edit-account-btn" data-account-id="${a.id}" title="Edit">
@@ -180,7 +180,7 @@ export function renderAccounts(container, store) {
         ` : `
         <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
             <div style="font-size:48px;margin-bottom:16px;">&#127974;</div>
-            <h3 style="margin-bottom:8px;">No accounts tracked</h3>
+            <h3 class="mb-8">No accounts tracked</h3>
             <p style="color:var(--text-muted);margin-bottom:24px;">Add your bank accounts, investments, and property to track your net worth.</p>
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
                 ${plaidAvailable ? '<button class="btn btn-primary" id="empty-connect-bank" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
@@ -645,10 +645,10 @@ function showOcrResults(accounts, rawText, store) {
     const accountCards = accounts.map((a, idx) => `
         <div class="ocr-account-card" data-ocr-idx="${idx}" id="ocr-card-${idx}">
             <button class="ocr-remove-btn" data-ocr-remove="${idx}" title="Remove">&times;</button>
-            <div style="margin-bottom:8px;">
+            <div class="mb-8">
                 <span class="badge-unverified">Unverified</span>
             </div>
-            <div class="form-group" style="margin-bottom:8px;">
+            <div class="form-group mb-8">
                 <label>Account Name</label>
                 <input type="text" class="form-input ocr-name" data-ocr-idx="${idx}" value="${escapeHtml(a.name)}" style="font-size:13px;padding:6px 10px;">
             </div>

@@ -85,7 +85,7 @@ export function renderSavingsGoalsPage(container, store) {
             <div class="card">
                 <div class="settings-section" style="text-align:center;padding:40px 20px;">
                     <div style="font-size:48px;margin-bottom:12px;">🎯</div>
-                    <h3 style="margin-bottom:8px;">No savings goals yet</h3>
+                    <h3 class="mb-8">No savings goals yet</h3>
                     <p style="color:var(--text-secondary);margin-bottom:20px;max-width:520px;margin-left:auto;margin-right:auto;">
                         Set goals for an emergency fund, vacation, house down payment, or anything else you're saving toward.
                         Link a savings account to auto-track your progress.
@@ -114,14 +114,14 @@ export function renderSavingsGoalsPage(container, store) {
                                     <div style="font-size:32px;">${cat.icon}</div>
                                     <div style="flex:1;">
                                         <div style="font-size:16px;font-weight:700;">${escapeHtml(goal.name)}</div>
-                                        <div style="font-size:12px;color:var(--text-muted);">
+                                        <div class="text-muted-sm">
                                             ${cat.label}
                                             ${linkedAcct ? ` &middot; <span style="color:var(--accent);">Linked to ${escapeHtml(linkedAcct.name)}</span>` : ''}
                                         </div>
                                     </div>
                                     <div style="text-align:right;">
                                         <div style="font-size:20px;font-weight:700;${isComplete ? 'color:var(--green);' : ''}">${formatCurrency(goal.currentAmount)}</div>
-                                        <div style="font-size:12px;color:var(--text-muted);">of ${formatCurrency(goal.targetAmount)}</div>
+                                        <div class="text-muted-sm">of ${formatCurrency(goal.targetAmount)}</div>
                                     </div>
                                 </div>
 

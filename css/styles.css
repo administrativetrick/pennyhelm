@@ -1958,17 +1958,61 @@ tbody tr:hover { background: var(--bg-card-hover); }
     color: var(--orange);
 }
 
-/* ===== Utility ===== */
+/* ===== Utility =====
+   Prefer these over inline styles. Combined: use multiple classes, e.g.
+   <div class="flex-align-center gap-8 mb-16">…</div>
+   Keep inline `style=""` only for truly dynamic values (computed widths,
+   per-row colors, calculated transforms). */
+
+/* Text color */
 .text-green { color: var(--green); }
 .text-red { color: var(--red); }
 .text-orange { color: var(--orange); }
 .text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
 .text-accent { color: var(--accent); }
+
+/* Text size */
+.text-xs { font-size: 11px; }
+.text-sm { font-size: 12px; }
+.text-base { font-size: 13px; }
+
+/* Common compound — 12px muted text (very frequent pattern) */
+.text-muted-sm { font-size: 12px; color: var(--text-muted); }
+.text-secondary-sm { font-size: 12px; color: var(--text-secondary); }
+
+/* Font weight */
 .font-bold { font-weight: 700; }
+.font-semibold { font-weight: 600; }
+
+/* Margin — vertical scale */
+.mt-4 { margin-top: 4px; }
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
 .mt-16 { margin-top: 16px; }
+.mt-20 { margin-top: 20px; }
+.mt-24 { margin-top: 24px; }
+.mb-4 { margin-bottom: 4px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
 .mb-16 { margin-bottom: 16px; }
+.mb-20 { margin-bottom: 20px; }
 .mb-24 { margin-bottom: 24px; }
+
+/* Flex helpers */
+.flex { display: flex; }
+.flex-align-center { display: flex; align-items: center; }
+.flex-col { display: flex; flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
 .flex-between { display: flex; align-items: center; justify-content: space-between; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+
+/* Gap scale — composes with any .flex / .flex-align-center / .flex-between */
+.gap-4 { gap: 4px; }
+.gap-6 { gap: 6px; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.gap-16 { gap: 16px; }
 
 /* ===== Cashflow Charts ===== */
 

@@ -197,14 +197,14 @@ export function renderTaxes(container, store) {
             </div>
         </div>
 
-        <div class="filters" style="margin-bottom:16px;">
+        <div class="filters mb-16">
             <button class="filter-chip" data-tab="income">Income</button>
             <button class="filter-chip ${activeTab === 'documents' ? 'active' : ''}" id="tab-documents">Documents</button>
             <button class="filter-chip ${activeTab === 'deductions' ? 'active' : ''}" id="tab-deductions">Deductions</button>
         </div>
 
         ${years.length > 0 ? `
-        <div class="filters" id="year-tabs" style="margin-bottom:16px;">
+        <div class="filters mb-16" id="year-tabs">
             ${years.map(y =>
                 `<button class="filter-chip ${y === selectedYear ? 'active' : ''}" data-year="${y}">${y}</button>`
             ).join('')}
@@ -404,7 +404,7 @@ function renderDeductionsTab(container, store, allDeductions, year) {
     const shouldItemize = totalDeductions > standardAmount;
 
     container.innerHTML = `
-        <div class="stats-grid" style="margin-bottom:24px;">
+        <div class="stats-grid mb-24">
             <div class="stat-card">
                 <div class="stat-label">Total Deductions</div>
                 <div class="stat-value" style="color:var(--green);">${formatCurrency(totalDeductions)}</div>
@@ -426,8 +426,8 @@ function renderDeductionsTab(container, store, allDeductions, year) {
         </div>
 
         ${yearDeductions.length > 0 ? `
-        <div class="card" style="margin-bottom:24px;">
-            <h3 style="margin-bottom:16px;">Category Breakdown</h3>
+        <div class="card mb-24">
+            <h3 class="mb-16">Category Breakdown</h3>
             <div style="display:grid;gap:12px;">
                 ${DEDUCTION_CATEGORIES.filter(cat => categoryTotals[cat.key] > 0).map(cat => {
                     const amount = categoryTotals[cat.key];
@@ -449,13 +449,13 @@ function renderDeductionsTab(container, store, allDeductions, year) {
         ${yearDeductions.length === 0 ? `
             <div class="card" style="text-align:center;padding:48px 24px;">
                 <div style="font-size:48px;margin-bottom:16px;">&#128206;</div>
-                <h3 style="margin-bottom:8px;">No deductions tracked</h3>
+                <h3 class="mb-8">No deductions tracked</h3>
                 <p style="color:var(--text-muted);margin-bottom:24px;">Track your tax-deductible expenses throughout the year</p>
                 <button class="btn btn-primary" id="empty-add-deduction">+ Add Your First Deduction</button>
             </div>
         ` : `
             <div class="card">
-                <h3 style="margin-bottom:16px;">Deductions List</h3>
+                <h3 class="mb-16">Deductions List</h3>
                 <div class="table-wrapper deductions-table">
                     <table>
                         <thead>
@@ -1069,7 +1069,7 @@ function showBulkUploadModal(store, files, taxYear) {
 function showReuploadModal(store, doc) {
     openModal('Re-upload File', `
         <div style="padding:8px 0 16px;font-size:14px;">
-            <p style="margin-bottom:8px;">The file <strong>${escapeHtml(doc.filename)}</strong> is missing from browser storage.</p>
+            <p class="mb-8">The file <strong>${escapeHtml(doc.filename)}</strong> is missing from browser storage.</p>
             <p style="font-size:13px;color:var(--text-secondary);">Select the file from your computer to restore it.</p>
         </div>
         <div class="form-group">
