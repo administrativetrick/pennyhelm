@@ -162,6 +162,22 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // User activity markers — one doc per (user, UTC day) used to compute
+    // DAU/MAU. No financial data; just {uid, date, timestamps, expiresAt}.
+    // Doc ID convention: `{YYYY-MM-DD}_{uid}` — idempotent across devices.
+    // Users can write only markers embedding their own uid. Admin reads for
+    // the Active Users panel. 90-day TTL cleanup via expiresAt.
+    match /userActivity/{docId} {
+      allow read: if isAdmin();
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.date is string;
+      allow update: if request.auth != null
+                    && resource.data.uid == request.auth.uid
+                    && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin();
+    }
+
     // Deny everything else
     match /{document=**} {
       allow read, write: if false;
