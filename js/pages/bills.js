@@ -154,6 +154,13 @@ export function renderBills(container, store) {
             <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
         </div>
 
+        <div class="view-tabs">
+            <button class="view-tab${billsViewMode === 'paycheck' ? ' active' : ''}" id="view-paycheck">By Paycheck</button>
+            <button class="view-tab${billsViewMode === 'month' ? ' active' : ''}" id="view-month">By Month</button>
+            <button class="view-tab${billsViewMode === 'cashflow' ? ' active' : ''}" id="view-cashflow">Cashflow</button>
+        </div>
+
+        ${depEnabled || (billsViewMode === 'paycheck' && periodLabel) ? `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
             ${depEnabled ? `
             <select class="form-select" id="owner-filter" style="font-size:12px;padding:4px 8px;min-width:140px;">
@@ -161,14 +168,10 @@ export function renderBills(container, store) {
                 <option value="user" ${billsOwnerFilter === 'user' ? 'selected' : ''}>${escapeHtml(userName)}'s Bills</option>
                 <option value="dependent" ${billsOwnerFilter === 'dependent' ? 'selected' : ''}>${escapeHtml(depName)}'s Bills</option>
             </select>
-            <span style="border-left:1px solid var(--border);height:20px;margin:0 4px;"></span>
             ` : ''}
-            <span style="font-size:12px;color:var(--text-secondary);">View:</span>
-            <button class="btn btn-sm ${billsViewMode === 'paycheck' ? 'btn-primary' : 'btn-secondary'}" id="view-paycheck">Paycheck</button>
-            <button class="btn btn-sm ${billsViewMode === 'month' ? 'btn-primary' : 'btn-secondary'}" id="view-month">Month</button>
-            <button class="btn btn-sm ${billsViewMode === 'cashflow' ? 'btn-primary' : 'btn-secondary'}" id="view-cashflow">Cashflow</button>
-            ${billsViewMode === 'paycheck' && periodLabel ? `<span style="font-size:12px;color:var(--text-muted);margin-left:4px;">${periodLabel}</span>` : ''}
+            ${billsViewMode === 'paycheck' && periodLabel ? `<span style="font-size:12px;color:var(--text-muted);">${periodLabel}</span>` : ''}
         </div>
+        ` : ''}
 
         <div class="filters" id="filters">
             <button class="filter-chip active" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
@@ -1050,11 +1053,10 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
             <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
         </div>
 
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
-            <span style="font-size:12px;color:var(--text-secondary);">View:</span>
-            <button class="btn btn-sm btn-secondary" id="view-paycheck">Paycheck</button>
-            <button class="btn btn-sm btn-secondary" id="view-month">Month</button>
-            <button class="btn btn-sm btn-primary" id="view-cashflow">Cashflow</button>
+        <div class="view-tabs">
+            <button class="view-tab" id="view-paycheck">By Paycheck</button>
+            <button class="view-tab" id="view-month">By Month</button>
+            <button class="view-tab active" id="view-cashflow">Cashflow</button>
         </div>
 
         <!-- Summary Stat Cards -->

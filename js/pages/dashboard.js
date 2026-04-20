@@ -540,8 +540,16 @@ export function renderDashboard(container, store, subTab) {
 
     const layout = store.getDashboardLayout();
 
-    // Build widgets HTML in layout order
-    var widgetsHtml = '';
+    // Build widgets HTML in layout order.
+    // In view mode, the first PINNED_COUNT visible widgets render as a vertical
+    // stack and the rest collapse into a horizontal scroll-snap carousel to
+    // reduce scroll length on narrow screens. Edit mode disables the carousel
+    // so users can drag/reorder every widget in one list.
+    var PINNED_COUNT = 3;
+    var pinnedHtml = '';
+    var carouselHtml = '';
+    var carouselCount = 0;
+    var visibleIndex = 0;
     layout.order.forEach(function(id) {
         if (layout.hidden.includes(id)) return;
         var renderer = widgetRenderers[id];
@@ -549,11 +557,27 @@ export function renderDashboard(container, store, subTab) {
         var html = renderer();
         if (!html || html.trim() === '') return;
         if (dashboardEditMode) {
-            widgetsHtml += wrapWidgetForEdit(id, html);
+            pinnedHtml += wrapWidgetForEdit(id, html);
+        } else if (visibleIndex < PINNED_COUNT) {
+            pinnedHtml += html;
         } else {
-            widgetsHtml += html;
+            carouselHtml += html;
+            carouselCount++;
         }
+        visibleIndex++;
     });
+
+    var widgetsHtml = pinnedHtml;
+    if (carouselHtml) {
+        widgetsHtml +=
+            '<div class="widget-carousel-wrapper">' +
+                '<div class="widget-carousel-header">' +
+                    '<span class="widget-carousel-title">More Insights</span>' +
+                    '<span class="widget-carousel-hint">← swipe to explore ' + carouselCount + ' more →</span>' +
+                '</div>' +
+                '<div class="widget-carousel">' + carouselHtml + '</div>' +
+            '</div>';
+    }
 
     // Dependent alert (not a widget, always shown when applicable)
     var depAlertHtml = buildDependentAlertHtml(ctx);
