@@ -25,111 +25,115 @@ export function renderSettings(container, store) {
     const currentRiskTolerance = healthSettings.riskTolerance || 'balanced';
     const hasTaxableInvestments = accounts.some(a => a.type === 'investment');
 
+    // Theme toggle in page header — cycles system → light → dark → system.
+    // Tiny icon button replaces the old full-width Appearance card. Click
+    // handler lives below with the rest of the settings wiring.
+    const themeIcon = pref === 'light'
+        ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
+        : pref === 'dark'
+            ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+            : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
+    const themeLabel = pref === 'light' ? 'Light' : pref === 'dark' ? 'Dark' : 'System';
+
     container.innerHTML = `
         <div class="page-header">
             <h2>Settings</h2>
-        </div>
-
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Profile</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Your Name</div>
-                        <div class="setting-desc">Used in the app title and labels. Currently: <strong>${escapeHtml(userName)}</strong></div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" id="edit-user-name">Edit</button>
-                </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" id="replay-onboarding-btn"
+                    class="btn btn-secondary btn-sm"
+                    title="Replay the app tour"
+                    aria-label="Replay onboarding tour"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span style="font-size:12px;">Tour</span>
+                </button>
+                <button type="button" id="theme-cycle-btn"
+                    class="btn btn-secondary btn-sm"
+                    title="Theme: ${themeLabel} (click to cycle)"
+                    aria-label="Cycle theme — currently ${themeLabel}"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;">
+                    ${themeIcon}
+                    <span style="font-size:12px;">${themeLabel}</span>
+                </button>
             </div>
         </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Appearance</h3>
-                <div class="settings-row" style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <div class="setting-label">Theme</div>
-                        <div class="setting-desc">Choose light, dark, or match your system</div>
-                    </div>
-                    <div style="display:flex;gap:4px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px;">
-                        <button class="theme-option${pref === 'system' ? ' active' : ''}" data-theme="system" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'system' ? 'var(--accent)' : 'none'};color:${pref === 'system' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">System</button>
-                        <button class="theme-option${pref === 'light' ? ' active' : ''}" data-theme="light" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'light' ? 'var(--accent)' : 'none'};color:${pref === 'light' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">Light</button>
-                        <button class="theme-option${pref === 'dark' ? ' active' : ''}" data-theme="dark" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'dark' ? 'var(--accent)' : 'none'};color:${pref === 'dark' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">Dark</button>
+        <!-- ───── Account ───── -->
+        <div class="settings-section-header">Account</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Profile</h3>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Your Name</div>
+                            <div class="setting-desc">Used in the app title and labels. Currently: <strong>${escapeHtml(userName)}</strong></div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="edit-user-name">Edit</button>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Help</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">App Tour</div>
-                        <div class="setting-desc">Replay the onboarding guide to learn about PennyHelm's features</div>
+            ${auth.isCloud() ? `
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>💳 Subscription</h3>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Plan Status</div>
+                            <div class="setting-desc" id="subscription-status-text">Loading...</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="manage-subscription-btn" style="display:none;">Manage</button>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="replay-onboarding-btn">Replay Tour</button>
                 </div>
             </div>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>📱 Mobile App</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Sign in to the PennyHelm mobile app with your email and mobile password.
+                    </p>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Mobile App Login</div>
+                            <div class="setting-desc" id="mobile-credentials-status">Loading...</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="resend-mobile-password">Resend Password</button>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
         </div>
 
+        <!-- ───── Accounts & Connections (full-width, data-heavy) ───── -->
+        <div class="settings-section-header">Accounts & Connections</div>
         ${renderAccountsSection(store)}
-
         ${!auth.isCloud() ? renderPlaidConfigCard() : ''}
 
         ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>💳 Subscription</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Plan Status</div>
-                        <div class="setting-desc" id="subscription-status-text">Loading...</div>
+        <!-- ───── Security ───── -->
+        <div class="settings-section-header">Security</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>🔐 Two-Factor Authentication</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Protect your account with two-factor authentication using an authenticator app.
+                    </p>
+                    <div class="settings-row" id="mfa-status-row">
+                        <div>
+                            <div class="setting-label">Two-Factor Authentication</div>
+                            <div class="setting-desc" id="mfa-status-text">Loading...</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="mfa-toggle-btn" style="display:none;">Enable</button>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="manage-subscription-btn" style="display:none;">Manage</button>
+                    <div id="mfa-setup-container" style="display:none;"></div>
                 </div>
             </div>
-        </div>
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>📱 Mobile App</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Sign in to the PennyHelm mobile app with your email and mobile password.
-                </p>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Mobile App Login</div>
-                        <div class="setting-desc" id="mobile-credentials-status">Loading...</div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" id="resend-mobile-password">Resend Password</button>
-                </div>
-            </div>
-        </div>
-        ` : ''}
 
-        ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>🔐 Security</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Protect your account with two-factor authentication using an authenticator app.
-                </p>
-                <div class="settings-row" id="mfa-status-row">
-                    <div>
-                        <div class="setting-label">Two-Factor Authentication</div>
-                        <div class="setting-desc" id="mfa-status-text">Loading...</div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" id="mfa-toggle-btn" style="display:none;">Enable</button>
-                </div>
-                <div id="mfa-setup-container" style="display:none;"></div>
-            </div>
-        </div>
-        ` : ''}
-
-        ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>API Access</h3>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>API Access</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
                     Generate API keys to access your PennyHelm data programmatically via REST API.
                 </p>
@@ -168,9 +172,13 @@ export function renderSettings(container, store) {
                 </details>
             </div>
         </div>
+        </div>
         ` : ''}
 
-        <div class="card mb-24">
+        <!-- ───── Finance Tools ───── -->
+        <div class="settings-section-header">Finance Tools</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
             <div class="settings-section">
                 <h3>Credit Scores</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
@@ -242,44 +250,48 @@ export function renderSettings(container, store) {
             </div>
         </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Financial Health Score</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Pick how much of your taxable brokerage balance should count toward your
-                    <strong>Savings Cushion</strong> and <strong>Liquid Reserves</strong>. Retirement
-                    accounts (401k / IRA) are never counted — the early-withdrawal penalty makes them
-                    unsuitable as emergency reserves.
-                </p>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Financial Health Score</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Pick how much of your taxable brokerage balance should count toward your
+                        <strong>Savings Cushion</strong> and <strong>Liquid Reserves</strong>. Retirement
+                        accounts (401k / IRA) are never counted — the early-withdrawal penalty makes them
+                        unsuitable as emergency reserves.
+                    </p>
 
-                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;">
-                    ${[
-                        { value: 'conservative', label: 'Conservative', pct: '50%', desc: 'Assumes market drawdowns and taxes eat half your brokerage in an emergency.' },
-                        { value: 'balanced', label: 'Balanced', pct: '75%', desc: 'Default. Reflects typical drawdown, capital gains, and settlement drag.' },
-                        { value: 'aggressive', label: 'Aggressive', pct: '100%', desc: 'Full dollar-for-dollar credit. Best for diversified long-horizon investors.' },
-                    ].map(opt => {
-                        const active = currentRiskTolerance === opt.value;
-                        return `
-                        <button type="button" class="risk-option" data-risk-option="${opt.value}"
-                            style="display:block;text-align:left;cursor:pointer;padding:12px;border-radius:var(--radius-sm);border:2px solid ${active ? 'var(--accent)' : 'var(--border)'};background:var(--bg-secondary);${active ? 'box-shadow:inset 0 0 0 9999px rgba(99,102,241,0.08);' : ''}transition:border-color 0.15s, background 0.15s;width:100%;font-family:inherit;">
-                            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
-                                <span style="font-size:13px;font-weight:700;color:var(--text-primary);">${opt.label}${active ? ' ✓' : ''}</span>
-                                <span style="font-size:13px;font-weight:700;color:${active ? 'var(--accent)' : 'var(--text-muted)'};">${opt.pct}</span>
-                            </div>
-                            <div style="font-size:11px;color:var(--text-secondary);line-height:1.4;">${opt.desc}</div>
-                        </button>`;
-                    }).join('')}
-                </div>
-
-                ${hasTaxableInvestments ? '' : `
-                    <div style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px dashed var(--border);font-size:11px;color:var(--text-muted);">
-                        <span style="font-weight:600;">Tip:</span> this setting only matters once you have accounts marked as type "Investment". Retirement accounts aren't affected.
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;">
+                        ${[
+                            { value: 'conservative', label: 'Conservative', pct: '50%', desc: 'Assumes market drawdowns and taxes eat half your brokerage in an emergency.' },
+                            { value: 'balanced', label: 'Balanced', pct: '75%', desc: 'Default. Reflects typical drawdown, capital gains, and settlement drag.' },
+                            { value: 'aggressive', label: 'Aggressive', pct: '100%', desc: 'Full dollar-for-dollar credit. Best for diversified long-horizon investors.' },
+                        ].map(opt => {
+                            const active = currentRiskTolerance === opt.value;
+                            return `
+                            <button type="button" class="risk-option" data-risk-option="${opt.value}"
+                                style="display:block;text-align:left;cursor:pointer;padding:12px;border-radius:var(--radius-sm);border:2px solid ${active ? 'var(--accent)' : 'var(--border)'};background:var(--bg-secondary);${active ? 'box-shadow:inset 0 0 0 9999px rgba(99,102,241,0.08);' : ''}transition:border-color 0.15s, background 0.15s;width:100%;font-family:inherit;">
+                                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
+                                    <span style="font-size:13px;font-weight:700;color:var(--text-primary);">${opt.label}${active ? ' ✓' : ''}</span>
+                                    <span style="font-size:13px;font-weight:700;color:${active ? 'var(--accent)' : 'var(--text-muted)'};">${opt.pct}</span>
+                                </div>
+                                <div style="font-size:11px;color:var(--text-secondary);line-height:1.4;">${opt.desc}</div>
+                            </button>`;
+                        }).join('')}
                     </div>
-                `}
+
+                    ${hasTaxableInvestments ? '' : `
+                        <div style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px dashed var(--border);font-size:11px;color:var(--text-muted);">
+                            <span style="font-weight:600;">Tip:</span> this setting only matters once you have accounts marked as type "Investment". Retirement accounts aren't affected.
+                        </div>
+                    `}
+                </div>
             </div>
         </div>
 
-        <div class="card mb-24">
+        <!-- ───── People & Sharing ───── -->
+        <div class="settings-section-header">People & Sharing</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
             <div class="settings-section">
                 <h3>Partner</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
@@ -305,9 +317,53 @@ export function renderSettings(container, store) {
                 </div>
                 ` : ''}
             </div>
+            </div>
+
+            ${auth.isCloud() ? `
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>🤝 Sharing & Invites</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Invite others to view or collaborate on your finances. Perfect for partners, spouses, or financial professionals.
+                    </p>
+
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Invite Someone</div>
+                            <div class="setting-desc">Share access with a partner, spouse, or financial professional</div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="invite-person-btn">+ Invite</button>
+                    </div>
+
+                    <div id="pending-invites-section" style="margin-top:16px;display:none;">
+                        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PENDING INVITES</div>
+                        <div id="pending-invites-list"></div>
+                    </div>
+
+                    <div id="shared-with-section" style="margin-top:16px;display:none;">
+                        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PEOPLE WITH ACCESS</div>
+                        <div id="shared-with-list"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>🎁 Referral Program</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Invite friends to PennyHelm. When 10 friends sign up for a paid plan, you earn a <strong>free year</strong>.
+                    </p>
+                    <div id="referral-status">
+                        <p style="color:var(--text-secondary);font-size:13px;">Loading...</p>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
         </div>
 
-        <div class="card mb-24">
+        <!-- ───── Categorization ───── -->
+        <div class="settings-section-header">Categorization</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
             <div class="settings-section">
                 <h3>Payment Sources</h3>
                 <div id="sources-list">
@@ -381,56 +437,91 @@ export function renderSettings(container, store) {
             </div>
         </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Custom Categories</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Create custom categories for organizing your bills. These appear alongside the default categories.
-                </p>
-                <div id="custom-categories-list">
-                    ${renderCustomCategoriesList(store.getCustomCategories(), bills)}
-                </div>
-                <div style="margin-top:12px;">
-                    <button class="btn btn-primary btn-sm" id="add-custom-category-btn">+ Add Category</button>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Custom Categories</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Create custom categories for organizing your bills. These appear alongside the default categories.
+                    </p>
+                    <div id="custom-categories-list">
+                        ${renderCustomCategoriesList(store.getCustomCategories(), bills)}
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button class="btn btn-primary btn-sm" id="add-custom-category-btn">+ Add Category</button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Data Management</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Export Data</div>
-                        <div class="setting-desc">Download all your data as a JSON file</div>
+        <!-- ───── Data & Tools ───── -->
+        <div class="settings-section-header">Data & Tools</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Data Management</h3>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Export Data</div>
+                            <div class="setting-desc">Download all your data as a JSON file</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="export-btn">Export JSON</button>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="export-btn">Export JSON</button>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Import Data</div>
+                            <div class="setting-desc">Restore from a previously exported JSON file</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="import-btn">Import JSON</button>
+                    </div>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Clear All Data</div>
+                            <div class="setting-desc">Remove all bills, debts, accounts, and deductions (keeps settings)</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="clear-data-btn" style="color:var(--orange);">Clear Data</button>
+                    </div>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Reset All Data</div>
+                            <div class="setting-desc">Clear everything and re-seed with default sample data</div>
+                        </div>
+                        <button class="btn btn-danger btn-sm" id="reset-btn">Reset</button>
+                    </div>
                 </div>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Import Data</div>
-                        <div class="setting-desc">Restore from a previously exported JSON file</div>
+            </div>
+
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Summary</h3>
+                    <div class="settings-row">
+                        <span class="text-muted">Total ${escapeHtml(userName)} Bills</span>
+                        <span class="font-bold">${bills.length} (${formatCurrency(bills.reduce((s, b) => s + b.amount, 0))})</span>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="import-btn">Import JSON</button>
-                </div>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Clear All Data</div>
-                        <div class="setting-desc">Remove all bills, debts, accounts, and deductions (keeps settings)</div>
+                    <div class="settings-row">
+                        <span class="text-muted">Active (non-frozen)</span>
+                        <span class="font-bold">${bills.filter(b => !b.frozen).length} (${formatCurrency(bills.filter(b => !b.frozen).reduce((s, b) => s + b.amount, 0))})</span>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="clear-data-btn" style="color:var(--orange);">Clear Data</button>
-                </div>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Reset All Data</div>
-                        <div class="setting-desc">Clear everything and re-seed with default sample data</div>
+                    <div class="settings-row">
+                        <span class="text-muted">Frozen Bills</span>
+                        <span class="font-bold">${bills.filter(b => b.frozen).length}</span>
                     </div>
-                    <button class="btn btn-danger btn-sm" id="reset-btn">Reset</button>
+                    ${depEnabled ? `
+                    <div class="settings-row">
+                        <span class="text-muted">${escapeHtml(depName)}'s Bills</span>
+                        <span class="font-bold">${dependentBills.length} (${formatCurrency(dependentBills.reduce((s, b) => s + b.amount, 0))})</span>
+                    </div>
+                    ` : ''}
+                    <div class="settings-row">
+                        <span class="text-muted">Payment Sources</span>
+                        <span class="font-bold">${sources.length}</span>
+                    </div>
                 </div>
             </div>
         </div>
 
         ${auth.isCloud() ? `
+        <!-- ───── Danger Zone (cloud only) ───── -->
+        <div class="settings-section-header" style="color:var(--red);">Danger Zone</div>
         <div class="card mb-24" style="border:2px solid var(--red);">
             <div class="settings-section">
                 <h3 style="color:var(--red);">⚠️ Delete Account</h3>
@@ -444,77 +535,6 @@ export function renderSettings(container, store) {
             </div>
         </div>
         ` : ''}
-
-        ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>🤝 Sharing & Invites</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Invite others to view or collaborate on your finances. Perfect for partners, spouses, or financial professionals.
-                </p>
-
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Invite Someone</div>
-                        <div class="setting-desc">Share access with a partner, spouse, or financial professional</div>
-                    </div>
-                    <button class="btn btn-primary btn-sm" id="invite-person-btn">+ Invite</button>
-                </div>
-
-                <div id="pending-invites-section" style="margin-top:16px;display:none;">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PENDING INVITES</div>
-                    <div id="pending-invites-list"></div>
-                </div>
-
-                <div id="shared-with-section" style="margin-top:16px;display:none;">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PEOPLE WITH ACCESS</div>
-                    <div id="shared-with-list"></div>
-                </div>
-            </div>
-        </div>
-        ` : ''}
-
-        ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>🎁 Referral Program</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Invite friends to PennyHelm. When 10 friends sign up for a paid plan, you earn a <strong>free year</strong>.
-                </p>
-                <div id="referral-status">
-                    <p style="color:var(--text-secondary);font-size:13px;">Loading...</p>
-                </div>
-            </div>
-        </div>
-        ` : ''}
-
-        <div class="card">
-            <div class="settings-section">
-                <h3>Summary</h3>
-                <div class="settings-row">
-                    <span class="text-muted">Total ${escapeHtml(userName)} Bills</span>
-                    <span class="font-bold">${bills.length} (${formatCurrency(bills.reduce((s, b) => s + b.amount, 0))})</span>
-                </div>
-                <div class="settings-row">
-                    <span class="text-muted">Active (non-frozen)</span>
-                    <span class="font-bold">${bills.filter(b => !b.frozen).length} (${formatCurrency(bills.filter(b => !b.frozen).reduce((s, b) => s + b.amount, 0))})</span>
-                </div>
-                <div class="settings-row">
-                    <span class="text-muted">Frozen Bills</span>
-                    <span class="font-bold">${bills.filter(b => b.frozen).length}</span>
-                </div>
-                ${depEnabled ? `
-                <div class="settings-row">
-                    <span class="text-muted">${escapeHtml(depName)}'s Bills</span>
-                    <span class="font-bold">${dependentBills.length} (${formatCurrency(dependentBills.reduce((s, b) => s + b.amount, 0))})</span>
-                </div>
-                ` : ''}
-                <div class="settings-row">
-                    <span class="text-muted">Payment Sources</span>
-                    <span class="font-bold">${sources.length}</span>
-                </div>
-            </div>
-        </div>
 
         <input type="file" id="import-file-input" accept=".json" style="display:none;">
     `;
@@ -561,14 +581,16 @@ export function renderSettings(container, store) {
         });
     });
 
-    // Theme toggle
-    container.querySelectorAll('.theme-option').forEach(btn => {
-        btn.addEventListener('click', () => {
-            setThemePreference(btn.dataset.theme);
-            // Re-render to update active state
+    // Theme cycle button in page header — system → light → dark → system
+    const themeCycleBtn = container.querySelector('#theme-cycle-btn');
+    if (themeCycleBtn) {
+        themeCycleBtn.addEventListener('click', () => {
+            const current = getThemePreference();
+            const next = current === 'system' ? 'light' : current === 'light' ? 'dark' : 'system';
+            setThemePreference(next);
             renderSettings(container, store);
         });
-    });
+    }
 
     // Accounts summary link
     const acctLink = container.querySelector('#settings-go-to-accounts');
