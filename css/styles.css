@@ -1307,6 +1307,146 @@ tbody tr:hover { background: var(--bg-card-hover); }
     color: var(--accent);
 }
 
+/* ===== View Tabs (primary view-mode selector on a page) =====
+   Underlined tabs — visually distinct from filter-chip pills so users
+   read them as "which view am I in" vs "which filter is applied".
+   Horizontally scrollable on narrow screens instead of wrapping. */
+.view-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.view-tabs::-webkit-scrollbar { display: none; }
+
+.view-tab {
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    white-space: nowrap;
+    font-family: inherit;
+    transition: color 0.15s, border-color 0.15s;
+}
+.view-tab:hover { color: var(--text-primary); }
+.view-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+/* ===== Widget Carousel (horizontal scroll-snap row of cards) =====
+   Used on Dashboard to collapse 7+ secondary widgets into a
+   swipeable/scrollable row. Native scroll-snap — no JS. */
+.widget-carousel-wrapper {
+    margin-bottom: 24px;
+}
+
+.widget-carousel-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 12px;
+}
+
+.widget-carousel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.widget-carousel-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.widget-carousel {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 16px;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+    /* Subtle scrollbar — invite the user to swipe/scroll without screaming */
+    scrollbar-width: thin;
+}
+
+.widget-carousel > * {
+    flex: 0 0 min(calc(100% - 32px), 420px);
+    scroll-snap-align: start;
+    min-width: 0; /* allow flex children to size down for text wrap */
+    margin-bottom: 0 !important; /* cancel any mb-24 on inner cards */
+}
+
+@media (max-width: 680px) {
+    .widget-carousel > * {
+        flex: 0 0 calc(100% - 24px);
+    }
+    .widget-carousel-hint { display: none; }
+}
+
+/* ===== Strategy Drawer (<details> collapsible comparison card) =====
+   Used on Debts to hide the Avalanche vs Snowball comparison until
+   the user explicitly asks for it — saving ~500px of vertical space.
+   Summary row always shows the active strategy + current savings. */
+.strategy-drawer[open] > .strategy-drawer-summary {
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+}
+
+.strategy-drawer-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    user-select: none;
+}
+.strategy-drawer-summary::-webkit-details-marker { display: none; }
+
+.strategy-drawer-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+}
+
+.strategy-drawer-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.strategy-drawer-chevron {
+    font-size: 14px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+    flex-shrink: 0;
+}
+
+.strategy-drawer[open] .strategy-drawer-chevron {
+    transform: rotate(180deg);
+}
+
+@media (max-width: 560px) {
+    .strategy-drawer-title-row {
+        flex-direction: column;
+        gap: 4px;
+    }
+}
+
 /* ===== Settings ===== */
 .settings-section {
     margin-bottom: 28px;

@@ -275,20 +275,26 @@ export function renderDebts(container, store) {
         </div>
 
         ${debts.length > 0 && budget.totalMonthlyBudget > 0 ? `
-            <div class="card" style="margin-top:24px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                    <h3 style="margin:0;">Strategy Comparison</h3>
-                    ${debts.length >= 2 ? `
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="When ON: freed payments roll to next debt. When OFF: budget shrinks as debts are paid.">
-                            <span style="font-size:12px;color:var(--text-muted);">Cascade Payments</span>
-                            <div style="position:relative;width:44px;height:24px;">
-                                <input type="checkbox" id="cascade-toggle" ${cascadeEnabled ? 'checked' : ''} style="opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:1;">
-                                <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${cascadeEnabled ? 'var(--green)' : 'var(--bg-secondary)'};border-radius:12px;transition:background 0.2s;border:1px solid ${cascadeEnabled ? 'var(--green)' : 'var(--border)'};"></div>
-                                <div style="position:absolute;top:2px;left:${cascadeEnabled ? '22px' : '2px'};width:18px;height:18px;background:white;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>
-                            </div>
-                        </label>
-                    ` : ''}
-                </div>
+            <details class="card strategy-drawer" style="margin-top:24px;">
+                <summary class="strategy-drawer-summary">
+                    <div class="strategy-drawer-title-row">
+                        <h3 style="margin:0;">Strategy Comparison</h3>
+                        <span class="strategy-drawer-meta">
+                            Active: <strong>${budget.strategy === 'avalanche' ? 'Avalanche' : 'Snowball'}</strong>${activeAvalanche.totalInterestPaid < activeSnowball.totalInterestPaid && activeAvalanche.totalInterestPaid !== Infinity && activeSnowball.totalInterestPaid !== Infinity ? ` &middot; <span style="color:var(--green);">Avalanche saves ${formatCurrency(activeSnowball.totalInterestPaid - activeAvalanche.totalInterestPaid)}</span>` : ''}
+                        </span>
+                    </div>
+                    <span class="strategy-drawer-chevron" aria-hidden="true">▾</span>
+                </summary>
+                ${debts.length >= 2 ? `
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:16px;" title="When ON: freed payments roll to next debt. When OFF: budget shrinks as debts are paid.">
+                        <span style="font-size:12px;color:var(--text-muted);">Cascade Payments</span>
+                        <div style="position:relative;width:44px;height:24px;">
+                            <input type="checkbox" id="cascade-toggle" ${cascadeEnabled ? 'checked' : ''} style="opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:1;">
+                            <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${cascadeEnabled ? 'var(--green)' : 'var(--bg-secondary)'};border-radius:12px;transition:background 0.2s;border:1px solid ${cascadeEnabled ? 'var(--green)' : 'var(--border)'};"></div>
+                            <div style="position:absolute;top:2px;left:${cascadeEnabled ? '22px' : '2px'};width:18px;height:18px;background:white;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>
+                        </div>
+                    </label>
+                ` : ''}
                 <div class="subtitle" style="margin-bottom:16px;">Monthly Budget: ${formatCurrency(budget.totalMonthlyBudget)}${budget.totalMonthlyBudget < totalMinimum ? ` <span class="text-red" style="font-size:12px;">(below ${formatCurrency(totalMinimum)} minimum — increase budget to see payoff timeline)</span>` : ''}</div>
 
                 ${debts.length >= 2 && cascadeEnabled ? `
@@ -359,7 +365,7 @@ export function renderDebts(container, store) {
                         Avalanche saves <strong>${formatCurrency(activeSnowball.totalInterestPaid - activeAvalanche.totalInterestPaid)}</strong> in interest
                     </div>
                 ` : ''}
-            </div>
+            </details>
         ` : ''}
 
         ${debts.length === 0 ? `
