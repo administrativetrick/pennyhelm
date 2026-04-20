@@ -104,6 +104,24 @@ export async function renderAdmin(container, store) {
             </div>
         </div>
 
+        <!-- Ad Attribution -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3>Ad Attribution</h3>
+                    <select id="ad-attr-range" class="form-select" style="max-width:140px;font-size:12px;">
+                        <option value="7">Last 7 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                <div id="ad-attr-summary" style="color:var(--text-secondary);font-size:12px;margin-bottom:12px;">
+                    Loading...
+                </div>
+                <div id="ad-attr-content"></div>
+            </div>
+        </div>
+
         <!-- Test Users -->
         <div class="card mb-24">
             <div class="settings-section">
@@ -329,6 +347,16 @@ export async function renderAdmin(container, store) {
     // Load and render test users
     loadTestUsers(container, db, store);
 
+    // === Ad Attribution Handlers ===
+
+    const rangeSel = document.getElementById('ad-attr-range');
+    if (rangeSel) {
+        loadAdAttribution(parseInt(rangeSel.value, 10) || 30);
+        rangeSel.addEventListener('change', () => {
+            loadAdAttribution(parseInt(rangeSel.value, 10) || 30);
+        });
+    }
+
     // === User Lookup Handlers ===
 
     document.getElementById('user-lookup-btn').addEventListener('click', () => {
@@ -343,6 +371,94 @@ export async function renderAdmin(container, store) {
     // Real-time search as user types (debounced)
     const debouncedSearch = debounce(() => searchUsers(db), 300);
     document.getElementById('user-lookup-email').addEventListener('input', debouncedSearch);
+}
+
+// ─── Ad Attribution ──────────────────────────────────────────
+
+async function loadAdAttribution(daysBack) {
+    const summaryEl = document.getElementById('ad-attr-summary');
+    const contentEl = document.getElementById('ad-attr-content');
+    if (!summaryEl || !contentEl) return;
+
+    summaryEl.textContent = 'Loading...';
+    contentEl.innerHTML = '';
+
+    try {
+        const fn = firebase.app().functions().httpsCallable('getAdAttributionStats');
+        const result = await fn({ daysBack });
+        const data = result.data;
+
+        const v = Number(data.totalUniqueVisitors) || 0;
+        const s = Number(data.totalSignupsInWindow) || 0;
+        summaryEl.textContent = `${v.toLocaleString()} unique visitor${v === 1 ? '' : 's'} · ${s.toLocaleString()} signup${s === 1 ? '' : 's'} in the last ${data.daysBack} day${data.daysBack === 1 ? '' : 's'}.`;
+
+        contentEl.innerHTML = `
+            ${renderAttributionTable('By Source', data.sources, 'source', 'utm_source')}
+            ${renderAttributionTable('By Campaign', data.campaigns, 'campaign', 'utm_campaign')}
+            ${renderAttributionTable('By Creative', data.creatives, 'creative', 'utm_content')}
+            <p style="color:var(--text-secondary);font-size:11px;margin-top:12px;">
+                <strong>Views</strong> = landings on /switch · <strong>Clicks</strong> = CTA presses ·
+                <strong>Signups</strong> = users whose acquisitionSource matches ·
+                <strong>Abandoned</strong> = clicked CTA but never completed signup in-window.
+            </p>
+        `;
+    } catch (err) {
+        console.error('getAdAttributionStats failed:', err);
+        summaryEl.textContent = '';
+        contentEl.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px;">Failed to load attribution data: ${escapeHtml(err.message || 'unknown error')}</p>`;
+    }
+}
+
+function renderAttributionTable(title, rows, keyLabel, keyField) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return `
+            <div style="margin-top:16px;">
+                <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">${escapeHtml(title)}</h4>
+                <p style="color:var(--text-secondary);font-size:12px;">No data yet.</p>
+            </div>
+        `;
+    }
+
+    const pct = (n) => {
+        if (!isFinite(n)) return '—';
+        return (n * 100).toFixed(1) + '%';
+    };
+
+    const bodyRows = rows.map((r) => `
+        <tr>
+            <td style="padding:6px 8px;font-family:monospace;font-size:12px;">${escapeHtml(r.key || '(unknown)')}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.uniqueVisitors.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.views.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.clicks.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--text-secondary);">${pct(r.clickThroughRate)}</td>
+            <td style="padding:6px 8px;text-align:right;color:#22c55e;font-weight:600;">${r.signups.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--text-secondary);">${pct(r.conversionRate)}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--text-secondary);">${r.abandoned.toLocaleString()}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <div style="margin-top:16px;">
+            <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">${escapeHtml(title)}</h4>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid var(--border,#2a2f3a);border-radius:6px;overflow:hidden;">
+                    <thead>
+                        <tr style="background:var(--bg-input,#1a2431);">
+                            <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">${escapeHtml(keyLabel)}</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Unique</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Views</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Clicks</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);" title="Click-through rate: clicks / views">CTR</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Signups</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);" title="Conversion rate: signups / clicks">Conv</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);" title="Clicked CTA but didn't sign up in-window">Abandoned</th>
+                        </tr>
+                    </thead>
+                    <tbody>${bodyRows}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
 }
 
 async function loadTestUsers(container, db, store) {

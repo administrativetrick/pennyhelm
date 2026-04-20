@@ -360,5 +360,93 @@
       <p class="trust">Bank connections powered by Plaid. PennyHelm never sells, harvests, or shares your data. Your numbers stay yours.</p>
     </div>
   </div>
+
+  <script>
+    // Ad-attribution: fires landing_view on load, cta_click on CTA press,
+    // and forwards the UTM query string to /login so acquisition.js can
+    // stash it in sessionStorage for the signup flow. Best-effort —
+    // if anything here throws, the CTA still works as a plain link.
+    (function () {
+      var ENDPOINT = '/api/log-ad-event';
+      var VISITOR_KEY = 'pennyhelm-visitor-id';
+      var UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+
+      function visitorId() {
+        try {
+          var id = localStorage.getItem(VISITOR_KEY);
+          if (!id) {
+            // crypto.randomUUID is ~everywhere now; tiny fallback for old UAs.
+            id = (self.crypto && crypto.randomUUID)
+              ? crypto.randomUUID()
+              : 'v-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+            localStorage.setItem(VISITOR_KEY, id);
+          }
+          return id;
+        } catch (_) { return null; }
+      }
+
+      function currentUtms() {
+        var utm = {};
+        try {
+          var params = new URLSearchParams(window.location.search);
+          UTM_KEYS.forEach(function (k) {
+            var v = params.get(k);
+            if (v) utm[k.slice(4)] = v.slice(0, 200); // strip "utm_" prefix
+          });
+        } catch (_) {}
+        return utm;
+      }
+
+      function log(type) {
+        try {
+          var payload = JSON.stringify({
+            type: type,
+            visitorId: visitorId(),
+            utm: currentUtms(),
+            landingPath: window.location.pathname,
+            referrer: document.referrer || ''
+          });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(ENDPOINT, new Blob([payload], { type: 'application/json' }));
+          } else {
+            fetch(ENDPOINT, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: payload,
+              keepalive: true
+            }).catch(function () {});
+          }
+        } catch (_) {}
+      }
+
+      // Rewrite the CTA hrefs so UTMs follow the user through to /login.
+      // Without this, acquisition.js on /login sees no query string and
+      // the user's signup can't be tied back to the originating Reddit ad.
+      try {
+        var qs = window.location.search || '';
+        if (qs) {
+          document.querySelectorAll('a.cta').forEach(function (a) {
+            try {
+              var u = new URL(a.href);
+              var incoming = new URLSearchParams(qs);
+              incoming.forEach(function (v, k) { u.searchParams.set(k, v); });
+              a.href = u.toString();
+            } catch (_) {}
+          });
+        }
+      } catch (_) {}
+
+      // Fire landing_view immediately. Event ordering within sendBeacon is
+      // best-effort; worst case we land an extra view we can dedupe via
+      // visitorId at aggregate time.
+      log('landing_view');
+
+      // Fire cta_click whenever either CTA is clicked. Because sendBeacon is
+      // fire-and-forget, the event queues before the browser navigates away.
+      document.querySelectorAll('a.cta').forEach(function (a) {
+        a.addEventListener('click', function () { log('cta_click'); });
+      });
+    })();
+  </script>
 </body>
 </html>
