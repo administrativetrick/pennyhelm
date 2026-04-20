@@ -162,7 +162,7 @@ function buildPayPeriodsHtml(ctx) {
 
     var html = '<div class="card mb-24">';
     html += '<div class="flex-between mb-16"><h3>Pay Period Breakdown</h3>';
-    html += '<div style="display:flex;align-items:center;gap:8px;">';
+    html += '<div class="flex-align-center gap-8">';
     html += '<button class="btn-icon" id="period-prev"' + (!canGoPrev ? ' disabled style="opacity:0.3;cursor:default;"' : '') + '>';
     html += '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
     if (!showingCurrent) html += '<button class="btn btn-secondary btn-sm" id="period-today" style="font-size:11px;padding:2px 8px;">Current</button>';
@@ -1042,7 +1042,7 @@ function buildHealthScoreHtml(ctx) {
         var barColor = c.score >= 80 ? 'var(--green)' : c.score >= 55 ? 'var(--accent)' : c.score >= 35 ? 'var(--yellow)' : 'var(--red)';
         html += '<div style="background:var(--bg-secondary);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
-        html += '<div style="display:flex;align-items:center;gap:8px;">';
+        html += '<div class="flex-align-center gap-8">';
         html += '<span style="font-size:16px;">' + c.icon + '</span>';
         html += '<span style="font-size:13px;font-weight:600;">' + c.name + '</span></div>';
         html += '<div style="display:flex;align-items:center;gap:6px;">';
@@ -1205,7 +1205,7 @@ function buildSmartInsightsHtml(ctx) {
 
     // ── Recurring Suggestions ──
     if (recurring.length > 0) {
-        html += '<div style="margin-bottom:16px;">';
+        html += '<div class="mb-16">';
         html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);margin-bottom:10px;">';
         html += '🔄 Recurring Charges Detected (' + recurring.length + ')</div>';
 
@@ -1313,8 +1313,8 @@ function renderSavingsGoals(store) {
 
     // Summary bar
     html += '<div style="background:var(--bg-secondary);padding:12px 16px;border-radius:var(--radius-sm);margin-bottom:16px;">';
-    html += '<div class="flex-between" style="margin-bottom:8px;">';
-    html += '<span style="font-size:12px;color:var(--text-muted);">Overall Progress</span>';
+    html += '<div class="flex-between mb-8">';
+    html += '<span class="text-muted-sm">Overall Progress</span>';
     html += '<span style="font-size:13px;font-weight:600;">' + formatCurrency(totalCurrent) + ' of ' + formatCurrency(totalTarget) + '</span></div>';
     html += '<div style="background:var(--bg-input);border-radius:8px;height:8px;overflow:hidden;">';
     html += '<div style="height:100%;width:' + Math.min(100, overallProgress) + '%;background:' + (overallProgress >= 100 ? 'var(--green)' : 'var(--accent)') + ';border-radius:8px;transition:width 0.3s;"></div></div>';
@@ -1543,7 +1543,7 @@ function renderReportsTab(container, store) {
 
     // Reports content
     html += '<div class="card mb-24">';
-    html += '<h3 class="mb-16" style="display:flex;align-items:center;gap:8px;">';
+    html += '<h3 class="mb-16 flex-align-center gap-8">';
     html += '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
     html += 'PDF Reports</h3>';
     html += '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Generate printable PDF reports of your financial data. Each report opens in a print-ready view that you can save as PDF.</p>';
@@ -1572,7 +1572,7 @@ function renderReportsTab(container, store) {
 
     // CSV Export section
     html += '<div class="card mb-24">';
-    html += '<h3 class="mb-16" style="display:flex;align-items:center;gap:8px;">';
+    html += '<h3 class="mb-16 flex-align-center gap-8">';
     html += '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
     html += 'CSV Data Exports</h3>';
     html += '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Export your financial data as CSV files for use in spreadsheets or for your accountant.</p>';

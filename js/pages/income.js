@@ -113,7 +113,7 @@ function buildBalanceHistoryHtml(store) {
     const allHistory = store.getBalanceHistory();
     if (allHistory.length === 0) {
         return '<div class="card mb-24" style="margin-top:24px;">' +
-            '<h3 style="margin-bottom:8px;">Balance History</h3>' +
+            '<h3 class="mb-8">Balance History</h3>' +
             '<p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Monthly snapshots of your account balances over time</p>' +
             '<div style="text-align:center;padding:24px 16px;color:var(--text-muted);">' +
             '<div style="font-size:32px;margin-bottom:8px;">&#128200;</div>' +

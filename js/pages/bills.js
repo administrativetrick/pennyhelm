@@ -169,7 +169,7 @@ export function renderBills(container, store) {
                 <option value="dependent" ${billsOwnerFilter === 'dependent' ? 'selected' : ''}>${escapeHtml(depName)}'s Bills</option>
             </select>
             ` : ''}
-            ${billsViewMode === 'paycheck' && periodLabel ? `<span style="font-size:12px;color:var(--text-muted);">${periodLabel}</span>` : ''}
+            ${billsViewMode === 'paycheck' && periodLabel ? `<span class="text-muted-sm">${periodLabel}</span>` : ''}
         </div>
         ` : ''}
 
@@ -1208,7 +1208,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
                     <h3>Pay Period Cashflow</h3>
                     <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Starting balance: ${formatCurrency(startingBalance)} (checking + savings)</div>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="flex-align-center gap-8">
                     <button class="btn-icon" id="cf-period-prev" ${!canGoPrev ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
                     </button>

@@ -245,7 +245,7 @@ function showMFAVerificationModal() {
         <div class="modal-content" style="max-width:380px;">
             <h2>🔐 Two-Factor Authentication</h2>
             <p id="mfa-prompt-text">Enter the 6-digit code from your authenticator app.</p>
-            <div class="form-group" style="margin-top:16px;">
+            <div class="form-group mt-16">
                 <input type="text" class="form-input" id="mfa-code-input"
                     placeholder="000000" maxlength="6" autocomplete="one-time-code"
                     inputmode="numeric" pattern="[0-9]*"
@@ -359,7 +359,7 @@ function showPasswordChangeModal(user, currentPassword) {
         <div class="modal-content">
             <h2>🔐 Password Change Required</h2>
             <p>For security reasons, you must change your temporary password.</p>
-            <div class="form-group" style="margin-top:16px;">
+            <div class="form-group mt-16">
                 <label>New Password</label>
                 <input type="password" class="form-input" id="new-password" placeholder="Enter new password" minlength="6">
             </div>

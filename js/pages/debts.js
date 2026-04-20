@@ -287,7 +287,7 @@ export function renderDebts(container, store) {
                 </summary>
                 ${debts.length >= 2 ? `
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:16px;" title="When ON: freed payments roll to next debt. When OFF: budget shrinks as debts are paid.">
-                        <span style="font-size:12px;color:var(--text-muted);">Cascade Payments</span>
+                        <span class="text-muted-sm">Cascade Payments</span>
                         <div style="position:relative;width:44px;height:24px;">
                             <input type="checkbox" id="cascade-toggle" ${cascadeEnabled ? 'checked' : ''} style="opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:1;">
                             <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${cascadeEnabled ? 'var(--green)' : 'var(--bg-secondary)'};border-radius:12px;transition:background 0.2s;border:1px solid ${cascadeEnabled ? 'var(--green)' : 'var(--border)'};"></div>
@@ -295,7 +295,7 @@ export function renderDebts(container, store) {
                         </div>
                     </label>
                 ` : ''}
-                <div class="subtitle" style="margin-bottom:16px;">Monthly Budget: ${formatCurrency(budget.totalMonthlyBudget)}${budget.totalMonthlyBudget < totalMinimum ? ` <span class="text-red" style="font-size:12px;">(below ${formatCurrency(totalMinimum)} minimum — increase budget to see payoff timeline)</span>` : ''}</div>
+                <div class="subtitle mb-16">Monthly Budget: ${formatCurrency(budget.totalMonthlyBudget)}${budget.totalMonthlyBudget < totalMinimum ? ` <span class="text-red" style="font-size:12px;">(below ${formatCurrency(totalMinimum)} minimum — increase budget to see payoff timeline)</span>` : ''}</div>
 
                 ${debts.length >= 2 && cascadeEnabled ? `
                     <div style="margin-bottom:16px;padding:12px;background:var(--accent)10;border-radius:8px;font-size:13px;border-left:3px solid var(--accent);">
@@ -371,13 +371,13 @@ export function renderDebts(container, store) {
         ${debts.length === 0 ? `
             <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
                 <div style="font-size:48px;margin-bottom:16px;">&#128176;</div>
-                <h3 style="margin-bottom:8px;">No debts tracked</h3>
+                <h3 class="mb-8">No debts tracked</h3>
                 <p style="color:var(--text-muted);margin-bottom:24px;">Add your debts to start tracking your payoff progress</p>
                 <button class="btn btn-primary" id="empty-add-debt">+ Add Your First Debt</button>
             </div>
         ` : `
             <div class="card" style="margin-top:24px;">
-                <h3 style="margin-bottom:16px;">Your Debts</h3>
+                <h3 class="mb-16">Your Debts</h3>
                 <div class="table-wrapper debts-table">
                     <table>
                         <thead>
@@ -430,7 +430,7 @@ export function renderDebts(container, store) {
                                             ${payoffMonths > 0 && payoffMonths < Infinity ? `<div style="font-size:10px;color:var(--text-muted);font-weight:normal;">${formatMonths(payoffMonths)}</div>` : ''}
                                         </td>
                                         <td style="min-width:120px;">
-                                            <div style="display:flex;align-items:center;gap:8px;">
+                                            <div class="flex-align-center gap-8">
                                                 <div style="flex:1;height:8px;background:var(--bg-secondary);border-radius:4px;overflow:hidden;">
                                                     <div style="width:${progress}%;height:100%;background:var(--green);transition:width 0.3s;"></div>
                                                 </div>
@@ -480,18 +480,18 @@ export function renderDebts(container, store) {
                 const scaleRange = scaleMax - scaleMin;
                 return `
             <div class="card" style="margin-top:24px;">
-                <h3 style="margin-bottom:16px;">12-Month Projection</h3>
+                <h3 class="mb-16">12-Month Projection</h3>
                 <div style="position:relative;height:180px;">
                     <div style="position:absolute;top:0;left:0;right:0;bottom:24px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;">
-                        <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="flex-align-center gap-8">
                             <span style="font-size:10px;color:var(--text-muted);min-width:70px;text-align:right;">${formatCurrency(scaleMax)}</span>
                             <div style="flex:1;border-bottom:1px dashed var(--border);"></div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="flex-align-center gap-8">
                             <span style="font-size:10px;color:var(--text-muted);min-width:70px;text-align:right;">${formatCurrency(scaleMin + scaleRange / 2)}</span>
                             <div style="flex:1;border-bottom:1px dashed var(--border);"></div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="flex-align-center gap-8">
                             <span style="font-size:10px;color:var(--text-muted);min-width:70px;text-align:right;">${formatCurrency(scaleMin)}</span>
                             <div style="flex:1;border-bottom:1px dashed var(--border);"></div>
                         </div>
@@ -716,7 +716,7 @@ function renderExpensesTab(container, store) {
         ${sorted.length === 0 ? `
             <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
                 <div style="font-size:48px;margin-bottom:16px;">&#128206;</div>
-                <h3 style="margin-bottom:8px;">No expenses tracked</h3>
+                <h3 class="mb-8">No expenses tracked</h3>
                 <p style="color:var(--text-muted);margin-bottom:24px;">Start tracking your spending to see where your money goes${showPlaidSync ? ' or sync from your bank' : ''}</p>
                 <div style="display:flex;gap:8px;justify-content:center;">
                     <button class="btn btn-primary" id="empty-add-expense">+ Add Your First Expense</button>
@@ -725,7 +725,7 @@ function renderExpensesTab(container, store) {
             </div>
         ` : `
             <div class="card" style="margin-top:24px;">
-                <h3 style="margin-bottom:16px;">Your Expenses</h3>
+                <h3 class="mb-16">Your Expenses</h3>
                 <div class="table-wrapper expenses-table">
                     <table>
                         <thead>
@@ -1346,7 +1346,7 @@ function showRefinanceCalculator(debt) {
     const formHtml = `
         <div style="margin-bottom:20px;">
             <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(debt.name)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">Current Balance: ${formatCurrency(currentBalance)}</div>
+            <div class="text-muted-sm">Current Balance: ${formatCurrency(currentBalance)}</div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
@@ -1523,7 +1523,7 @@ function showMortgageRefinanceCalculator(debt) {
     const formHtml = `
         <div style="margin-bottom:20px;">
             <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(debt.name)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">Current Balance: ${formatCurrency(currentBalance)}</div>
+            <div class="text-muted-sm">Current Balance: ${formatCurrency(currentBalance)}</div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
