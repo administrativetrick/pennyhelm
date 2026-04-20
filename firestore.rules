@@ -153,6 +153,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Ad-attribution events — landing_view / cta_click fired anonymously from
+    // the /switch landing page. Writes happen server-side via logAdEvent
+    // (admin SDK bypasses these rules). Reads are admin-only for the
+    // attribution funnel view in the admin panel.
+    match /adEvents/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // Deny everything else
     match /{document=**} {
       allow read, write: if false;
