@@ -569,6 +569,11 @@ export function renderDashboard(container, store, subTab) {
 
     var widgetsHtml = pinnedHtml;
     if (carouselHtml) {
+        var dotsHtml = '';
+        for (var d = 0; d < carouselCount; d++) {
+            dotsHtml += '<button class="widget-carousel-dot' + (d === 0 ? ' active' : '') +
+                '" data-index="' + d + '" aria-label="Go to widget ' + (d + 1) + '"></button>';
+        }
         widgetsHtml +=
             '<div class="widget-carousel-wrapper">' +
                 '<div class="widget-carousel-header">' +
@@ -576,6 +581,7 @@ export function renderDashboard(container, store, subTab) {
                     '<span class="widget-carousel-hint">← swipe to explore ' + carouselCount + ' more →</span>' +
                 '</div>' +
                 '<div class="widget-carousel">' + carouselHtml + '</div>' +
+                '<div class="widget-carousel-dots">' + dotsHtml + '</div>' +
             '</div>';
     }
 
@@ -655,6 +661,43 @@ export function renderDashboard(container, store, subTab) {
             dashboardEditMode = true;
             renderDashboard(container, store);
         });
+    }
+
+    // Widget carousel — dots sync with scroll position + click-to-scroll
+    const carousel = container.querySelector('.widget-carousel');
+    const dots = container.querySelectorAll('.widget-carousel-dot');
+    if (carousel && dots.length > 0) {
+        const children = carousel.children;
+        // Click dot → smooth-scroll to that widget
+        dots.forEach(function(dot) {
+            dot.addEventListener('click', function() {
+                const idx = parseInt(dot.dataset.index, 10);
+                if (children[idx]) {
+                    carousel.scrollTo({
+                        left: children[idx].offsetLeft - carousel.offsetLeft,
+                        behavior: 'smooth',
+                    });
+                }
+            });
+        });
+        // Scroll → highlight the nearest-snapped dot
+        const updateActiveDot = function() {
+            const scrollMid = carousel.scrollLeft + carousel.clientWidth / 2;
+            let activeIdx = 0;
+            let bestDist = Infinity;
+            for (let i = 0; i < children.length; i++) {
+                const childMid = children[i].offsetLeft - carousel.offsetLeft + children[i].offsetWidth / 2;
+                const dist = Math.abs(childMid - scrollMid);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    activeIdx = i;
+                }
+            }
+            dots.forEach(function(d, i) {
+                d.classList.toggle('active', i === activeIdx);
+            });
+        };
+        carousel.addEventListener('scroll', updateActiveDot, { passive: true });
     }
 
     // Budget Health widget — "Set up a budget" / "View all" navigate to budgets page
