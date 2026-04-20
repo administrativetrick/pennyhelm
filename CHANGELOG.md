@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Reddit ad landing page at `/switch`.** Dedicated single-page conversion target for paid-ad traffic — strikethrough price comparison vs Monarch / YNAB / Copilot / Rocket Money, three feature highlights, side-by-side comparison table, founder quote, final CTA. `noindex, nofollow` so it doesn't cannibalize organic SEO. No self-host / nav / footer clutter — one goal, two CTAs, both pointing at `/login`.
+- **Ad attribution funnel in the admin panel.** New Cloud Functions `logAdEvent` (HTTP, rate-limited, unauth) and `getAdAttributionStats` (admin callable). The `/switch` page fires `landing_view` on load and `cta_click` on CTA press via `navigator.sendBeacon`; CTA hrefs auto-forward the UTM query string to `/login` so `acquisition.js` can capture it for signup attribution. Admin panel shows a 7/30/90-day funnel broken down three ways — by `utm_source`, `utm_campaign`, and `utm_content` — with unique visitors, views, clicks, CTR, signups, conversion rate, and abandoned-click count. Events land in a new `adEvents/` Firestore collection with 90-day TTL (wire a TTL policy on `adEvents.expiresAt` in Firebase Console). Signups are derived from the existing `users.acquisitionSource` field so there's no double-counting.
+
 ### Changed
 - **Cache-Control headers on Firebase Hosting.** HTML/JS/MJS/CSS now serve with `public, max-age=0, must-revalidate` so browsers always revalidate against the origin and pick up fresh deploys immediately (304 when unchanged — no payload penalty). Images get 24 h, fonts get 1 y immutable. Prevents the "sidebar renders but page body is blank" stale-cache regression seen after recent deploys where the browser held an old `js/mode/cloud.js` for up to an hour.
 

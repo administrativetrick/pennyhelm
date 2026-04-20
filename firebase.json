@@ -25,6 +25,10 @@
     ],
     "rewrites": [
       {
+        "source": "/api/log-ad-event",
+        "function": "logAdEvent"
+      },
+      {
         "source": "/api/**",
         "function": "api"
       },
