@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>PennyHelm — $7.99/mo personal finance dashboard</title>
+  <meta name="description" content="A personal finance dashboard for $7.99 a month. Half the price of Monarch or YNAB. Free household access. 30-day free trial, no card required.">
+  <link rel="icon" type="image/png" href="/assets/icons/pennyhelm-v2/favicon.png">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0b0f14;
+      --bg-raised: #141c26;
+      --bg-raised-2: #1a2431;
+      --border: #1f2937;
+      --text: #e4e8ec;
+      --text-muted: #8899a6;
+      --green: #22c55e;
+      --green-hover: #16a34a;
+      --green-dim: rgba(34, 197, 94, 0.1);
+      --red: #ef4444;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: inherit; }
+    .container {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    header {
+      padding: 28px 0 0;
+    }
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--green), var(--green-hover));
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: #051109;
+      letter-spacing: -0.02em;
+    }
+    .hero {
+      padding: 52px 0 40px;
+    }
+    .hero h1 {
+      font-size: clamp(1.85rem, 5.2vw, 2.6rem);
+      line-height: 1.15;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      margin-bottom: 20px;
+    }
+    .hero .sub {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      max-width: 580px;
+      margin-bottom: 24px;
+    }
+    .hero .sub strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .price-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 28px;
+    }
+    .price-strip .chip {
+      padding: 8px 14px;
+      font-size: 0.88rem;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-muted);
+    }
+    .price-strip .chip.strike {
+      text-decoration: line-through;
+      text-decoration-color: var(--red);
+      text-decoration-thickness: 2px;
+    }
+    .price-strip .chip.us {
+      background: var(--green-dim);
+      border-color: rgba(34, 197, 94, 0.35);
+      color: var(--green);
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .cta {
+      display: inline-block;
+      background: var(--green);
+      color: #051109;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 1.02rem;
+      padding: 16px 26px;
+      border-radius: 10px;
+      transition: background 0.15s ease, transform 0.08s ease;
+      border: none;
+      cursor: pointer;
+      text-align: center;
+    }
+    .cta:hover { background: var(--green-hover); }
+    .cta:active { transform: translateY(1px); }
+    .cta.block { display: block; width: 100%; max-width: 420px; }
+    .trust {
+      margin-top: 14px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      max-width: 560px;
+      line-height: 1.5;
+    }
+    section { padding: 44px 0; border-top: 1px solid var(--border); }
+    h2 {
+      font-size: 1.4rem;
+      margin-bottom: 22px;
+      letter-spacing: -0.015em;
+      font-weight: 700;
+    }
+    .features {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    @media (min-width: 720px) {
+      .features { grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    }
+    .feature {
+      padding: 20px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .feature h3 {
+      font-size: 0.98rem;
+      margin-bottom: 8px;
+      color: var(--green);
+      font-weight: 600;
+    }
+    .feature p {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+    .table-wrap { overflow-x: auto; }
+    table.compare {
+      width: 100%;
+      min-width: 480px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.92rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    table.compare th, table.compare td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    table.compare tbody tr:last-child td { border-bottom: none; }
+    table.compare thead th {
+      background: var(--bg-raised);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    table.compare thead th.us-head {
+      color: var(--green);
+      background: var(--bg-raised-2);
+    }
+    table.compare td { color: var(--text-muted); }
+    table.compare td:first-child { color: var(--text); font-weight: 500; }
+    table.compare td.us {
+      background: var(--green-dim);
+      color: var(--green);
+      font-weight: 700;
+    }
+    .note {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 12px;
+    }
+    .quote {
+      padding: 22px;
+      background: var(--bg-raised);
+      border-left: 3px solid var(--green);
+      border-radius: 8px;
+      font-size: 0.98rem;
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .quote cite {
+      display: block;
+      margin-top: 12px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-style: normal;
+    }
+    .final-cta {
+      padding: 52px 0 72px;
+      text-align: center;
+      border-top: 1px solid var(--border);
+    }
+    .final-cta h2 { margin-bottom: 8px; font-size: 1.5rem; }
+    .final-cta p {
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      font-size: 0.98rem;
+    }
+    .final-cta .cta { margin: 0 auto; }
+    .final-cta .trust {
+      margin-left: auto;
+      margin-right: auto;
+      margin-top: 18px;
+      text-align: center;
+    }
+    @media (max-width: 480px) {
+      .hero { padding: 40px 0 32px; }
+      section { padding: 36px 0; }
+      .final-cta { padding: 40px 0 56px; }
+      .cta { width: 100%; padding: 18px 20px; font-size: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <span class="logo">
+        <span class="logo-mark">PH</span>
+        <span>PennyHelm</span>
+      </span>
+    </header>
+
+    <div class="hero">
+      <h1>Your budget app shouldn't cost a budget.</h1>
+      <p class="sub">PennyHelm is a personal finance dashboard for <strong>$7.99 a month</strong>, or <strong>$6.49 a month billed annually</strong>. Same features as Monarch and YNAB. The price is locked for existing subscribers — it doesn't go up.</p>
+
+      <div class="price-strip" aria-label="Price comparison">
+        <span class="chip strike">Monarch $14.99</span>
+        <span class="chip strike">YNAB $14.99</span>
+        <span class="chip strike">Copilot $13</span>
+        <span class="chip strike">Rocket Money $12</span>
+        <span class="chip us">PennyHelm $7.99</span>
+      </div>
+
+      <a href="https://www.pennyhelm.com/login" class="cta">Start Free Trial — 30 days free, no card required</a>
+      <p class="trust">Bank connections powered by Plaid — your data is never harvested, sold, or shared. Your numbers stay yours.</p>
+    </div>
+
+    <section>
+      <h2>What you actually get</h2>
+      <div class="features">
+        <div class="feature">
+          <h3>One dashboard</h3>
+          <p>Bills, accounts, debts, cashflow, and a financial health score on a single page. Calendar view, Sankey diagrams, net-worth trendline — all included.</p>
+        </div>
+        <div class="feature">
+          <h3>Debt payoff with real math</h3>
+          <p>Avalanche and snowball side by side. Shows you the actual interest saved and months cut for each plan, based on your numbers.</p>
+        </div>
+        <div class="feature">
+          <h3>Free household access</h3>
+          <p>Invite your partner or household member at no extra cost — same deal as Monarch, for half the monthly price.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Side by side</h2>
+      <div class="table-wrap">
+        <table class="compare">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="us-head">PennyHelm</th>
+              <th>Monarch</th>
+              <th>YNAB</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Monthly</td>
+              <td class="us">$7.99</td>
+              <td>$14.99</td>
+              <td>$14.99</td>
+            </tr>
+            <tr>
+              <td>Annual, per month</td>
+              <td class="us">$6.49</td>
+              <td>$8.33</td>
+              <td>$9.08</td>
+            </tr>
+            <tr>
+              <td>Free household access</td>
+              <td class="us">Included</td>
+              <td>Included</td>
+              <td>Included</td>
+            </tr>
+            <tr>
+              <td>Bank sync via Plaid</td>
+              <td class="us">Yes</td>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td>Bills, debts, cashflow in one view</td>
+              <td class="us">Yes</td>
+              <td>Yes</td>
+              <td>Partial</td>
+            </tr>
+            <tr>
+              <td>Price locked for existing subscribers</td>
+              <td class="us">Yes</td>
+              <td>No</td>
+              <td>No</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Competitor pricing as publicly listed on their respective websites as of April 2026.</p>
+    </section>
+
+    <section>
+      <!-- Social proof slot — replace with a real user testimonial (with consent) once one is available. -->
+      <blockquote class="quote">
+        "Built this because I got tired of paying $15 a month for a dashboard I only used to check bills. No investors, no pressure to raise prices or bolt on upsells — the business model is $7.99 a month, that's it."
+        <cite>— James, PennyHelm founder</cite>
+      </blockquote>
+    </section>
+
+    <div class="final-cta">
+      <h2>$7.99. Locked. No card to start.</h2>
+      <p>Thirty days to decide. Cancel any time from Settings.</p>
+      <a href="https://www.pennyhelm.com/login" class="cta">Start Free Trial — 30 days free, no card required</a>
+      <p class="trust">Bank connections powered by Plaid — your data is never harvested, sold, or shared. Your numbers stay yours.</p>
+    </div>
+  </div>
+</body>
+</html>
