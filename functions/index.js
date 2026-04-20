@@ -116,6 +116,7 @@ const chatbotFns   = require("./chatbot")(shared);
 const apiKeyFns    = require("./api-keys")(shared);
 const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
 const adEventFns   = require("./ad-events")(shared);
+const activeUserFns = require("./active-users")(shared);
 
 // ─── Re-export All Cloud Functions ───────────────────────────
 
@@ -124,4 +125,4 @@ const adEventFns   = require("./ad-events")(shared);
 delete apiKeyFns._validateApiKey;
 delete inviteFns.trackPaidReferral;
 
-Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns);
+Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns);
