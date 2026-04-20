@@ -1094,9 +1094,9 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
                     </p>
                 </div>
                 <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--text-muted);">
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#10b981;border-radius:2px;display:inline-block;"></span> Income</span>
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#ef4444;border-radius:2px;display:inline-block;"></span> Expenses</span>
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:${sankeyNet >= 0 ? '#22c55e' : '#f59e0b'};border-radius:2px;display:inline-block;"></span> ${sankeyNet >= 0 ? 'Savings' : 'Shortfall'}</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:#10b981;border-radius:2px;display:inline-block;"></span> Income</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:#ef4444;border-radius:2px;display:inline-block;"></span> Expenses</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:${sankeyNet >= 0 ? '#22c55e' : '#f59e0b'};border-radius:2px;display:inline-block;"></span> ${sankeyNet >= 0 ? 'Savings' : 'Shortfall'}</span>
                 </div>
             </div>
             <div id="cashflow-sankey-mount" style="min-height:360px;width:100%;"></div>
@@ -1107,8 +1107,8 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
             <div class="flex-between mb-16">
                 <h3>6-Month Projection</h3>
                 <div style="display:flex;align-items:center;gap:16px;font-size:11px;">
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Income</span>
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--red);border-radius:2px;display:inline-block;"></span> Expenses</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Income</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--red);border-radius:2px;display:inline-block;"></span> Expenses</span>
                 </div>
             </div>
             ${projMax > 0 ? `
