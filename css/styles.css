@@ -1375,17 +1375,45 @@ tbody tr:hover { background: var(--bg-card-hover); }
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     gap: 16px;
-    padding-bottom: 8px;
+    padding-bottom: 4px;
     -webkit-overflow-scrolling: touch;
-    /* Subtle scrollbar — invite the user to swipe/scroll without screaming */
-    scrollbar-width: thin;
+    /* Hide native scrollbar — pagination dots below tell the same story cleaner */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
+.widget-carousel::-webkit-scrollbar { display: none; }
 
 .widget-carousel > * {
     flex: 0 0 min(calc(100% - 32px), 420px);
     scroll-snap-align: start;
     min-width: 0; /* allow flex children to size down for text wrap */
     margin-bottom: 0 !important; /* cancel any mb-24 on inner cards */
+}
+
+.widget-carousel-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.widget-carousel-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    background: var(--border);
+    cursor: pointer;
+    transition: background 0.2s, width 0.2s;
+}
+.widget-carousel-dot:hover {
+    background: var(--text-muted);
+}
+.widget-carousel-dot.active {
+    background: var(--accent);
+    width: 22px; /* active dot elongates into a pill — iOS-style pagination */
+    border-radius: 4px;
 }
 
 @media (max-width: 680px) {
