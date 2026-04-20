@@ -1045,7 +1045,7 @@ function buildHealthScoreHtml(ctx) {
         html += '<div class="flex-align-center gap-8">';
         html += '<span style="font-size:16px;">' + c.icon + '</span>';
         html += '<span style="font-size:13px;font-weight:600;">' + c.name + '</span></div>';
-        html += '<div style="display:flex;align-items:center;gap:6px;">';
+        html += '<div class="icon-label gap-6">';
         html += '<span style="font-size:14px;font-weight:700;color:' + barColor + ';">' + c.score + '</span>';
         html += '<span style="font-size:10px;color:var(--text-muted);font-weight:600;">' + Math.round(c.weight * 100) + '%</span></div></div>';
         // Progress bar
@@ -1233,7 +1233,7 @@ function buildSmartInsightsHtml(ctx) {
 
             // Confidence + info row
             html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
-            html += '<div style="display:flex;align-items:center;gap:6px;">';
+            html += '<div class="icon-label gap-6">';
             html += '<div style="width:6px;height:6px;border-radius:50%;background:' + confidenceColor + ';"></div>';
             html += '<span style="font-size:11px;color:var(--text-secondary);">' + confidenceLabel + ' confidence</span></div>';
             html += '<span style="font-size:11px;color:var(--text-muted);">~Day ' + r.estimatedDueDay + '</span></div>';

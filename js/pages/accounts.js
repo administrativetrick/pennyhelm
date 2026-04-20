@@ -34,7 +34,7 @@ export function renderAccounts(container, store) {
                 <div class="subtitle">${accounts.length} account${accounts.length !== 1 ? 's' : ''} &middot; Net: ${formatCurrency(netTotal)}</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                ${plaidAvailable ? '<button class="btn btn-secondary" id="connect-bank-btn" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
+                ${plaidAvailable ? '<button class="btn btn-secondary icon-label gap-6" id="connect-bank-btn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
                 <button class="btn btn-secondary" id="scan-statement-btn">Scan Statement</button>
                 <button class="btn btn-primary" id="add-account-btn">+ Add Account</button>
             </div>
@@ -86,7 +86,7 @@ export function renderAccounts(container, store) {
 
         ${hasPlaid ? `
         <div style="margin-top:16px;display:flex;justify-content:flex-end;">
-            <button class="btn btn-secondary btn-sm" id="refresh-plaid-btn" style="display:flex;align-items:center;gap:6px;font-size:12px;">
+            <button class="btn btn-secondary btn-sm icon-label gap-6" id="refresh-plaid-btn" style="font-size:12px;">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 Refresh Connected Balances
             </button>
@@ -183,7 +183,7 @@ export function renderAccounts(container, store) {
             <h3 class="mb-8">No accounts tracked</h3>
             <p style="color:var(--text-muted);margin-bottom:24px;">Add your bank accounts, investments, and property to track your net worth.</p>
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-                ${plaidAvailable ? '<button class="btn btn-primary" id="empty-connect-bank" style="display:flex;align-items:center;gap:6px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
+                ${plaidAvailable ? '<button class="btn btn-primary icon-label gap-6" id="empty-connect-bank"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg> Connect Bank</button>' : ''}
                 <button class="btn ${plaidAvailable ? 'btn-secondary' : 'btn-primary'}" id="empty-add-account">+ Add Manually</button>
             </div>
         </div>
