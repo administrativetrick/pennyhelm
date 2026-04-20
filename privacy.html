@@ -116,7 +116,7 @@
         <a href="/" class="back-link">&larr; Back to Home</a>
 
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective Date: February 10, 2025</p>
+        <p class="policy-date">Effective Date: April 20, 2026</p>
 
         <p>
             PennyHelm ("we," "us," or "our") is a personal finance management application. We take your privacy seriously and are committed to protecting the personal and financial information you entrust to us. This Privacy Policy explains what data we collect, how we use it, how we store and protect it, and your rights regarding your information.
@@ -178,13 +178,55 @@
 
         <h3>1.6 Information We Do NOT Collect</h3>
         <ul>
-            <li>We do not use cookies for tracking or advertising</li>
-            <li>We do not use third-party analytics services (no Google Analytics, Mixpanel, etc.)</li>
-            <li>We do not display advertisements</li>
+            <li>We do not display advertisements inside the app</li>
+            <li>We do not use third-party analytics SDKs (no Google Analytics, Mixpanel, Segment, etc.)</li>
             <li>We do not collect location data</li>
             <li>We do not access your contacts, camera, or photos</li>
-            <li>We do not sell or share your data with advertisers or data brokers</li>
+            <li>We do not sell, rent, or share your data with advertisers, data brokers, or any third party for their own marketing</li>
         </ul>
+
+        <h3>1.7 Marketing Attribution (Ad Landing Pages Only)</h3>
+        <p>
+            When you arrive at a PennyHelm marketing landing page &mdash; currently just <strong>pennyhelm.com/switch</strong>,
+            used for paid ads on platforms like Reddit &mdash; we record a small amount of information so we can measure
+            which ads are working and which aren't. This tracking runs <strong>only on those landing pages</strong>,
+            never inside the app itself.
+        </p>
+        <p>What we record on a landing-page visit:</p>
+        <ul>
+            <li><strong>An anonymous visitor ID</strong> stored in your browser's <code>localStorage</code>. This is a random identifier we generate &mdash; it is not linked to your name, email, or any account. Its only purpose is to let us tell whether the person who clicked the "Start Free Trial" button is the same person who saw the page five minutes earlier</li>
+            <li><strong>UTM parameters</strong> (<code>utm_source</code>, <code>utm_medium</code>, <code>utm_campaign</code>, <code>utm_content</code>, <code>utm_term</code>) from the URL, if present. These tell us which ad platform and creative brought you here</li>
+            <li><strong>The referring URL</strong> (<code>document.referrer</code>), if your browser sends one</li>
+            <li><strong>The landing page path</strong> (e.g. <code>/switch</code>)</li>
+            <li><strong>Your IP address</strong>, used <em>only</em> for rate limiting the endpoint &mdash; not persisted in the attribution record itself and discarded within two minutes</li>
+        </ul>
+        <p>
+            We do <strong>not</strong> use third-party ad pixels, Meta Pixel, Google Tag Manager, or any off-platform
+            tracker. The data above is sent to PennyHelm servers only and never shared with the ad platform itself beyond
+            the conversion events the platform requires (e.g. a signup count).
+        </p>
+        <p>
+            Records are stored in a protected Firestore collection readable only by PennyHelm administrators and
+            <strong>automatically deleted after 90 days</strong>. You can clear the anonymous visitor ID at any time by
+            clearing your browser's site data for pennyhelm.com.
+        </p>
+
+        <h3>1.8 Usage Activity (Logged-In Users)</h3>
+        <p>
+            To understand how many people actually use PennyHelm &mdash; e.g. daily and monthly active user counts &mdash;
+            we record, once per calendar day per user, a small activity marker containing:
+        </p>
+        <ul>
+            <li>Your user ID</li>
+            <li>The date (UTC, e.g. <code>2026-04-20</code>)</li>
+            <li>A timestamp</li>
+        </ul>
+        <p>
+            No page, action, bill, balance, or financial detail is recorded &mdash; the marker only says "this user opened
+            the app today." Markers are stored in a protected Firestore collection readable only by administrators and
+            <strong>automatically deleted after 90 days</strong>. They are used solely to compute aggregate active-user
+            counts and are never shared externally.
+        </p>
 
         <h2>2. How We Use Your Information</h2>
         <p>We use your information solely to provide and improve the PennyHelm service:</p>

@@ -15,6 +15,7 @@ import { renderBudgets } from './pages/budgets.js';
 import { renderSavingsGoalsPage } from './pages/savings.js';
 import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
 import { openModal, closeModal } from './services/modal-manager.js';
+import { pingActiveUser } from './active-ping.js';
 
 const pages = {
     dashboard: renderDashboard,
@@ -269,5 +270,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 9. Mode-specific finalize (cloud: Plaid sync + sidebar + chatbot; selfhost: no-op).
     await mode.finalize({ store, auth, navigate });
+
+    // 10. DAU/MAU ping (cloud only, no-ops in selfhost). Fires at most once
+    //     per UTC day per device — see js/active-ping.js and privacy.html §1.8.
+    pingActiveUser();
 });
 

@@ -104,6 +104,24 @@ export async function renderAdmin(container, store) {
             </div>
         </div>
 
+        <!-- Active Users (DAU / MAU) -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3>Active Users</h3>
+                    <select id="active-users-range" class="form-select" style="max-width:140px;font-size:12px;">
+                        <option value="7">Last 7 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                <div id="active-users-summary" style="color:var(--text-secondary);font-size:12px;margin-bottom:12px;">
+                    Loading...
+                </div>
+                <div id="active-users-content"></div>
+            </div>
+        </div>
+
         <!-- Ad Attribution -->
         <div class="card mb-24">
             <div class="settings-section">
@@ -347,6 +365,16 @@ export async function renderAdmin(container, store) {
     // Load and render test users
     loadTestUsers(container, db, store);
 
+    // === Active Users Handlers ===
+
+    const activeRangeSel = document.getElementById('active-users-range');
+    if (activeRangeSel) {
+        loadActiveUsers(parseInt(activeRangeSel.value, 10) || 30);
+        activeRangeSel.addEventListener('change', () => {
+            loadActiveUsers(parseInt(activeRangeSel.value, 10) || 30);
+        });
+    }
+
     // === Ad Attribution Handlers ===
 
     const rangeSel = document.getElementById('ad-attr-range');
@@ -371,6 +399,109 @@ export async function renderAdmin(container, store) {
     // Real-time search as user types (debounced)
     const debouncedSearch = debounce(() => searchUsers(db), 300);
     document.getElementById('user-lookup-email').addEventListener('input', debouncedSearch);
+}
+
+// ─── Active Users (DAU / MAU) ───────────────────────────────
+
+async function loadActiveUsers(daysBack) {
+    const summaryEl = document.getElementById('active-users-summary');
+    const contentEl = document.getElementById('active-users-content');
+    if (!summaryEl || !contentEl) return;
+
+    summaryEl.textContent = 'Loading...';
+    contentEl.innerHTML = '';
+
+    try {
+        const fn = firebase.app().functions().httpsCallable('getActiveUserStats');
+        const result = await fn({ daysBack });
+        const data = result.data;
+
+        const dauToday = Number(data.dauToday) || 0;
+        const wau = Number(data.wau) || 0;
+        const mau = Number(data.mau) || 0;
+
+        // Stickiness = DAU / MAU — standard industry engagement metric.
+        // Higher = users come back daily. 20%+ is healthy for a utility app.
+        const stickiness = mau > 0 ? (dauToday / mau) * 100 : 0;
+
+        summaryEl.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:4px;">
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">DAU (today)</div>
+                    <div style="font-size:22px;font-weight:700;color:#22c55e;margin-top:4px;">${dauToday.toLocaleString()}</div>
+                </div>
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">WAU (7d)</div>
+                    <div style="font-size:22px;font-weight:700;color:var(--text-primary);margin-top:4px;">${wau.toLocaleString()}</div>
+                </div>
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">MAU (30d)</div>
+                    <div style="font-size:22px;font-weight:700;color:var(--text-primary);margin-top:4px;">${mau.toLocaleString()}</div>
+                </div>
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);" title="DAU ÷ MAU — higher means users return more frequently">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Stickiness</div>
+                    <div style="font-size:22px;font-weight:700;color:var(--text-primary);margin-top:4px;">${stickiness.toFixed(1)}%</div>
+                </div>
+            </div>
+        `;
+
+        contentEl.innerHTML = `
+            ${renderDauSparkline(data.dau || [])}
+            <p style="color:var(--text-secondary);font-size:11px;margin-top:12px;">
+                One Firestore doc per (user, UTC day). Bars show daily active users over the window.
+                MAU is the distinct user count in the trailing 30-day window. No financial data recorded —
+                see privacy.html §1.8.
+            </p>
+        `;
+    } catch (err) {
+        console.error('getActiveUserStats failed:', err);
+        summaryEl.textContent = '';
+        contentEl.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px;">Failed to load active-user data: ${escapeHtml(err.message || 'unknown error')}</p>`;
+    }
+}
+
+/**
+ * Lightweight inline bar-chart of DAU over the window. No chart library —
+ * one CSS-styled bar per day scaled against the max value in the series.
+ */
+function renderDauSparkline(series) {
+    if (!Array.isArray(series) || series.length === 0) {
+        return `<p style="color:var(--text-secondary);font-size:12px;">No activity recorded in this window.</p>`;
+    }
+
+    const max = series.reduce((m, d) => Math.max(m, d.activeUsers || 0), 0);
+    // If max is 0, show flat bars so the layout doesn't collapse.
+    const scale = max > 0 ? max : 1;
+
+    const bars = series.map((d) => {
+        const n = d.activeUsers || 0;
+        const pct = (n / scale) * 100;
+        const heightPct = max > 0 ? pct : 0;
+        // Show the date on hover; day-of-month label below the bar for dense series.
+        const dayOfMonth = d.date.slice(8, 10);
+        return `
+            <div style="flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:0;" title="${escapeHtml(d.date)}: ${n.toLocaleString()} DAU">
+                <div style="width:100%;height:80px;display:flex;align-items:flex-end;">
+                    <div style="width:100%;height:${heightPct}%;background:#22c55e;border-radius:2px 2px 0 0;min-height:${n > 0 ? '2px' : '0'};"></div>
+                </div>
+                <div style="font-size:9px;color:var(--text-secondary);margin-top:4px;">${dayOfMonth}</div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div style="margin-top:16px;">
+            <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">Daily Active Users</h4>
+            <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                <div style="display:flex;gap:2px;align-items:flex-end;">${bars}</div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-secondary);margin-top:6px;">
+                    <span>${escapeHtml(series[0].date)}</span>
+                    <span>Peak: ${max.toLocaleString()}</span>
+                    <span>${escapeHtml(series[series.length - 1].date)}</span>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 // ─── Ad Attribution ──────────────────────────────────────────
