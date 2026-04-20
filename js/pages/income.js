@@ -164,9 +164,9 @@ function buildBalanceHistoryHtml(store) {
 
     // Build legend — only show types that have values
     let legendHtml = '';
-    if (latest.checking) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Checking</span>';
-    if (latest.savings) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--accent);border-radius:2px;display:inline-block;"></span> Savings</span>';
-    if (latest.investment) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--purple);border-radius:2px;display:inline-block;"></span> Investments</span>';
+    if (latest.checking) legendHtml += '<span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Checking</span>';
+    if (latest.savings) legendHtml += '<span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--accent);border-radius:2px;display:inline-block;"></span> Savings</span>';
+    if (latest.investment) legendHtml += '<span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--purple);border-radius:2px;display:inline-block;"></span> Investments</span>';
 
     const nwColor = latest.netWorth >= 0 ? 'var(--green)' : 'var(--red)';
 

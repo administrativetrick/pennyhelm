@@ -1904,7 +1904,7 @@ function renderAccountsSection(store) {
                             ${hasPlaid ? ' &middot; <span style="color:var(--green);">Bank connected</span>' : ''}
                         </div>
                     </div>
-                    <a href="#accounts" id="settings-go-to-accounts" class="btn btn-secondary btn-sm" style="display:flex;align-items:center;gap:6px;">
+                    <a href="#accounts" id="settings-go-to-accounts" class="btn btn-secondary btn-sm icon-label gap-6">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg>
                         Manage Accounts
                     </a>

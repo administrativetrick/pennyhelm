@@ -125,22 +125,22 @@ export function renderCalendar(container, store) {
         <div class="card mt-16">
             <h3 class="mb-16">Legend</h3>
             <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;">
-                <span style="display:flex;align-items:center;gap:6px;">
+                <span class="icon-label gap-6">
                     <span style="width:12px;height:12px;background:var(--green);border-radius:3px;"></span> Pay Day
                 </span>
-                <span style="display:flex;align-items:center;gap:6px;">
+                <span class="icon-label gap-6">
                     <span style="width:12px;height:12px;background:var(--green-bg);border:1px solid var(--green);border-radius:3px;"></span> Housing
                 </span>
-                <span style="display:flex;align-items:center;gap:6px;">
+                <span class="icon-label gap-6">
                     <span style="width:12px;height:12px;background:var(--orange-bg);border:1px solid var(--orange);border-radius:3px;"></span> Car
                 </span>
-                <span style="display:flex;align-items:center;gap:6px;">
+                <span class="icon-label gap-6">
                     <span style="width:12px;height:12px;background:var(--blue-bg);border:1px solid var(--blue);border-radius:3px;"></span> Subscription
                 </span>
-                <span style="display:flex;align-items:center;gap:6px;">
+                <span class="icon-label gap-6">
                     <span style="width:12px;height:12px;background:var(--red-bg);border:1px solid var(--red);border-radius:3px;"></span> Credit Card
                 </span>
-                <span style="display:flex;align-items:center;gap:6px;">
+                <span class="icon-label gap-6">
                     <span style="width:12px;height:12px;background:var(--purple-bg);border:1px solid var(--purple);border-radius:3px;"></span> Necessity
                 </span>
             </div>
