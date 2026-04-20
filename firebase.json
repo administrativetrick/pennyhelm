@@ -51,6 +51,10 @@
       {
         "source": "/delete-account",
         "destination": "/delete-account.html"
+      },
+      {
+        "source": "/switch",
+        "destination": "/switch.html"
       }
     ],
     "headers": [
@@ -67,7 +71,7 @@
         ]
       },
       {
-        "source": "/@(app|login|accept-invite|oauth|delete-account)",
+        "source": "/@(app|login|accept-invite|oauth|delete-account|switch)",
         "headers": [
           { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
         ]
