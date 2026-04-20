@@ -161,7 +161,7 @@ export async function renderAdmin(container, store) {
                     <input type="text" class="form-input" id="user-lookup-email" placeholder="Search by email, display name, or UID..." style="flex:1;" autocomplete="off">
                     <button class="btn btn-primary btn-sm" id="user-lookup-btn">Search</button>
                 </div>
-                <div id="user-lookup-result" style="margin-top:16px;"></div>
+                <div id="user-lookup-result" class="mt-16"></div>
             </div>
         </div>
     `;
@@ -273,7 +273,7 @@ export async function renderAdmin(container, store) {
                             `).join('')}
                         </div>`
                     }
-                    <div class="modal-actions" style="margin-top:16px;">
+                    <div class="modal-actions mt-16">
                         <button class="btn btn-secondary" id="modal-cancel">Close</button>
                     </div>
                 `);
@@ -337,7 +337,7 @@ export async function renderAdmin(container, store) {
                 // Show the generated credentials — only chance to see the password
                 openModal('Test User Created', `
                     <div style="text-align:center;">
-                        <p style="margin-bottom:8px;">User <strong>${escapeHtml(name)}</strong> created successfully.</p>
+                        <p class="mb-8">User <strong>${escapeHtml(name)}</strong> created successfully.</p>
                         <div style="background:var(--bg-secondary);border-radius:8px;padding:16px;margin:16px 0;text-align:left;">
                             <p style="margin:0 0 8px 0;"><strong>UID:</strong> <code>${escapeHtml(result.data.uid)}</code></p>
                             <p style="margin:0 0 8px 0;"><strong>Email:</strong> <code>${escapeHtml(result.data.email)}</code></p>
@@ -490,7 +490,7 @@ function renderDauSparkline(series) {
     }).join('');
 
     return `
-        <div style="margin-top:16px;">
+        <div class="mt-16">
             <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">Daily Active Users</h4>
             <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
                 <div style="display:flex;gap:2px;align-items:flex-end;">${bars}</div>
@@ -543,7 +543,7 @@ async function loadAdAttribution(daysBack) {
 function renderAttributionTable(title, rows, keyLabel, keyField) {
     if (!Array.isArray(rows) || rows.length === 0) {
         return `
-            <div style="margin-top:16px;">
+            <div class="mt-16">
                 <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">${escapeHtml(title)}</h4>
                 <p style="color:var(--text-secondary);font-size:12px;">No data yet.</p>
             </div>
@@ -569,7 +569,7 @@ function renderAttributionTable(title, rows, keyLabel, keyField) {
     `).join('');
 
     return `
-        <div style="margin-top:16px;">
+        <div class="mt-16">
             <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">${escapeHtml(title)}</h4>
             <div style="overflow-x:auto;">
                 <table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid var(--border,#2a2f3a);border-radius:6px;overflow:hidden;">
@@ -657,7 +657,7 @@ async function loadTestUsers(container, db, store) {
 
                     openModal('Password Reset', `
                         <div style="text-align:center;">
-                            <p style="margin-bottom:8px;">Password reset for <strong>${escapeHtml(name)}</strong>.</p>
+                            <p class="mb-8">Password reset for <strong>${escapeHtml(name)}</strong>.</p>
                             <div style="background:var(--bg-secondary);border-radius:8px;padding:16px;margin:16px 0;">
                                 <p style="margin:0;"><strong>New Temporary Password:</strong><br>
                                 <code style="color:var(--accent);font-weight:600;font-size:16px;">${escapeHtml(result.data.tempPassword)}</code></p>

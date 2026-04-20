@@ -176,7 +176,7 @@ function renderField(f) {
                 ${hintHtml}
             </div>`;
         case 'checkbox':
-            return `<div class="form-group" style="display:flex;align-items:center;gap:8px;">
+            return `<div class="form-group flex-align-center gap-8">
                 <input type="checkbox" ${id} ${f.checked ? 'checked' : ''}>
                 ${f.label ? `<label for="${attr(f.id)}" style="margin:0;">${escape(f.label)}</label>` : ''}
                 ${hintHtml}
@@ -271,7 +271,7 @@ export function showToast(message, type = 'info') {
 
 export function showSubscriptionModal(auth) {
     openModal('Choose Your Plan', `
-        <div style="margin-bottom:16px;">
+        <div class="mb-16">
             <p style="color:var(--text-secondary);margin-bottom:16px;">Select a plan to continue using PennyHelm Cloud.</p>
             <div id="plan-options" style="display:flex;gap:12px;flex-wrap:wrap;">
                 <div class="plan-option" data-plan="annual" style="flex:1;min-width:180px;background:var(--accent-bg);border:2px solid var(--accent);border-radius:12px;padding:20px;cursor:pointer;text-align:center;position:relative;">

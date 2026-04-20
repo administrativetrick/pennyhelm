@@ -84,7 +84,7 @@ export function renderRules(container, store) {
             <div class="card">
                 <div class="settings-section" style="text-align:center;padding:40px 20px;">
                     <div style="font-size:40px;margin-bottom:12px;">🪄</div>
-                    <h3 style="margin-bottom:8px;">No rules yet</h3>
+                    <h3 class="mb-8">No rules yet</h3>
                     <p style="color:var(--text-secondary);margin-bottom:20px;">
                         Rules auto-categorize transactions as they're imported. For example:
                         <em>"Vendor contains 'STARBUCKS' → category = Coffee"</em>.

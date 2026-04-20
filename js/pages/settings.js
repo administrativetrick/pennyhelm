@@ -148,12 +148,12 @@ export function renderSettings(container, store) {
                 <div id="api-key-created-banner" style="display:none;margin-top:12px;padding:14px;background:var(--bg-secondary);border:1px solid var(--green);border-radius:var(--radius-sm);">
                     <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px;">NEW API KEY CREATED</div>
                     <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Copy this key now. It will not be shown again.</p>
-                    <div style="display:flex;align-items:center;gap:8px;">
+                    <div class="flex-align-center gap-8">
                         <code id="api-key-value" style="flex:1;padding:8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;font-size:13px;word-break:break-all;user-select:all;"></code>
                         <button class="btn btn-secondary btn-sm" id="copy-api-key-btn">Copy</button>
                     </div>
                 </div>
-                <details style="margin-top:16px;">
+                <details class="mt-16">
                     <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none;">API Documentation</summary>
                     <div style="margin-top:8px;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);">
                         <p style="margin:0 0 8px;font-weight:600;">Base URL</p>
@@ -792,7 +792,7 @@ export function renderSettings(container, store) {
                     openModal('Disable Two-Factor Authentication', `
                         <div style="padding:8px 0 16px;font-size:14px;">
                             <p>Enter your current authenticator code to disable 2FA.</p>
-                            <div class="form-group" style="margin-top:16px;">
+                            <div class="form-group mt-16">
                                 <input type="text" class="form-input" id="mfa-disable-code"
                                     placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]*"
                                     style="text-align:center;font-size:20px;letter-spacing:6px;font-family:monospace;">
