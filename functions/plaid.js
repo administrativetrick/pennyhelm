@@ -213,6 +213,11 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
                             priceDate: sec.close_price_as_of || null,
                             value: h.institution_value,
                             costBasis: h.cost_basis,
+                            // Vested fields: for RSU/grant holdings, institutions sometimes report
+                            // the full grant as `quantity` but only the currently-held portion as
+                            // `vested_quantity`. When present, the investments page will prefer these.
+                            vestedQuantity: h.vested_quantity != null ? h.vested_quantity : null,
+                            vestedValue: h.vested_value != null ? h.vested_value : null,
                             isoCurrencyCode: h.iso_currency_code || "USD",
                         });
                     }
@@ -514,6 +519,10 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
                             priceDate: sec.close_price_as_of || null,
                             value: h.institution_value,
                             costBasis: h.cost_basis,
+                            // See exchangePublicToken for rationale — prefer vested_quantity
+                            // over quantity when reporting actual held shares (RSU/grant handling).
+                            vestedQuantity: h.vested_quantity != null ? h.vested_quantity : null,
+                            vestedValue: h.vested_value != null ? h.vested_value : null,
                             isoCurrencyCode: h.iso_currency_code || "USD",
                         });
                     }
@@ -602,6 +611,107 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
             } catch (err) {
                 console.error("refreshBalances error:", err.response?.data || err.message);
                 throw new HttpsError("internal", "Failed to refresh balances.");
+            }
+        }
+    );
+
+    // 3a. getRecurringTransactions
+    //     Calls Plaid's /transactions/recurring/get for one item and returns the
+    //     detected outflow + inflow streams so the UI can offer one-click import
+    //     into the Bills / Income pages. Requires the Recurring Transactions
+    //     add-on to be enabled on the Plaid dashboard (it is).
+    //
+    //     We keep this as its own call (not folded into refreshBalances) because:
+    //       - It's on-demand only — users click "Detect bills from bank", not
+    //         every refresh — so it doesn't burn API quota on silent syncs.
+    //       - It can be called independently of Balance, which is important now
+    //         that Balance is capped on Limited Production.
+    exports.getRecurringTransactions = onCall(
+        { secrets: [PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV] },
+        async (request) => {
+            if (!request.auth) {
+                throw new HttpsError("unauthenticated", "Must be signed in.");
+            }
+
+            const uid = request.auth.uid;
+            const itemId = request.data?.item_id;
+            if (!itemId) {
+                throw new HttpsError("invalid-argument", "Missing item_id.");
+            }
+
+            // Verify ownership (same pattern as refreshBalances)
+            const itemDoc = await db.collection("plaidItems").doc(itemId).get();
+            if (!itemDoc.exists) {
+                throw new HttpsError("not-found", "Plaid item not found.");
+            }
+            const itemData = itemDoc.data();
+            const isAdmin = request.auth.token?.admin === true;
+            if (itemData.uid !== uid && !isAdmin) {
+                throw new HttpsError("permission-denied", "Not your Plaid item.");
+            }
+
+            const client = getPlaidClient(
+                PLAID_CLIENT_ID.value(),
+                PLAID_SECRET.value(),
+                PLAID_ENV.value()
+            );
+
+            try {
+                const response = await client.transactionsRecurringGet({
+                    access_token: itemData.accessToken,
+                });
+
+                // Flatten and normalize. Plaid uses negative amounts for outflows
+                // and positive for inflows — we keep the sign semantics via the
+                // `direction` field and always return a positive `amount` so the
+                // UI doesn't have to deal with signs.
+                const normalize = (stream, direction) => ({
+                    streamId: stream.stream_id,
+                    direction, // 'outflow' (bills) | 'inflow' (income)
+                    merchantName: stream.merchant_name || stream.description || "Unknown",
+                    description: stream.description || null,
+                    category: Array.isArray(stream.category) ? stream.category : [],
+                    personalFinanceCategory: stream.personal_finance_category?.primary || null,
+                    personalFinanceCategoryDetailed: stream.personal_finance_category?.detailed || null,
+                    frequency: stream.frequency || "UNKNOWN",
+                    firstDate: stream.first_date || null,
+                    lastDate: stream.last_date || null,
+                    predictedNextDate: stream.predicted_next_date || null,
+                    averageAmount: Math.abs(Number(stream.average_amount?.amount) || 0),
+                    lastAmount: Math.abs(Number(stream.last_amount?.amount) || 0),
+                    isoCurrencyCode: stream.average_amount?.iso_currency_code || "USD",
+                    accountId: stream.account_id || null,
+                    isActive: !!stream.is_active,
+                    status: stream.status || "UNKNOWN",
+                    transactionIds: Array.isArray(stream.transaction_ids) ? stream.transaction_ids : [],
+                });
+
+                const outflows = (response.data.outflow_streams || []).map(s => normalize(s, "outflow"));
+                const inflows = (response.data.inflow_streams || []).map(s => normalize(s, "inflow"));
+
+                return {
+                    itemId,
+                    outflows,
+                    inflows,
+                    updatedAt: response.data.updated_datetime || new Date().toISOString(),
+                };
+            } catch (err) {
+                const errCode = err.response?.data?.error_code;
+                console.error("getRecurringTransactions error:", err.response?.data || err.message);
+                // Surface CREDITS_EXHAUSTED / rate-limit errors verbatim so the
+                // client can show a useful message instead of a generic failure.
+                if (errCode === "CREDITS_EXHAUSTED" || errCode === "RATE_LIMIT_EXCEEDED") {
+                    throw new HttpsError("resource-exhausted", "Plaid quota exhausted — request full Production access.");
+                }
+                if (errCode === "ITEM_LOGIN_REQUIRED") {
+                    throw new HttpsError("failed-precondition", "Bank needs re-authentication.");
+                }
+                if (errCode === "PRODUCT_NOT_READY") {
+                    // Recurring Transactions takes 1-2 minutes to become available
+                    // after initial link while Plaid builds the stream history.
+                    throw new HttpsError("unavailable", "Recurring detection still warming up — try again in a minute.");
+                }
+                throw new HttpsError("internal", "Failed to fetch recurring transactions.");
             }
         }
     );

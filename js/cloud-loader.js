@@ -26,12 +26,13 @@ const FIREBASE_BASE = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
 
 export async function loadFirebaseSdk() {
     if (typeof firebase !== 'undefined' && firebase.apps) return;
-    // Must load in order: app → auth/firestore/functions
+    // Must load in order: app → {auth, firestore, functions, app-check}
     await loadScript(`${FIREBASE_BASE}/firebase-app-compat.js`);
     await Promise.all([
         loadScript(`${FIREBASE_BASE}/firebase-auth-compat.js`),
         loadScript(`${FIREBASE_BASE}/firebase-firestore-compat.js`),
         loadScript(`${FIREBASE_BASE}/firebase-functions-compat.js`),
+        loadScript(`${FIREBASE_BASE}/firebase-app-check-compat.js`),
     ]);
 }
 

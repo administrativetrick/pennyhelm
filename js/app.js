@@ -10,6 +10,7 @@ import { renderDebts } from './pages/debts.js';
 import { renderIncome } from './pages/income.js';
 import { renderAdmin } from './pages/admin.js';
 import { renderAccounts } from './pages/accounts.js';
+import { renderInvestments } from './pages/investments.js';
 import { shouldShowOnboarding, startOnboarding, resetOnboarding } from './onboarding.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 
@@ -20,6 +21,7 @@ const pages = {
     income: renderIncome,
     debts: renderDebts,
     accounts: renderAccounts,
+    investments: renderInvestments,
     settings: renderSettings,
     admin: renderAdmin
 };

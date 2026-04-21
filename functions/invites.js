@@ -18,11 +18,11 @@ module.exports = function({ admin, db, getEmailTransporter, secrets }) {
         return labels[type] || type;
     }
 
-    // Generate invite code: PH- + 7 random chars (no I/O/0/1 to avoid confusion)
-    function generateInviteCode() {
+    // Generate a random code: prefix + 7 random chars (no I/O/0/1 to avoid confusion)
+    function generateCode() {
         const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         const bytes = crypto.randomBytes(7);
-        let code = "PH-";
+        let code = "";
         for (let i = 0; i < 7; i++) {
             code += chars[bytes[i] % chars.length];
         }
@@ -351,576 +351,125 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
     );
 
     // ─────────────────────────────────────────────
-    // REGISTRATION CODE FUNCTIONS
+    // REFERRAL FUNCTIONS
     // ─────────────────────────────────────────────
 
-    // Validate a registration code (no auth required -- user hasn't signed up yet)
-    exports.validateRegistrationCode = onCall(async (request) => {
-        const { code } = request.data || {};
-        if (!code || typeof code !== "string") {
-            throw new HttpsError("invalid-argument", "Registration code is required.");
-        }
+    // trackPaidReferral
+    //   Called from the Stripe webhook when a subscription becomes active.
+    //   Looks up the referrer and increments their paidReferralCount.
+    //   When count reaches 10, creates a 100% off coupon for 1 year and applies it.
+    exports.trackPaidReferral = async function trackPaidReferral(subscriberUid, stripe) {
+        try {
+            const subscriberDoc = await db.collection("users").doc(subscriberUid).get();
+            if (!subscriberDoc.exists) return;
 
-        const normalized = code.trim().toUpperCase();
-        const codeDoc = await db.collection("registrationCodes").doc(normalized).get();
+            const referredBy = subscriberDoc.data().referredBy;
+            if (!referredBy) return;
 
-        if (!codeDoc.exists) {
-            throw new HttpsError("not-found", "Invalid registration code.");
-        }
-        if (codeDoc.data().status !== "available") {
-            throw new HttpsError("already-exists", "This code has already been used.");
-        }
+            // Find the referrer by referralCode
+            const referrerSnap = await db.collection("users")
+                .where("referralCode", "==", referredBy)
+                .limit(1)
+                .get();
 
-        return { valid: true };
-    });
-
-    // Redeem a registration code (auth required -- called after account creation)
-    exports.redeemRegistrationCode = onCall(async (request) => {
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "Must be authenticated.");
-        }
-
-        const { code } = request.data || {};
-        if (!code || typeof code !== "string") {
-            throw new HttpsError("invalid-argument", "Registration code is required.");
-        }
-
-        const normalized = code.trim().toUpperCase();
-        const uid = request.auth.uid;
-        const codeRef = db.collection("registrationCodes").doc(normalized);
-
-        await db.runTransaction(async (t) => {
-            const codeDoc = await t.get(codeRef);
-            if (!codeDoc.exists) {
-                throw new HttpsError("not-found", "Invalid registration code.");
-            }
-            if (codeDoc.data().status !== "available") {
-                throw new HttpsError("already-exists", "This code has already been used.");
-            }
-            t.update(codeRef, {
-                status: "redeemed",
-                redeemedBy: uid,
-                redeemedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-        });
-
-        return { success: true };
-    });
-
-    // Generate registration codes for a user (10 codes, idempotent)
-    exports.generateRegistrationCodes = onCall(async (request) => {
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "Must be authenticated.");
-        }
-
-        const targetUid = (request.data && request.data.targetUid) || request.auth.uid;
-
-        // Only admin can generate for other users
-        if (targetUid !== request.auth.uid) {
-            const caller = await admin.auth().getUser(request.auth.uid);
-            if (!caller.customClaims || !caller.customClaims.admin) {
-                throw new HttpsError("permission-denied", "Only admin can generate codes for other users.");
-            }
-        }
-
-        const userRef = db.collection("users").doc(targetUid);
-        const userDoc = await userRef.get();
-
-        if (!userDoc.exists) {
-            throw new HttpsError("not-found", "User not found.");
-        }
-
-        // Idempotent -- return existing codes if already generated
-        if (userDoc.data().registrationCodesGenerated) {
-            return { codes: userDoc.data().registrationCodes || [] };
-        }
-
-        const count = (request.data && request.data.count) || 10;
-        const codes = [];
-        const batch = db.batch();
-
-        for (let i = 0; i < count; i++) {
-            const code = generateInviteCode();
-            codes.push(code);
-            batch.set(db.collection("registrationCodes").doc(code), {
-                ownerUid: targetUid,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                redeemedBy: null,
-                redeemedAt: null,
-                status: "available",
-            });
-        }
-
-        batch.update(userRef, {
-            registrationCodes: codes,
-            registrationCodesGenerated: true,
-        });
-
-        await batch.commit();
-        return { codes };
-    });
-
-    // Admin: generate unlimited invite codes not tied to any user
-    exports.generateAdminInviteCodes = onCall(async (request) => {
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "Must be authenticated.");
-        }
-        const caller = await admin.auth().getUser(request.auth.uid);
-        if (!caller.customClaims || !caller.customClaims.admin) {
-            throw new HttpsError("permission-denied", "Admin only.");
-        }
-
-        const count = (request.data && request.data.count) || 10;
-        const codes = [];
-        const batch = db.batch();
-
-        for (let i = 0; i < count; i++) {
-            const code = generateInviteCode();
-            codes.push(code);
-            batch.set(db.collection("registrationCodes").doc(code), {
-                ownerUid: "admin",
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                redeemedBy: null,
-                redeemedAt: null,
-                status: "available",
-            });
-        }
-
-        await batch.commit();
-        return { codes };
-    });
-
-    // Admin: one-time grandfather existing users with 10 invite codes each
-    exports.grandfatherExistingUsers = onCall(async (request) => {
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "Must be authenticated.");
-        }
-        const caller = await admin.auth().getUser(request.auth.uid);
-        if (!caller.customClaims || !caller.customClaims.admin) {
-            throw new HttpsError("permission-denied", "Admin only.");
-        }
-
-        const usersSnap = await db.collection("users").get();
-        let processed = 0;
-
-        for (const userDoc of usersSnap.docs) {
-            const data = userDoc.data();
-            // Skip users already grandfathered
-            if (data.registrationCodesGenerated) continue;
-
-            const uid = userDoc.id;
-            const codes = [];
-            const batch = db.batch();
-
-            for (let i = 0; i < 10; i++) {
-                const code = generateInviteCode();
-                codes.push(code);
-                batch.set(db.collection("registrationCodes").doc(code), {
-                    ownerUid: uid,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    redeemedBy: null,
-                    redeemedAt: null,
-                    status: "available",
-                });
+            if (referrerSnap.empty) {
+                console.log(`No referrer found with code ${referredBy}`);
+                return;
             }
 
-            batch.update(db.collection("users").doc(uid), {
-                registrationCodes: codes,
-                registrationCodesGenerated: true,
-                invitedBy: null,
+            const referrerDoc = referrerSnap.docs[0];
+            const referrerUid = referrerDoc.id;
+            const referrerData = referrerDoc.data();
+
+            // Increment paidReferralCount
+            await db.collection("users").doc(referrerUid).update({
+                paidReferralCount: admin.firestore.FieldValue.increment(1),
             });
 
-            await batch.commit();
-            processed++;
-        }
+            const newCount = (referrerData.paidReferralCount || 0) + 1;
+            console.log(`Referrer ${referrerUid} now has ${newCount} paid referrals.`);
 
-        return { processed };
-    });
+            // If referrer just hit 10 paid referrals and hasn't already earned the reward
+            if (newCount >= 10 && !referrerData.referralRewardEarned) {
+                console.log(`Referrer ${referrerUid} earned free year reward!`);
 
-    // Admin: send registration invite emails with auto-generated codes
-    exports.sendRegistrationInviteEmail = onCall(
-        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM] },
-        async (request) => {
-            if (!request.auth) {
-                throw new HttpsError("unauthenticated", "Must be authenticated.");
-            }
-            const caller = await admin.auth().getUser(request.auth.uid);
-            if (!caller.customClaims || !caller.customClaims.admin) {
-                throw new HttpsError("permission-denied", "Admin only.");
-            }
-
-            const { emails } = request.data || {};
-            if (!emails || !Array.isArray(emails) || emails.length === 0) {
-                throw new HttpsError("invalid-argument", "Must provide an array of email addresses.");
-            }
-            if (emails.length > 50) {
-                throw new HttpsError("invalid-argument", "Maximum 50 emails per batch.");
-            }
-
-            const results = [];
-            const transporter = getEmailTransporter();
-
-            for (const rawEmail of emails) {
-                const email = rawEmail.trim().toLowerCase();
-                if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                    results.push({ email: rawEmail, success: false, error: "Invalid email format" });
-                    continue;
+                const referrerStripeCustomerId = referrerData.stripeCustomerId;
+                if (!referrerStripeCustomerId || !stripe) {
+                    console.log('No Stripe customer ID or Stripe client — skipping coupon.');
+                    // Still mark the reward as earned
+                    await db.collection("users").doc(referrerUid).update({
+                        referralRewardEarned: true,
+                    });
+                    return;
                 }
 
                 try {
-                    // Generate a unique code for this invite
-                    const code = generateInviteCode();
-
-                    // Save code to Firestore
-                    await db.collection("registrationCodes").doc(code).set({
-                        ownerUid: "admin",
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                        redeemedBy: null,
-                        redeemedAt: null,
-                        status: "available",
-                        sentTo: email,
+                    // Create a 100% off coupon valid for 1 year
+                    const coupon = await stripe.coupons.create({
+                        percent_off: 100,
+                        duration: 'repeating',
+                        duration_in_months: 12,
+                        name: `Referral Reward - ${referrerData.email || referrerUid}`,
+                        metadata: { referrerUid, reason: 'referral_reward_10' },
                     });
 
-                    // Send the email
-                    await transporter.sendMail({
-                        from: `"PennyHelm" <${SMTP_FROM.value()}>`,
-                        to: email,
-                        subject: "You're Invited to PennyHelm Cloud (Private Access)",
-                        html: `
-                        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                            <div style="text-align: center; margin-bottom: 30px;">
-                                <h1 style="color: #4f8cff; margin: 0;">PennyHelm</h1>
-                                <p style="color: #666; margin: 5px 0 0 0;">Navigate Your Finances</p>
-                            </div>
+                    // Apply to the referrer's subscription
+                    const referrerSubId = referrerData.stripeSubscriptionId;
+                    if (referrerSubId) {
+                        await stripe.subscriptions.update(referrerSubId, {
+                            coupon: coupon.id,
+                        });
+                        console.log(`Applied coupon ${coupon.id} to subscription ${referrerSubId}`);
+                    }
 
-                            <h2 style="color: #333;">You've Been Invited!</h2>
-
-                            <p>You've been personally selected for early access to <strong>PennyHelm Cloud</strong> — an invite-only budgeting platform built for people who want real control over their finances.</p>
-
-                            <p><strong>What PennyHelm does:</strong></p>
-                            <ul style="color: #333; line-height: 1.8;">
-                                <li>Track bills, income, debts, and accounts in one place</li>
-                                <li>See upcoming bills mapped to your pay schedule</li>
-                                <li>Link bank accounts for real-time balances</li>
-                                <li>Share finances with a partner</li>
-                                <li>Works on web and mobile</li>
-                            </ul>
-
-                            <div style="background: #f0f6ff; border: 2px dashed #4f8cff; border-radius: 12px; padding: 20px; text-align: center; margin: 28px 0;">
-                                <p style="color: #666; margin: 0 0 8px 0; font-size: 13px;">YOUR PERSONAL INVITE CODE</p>
-                                <p style="font-family: 'Courier New', monospace; font-size: 28px; font-weight: 700; color: #4f8cff; letter-spacing: 2px; margin: 0;">${code}</p>
-                                <p style="color: #999; margin: 8px 0 0 0; font-size: 12px;">Single-use — this code is reserved for you</p>
-                            </div>
-
-                            <div style="text-align: center; margin: 28px 0;">
-                                <a href="https://pennyhelm.com/login.html" style="display: inline-block; background: #4f8cff; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
-                                    Create Your Account
-                                </a>
-                            </div>
-
-                            <p style="color: #666; font-size: 14px;">
-                                PennyHelm is currently invite-only. Each user only receives 10 invite codes, so spots are limited. Early members get priority access and help shape the product.
-                            </p>
-
-                            <p style="color: #666; font-size: 14px;">
-                                Once you sign up, you'll get your own 10 codes to share with friends and family.
-                            </p>
-
-                            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-
-                            <p style="color: #999; font-size: 12px; text-align: center;">
-                                If you didn't expect this invitation, you can safely ignore this email.
-                            </p>
-                        </div>
-                    `,
-                        text: `You're Invited to PennyHelm Cloud (Private Access)
-
-You've been personally selected for early access to PennyHelm Cloud — an invite-only budgeting platform built for people who want real control over their finances.
-
-YOUR INVITE CODE: ${code}
-
-Sign up at: https://pennyhelm.com/login.html
-
-What PennyHelm does:
-- Track bills, income, debts, and accounts in one place
-- See upcoming bills mapped to your pay schedule
-- Link bank accounts for real-time balances
-- Share finances with a partner
-- Works on web and mobile
-
-This code is single-use and reserved for you. Once you sign up, you'll get your own 10 codes to share.
-
-If you didn't expect this invitation, you can safely ignore this email.`
+                    await db.collection("users").doc(referrerUid).update({
+                        referralRewardEarned: true,
                     });
-
-                    results.push({ email, success: true, code });
-                } catch (err) {
-                    console.error(`Failed to send invite to ${email}:`, err);
-                    results.push({ email, success: false, error: err.message || "Send failed" });
+                } catch (stripeErr) {
+                    console.error('Error applying referral reward coupon:', stripeErr);
+                    // Mark earned anyway so we don't retry infinitely
+                    await db.collection("users").doc(referrerUid).update({
+                        referralRewardEarned: true,
+                    });
                 }
             }
-
-            const sent = results.filter(r => r.success).length;
-            const failed = results.filter(r => !r.success).length;
-            return { results, sent, failed };
+        } catch (err) {
+            console.error("trackPaidReferral error:", err);
+            // Don't throw — this is best-effort and should not break the webhook
         }
-    );
+    };
 
-    // ─────────────────────────────────────────────
-    // WAITLIST FUNCTIONS
-    // ─────────────────────────────────────────────
-
-    // joinWaitlist -- No auth required. Adds email to waitlist.
-    // Sends a confirmation email to the user.
-    exports.joinWaitlist = onCall(
-        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM] },
-        async (request) => {
-            const email = (request.data?.email || '').trim().toLowerCase();
-            if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                throw new HttpsError("invalid-argument", "Please enter a valid email address.");
-            }
-
-            // Check if already on waitlist
-            const existing = await db.collection('waitlist').doc(email).get();
-            if (existing.exists) {
-                const data = existing.data();
-                if (data.status === 'approved') {
-                    return { alreadyApproved: true, message: "You've already been approved! Check your email for your invite code." };
-                }
-                return { alreadyOnList: true, position: data.position, message: "You're already on the waitlist." };
-            }
-
-            // Check if email already has a registered account
-            try {
-                const userByEmail = await admin.auth().getUserByEmail(email);
-                if (userByEmail) {
-                    throw new HttpsError("already-exists", "An account with this email already exists. Try signing in.");
-                }
-            } catch (e) {
-                if (e.code === 'auth/user-not-found') {
-                    // Good -- no existing account
-                } else if (e instanceof HttpsError) {
-                    throw e;
-                }
-                // Ignore other auth errors, proceed with waitlist
-            }
-
-            // Get current waitlist count for position
-            const countSnap = await db.collection('waitlist')
-                .where('status', '==', 'waiting')
-                .count().get();
-            const position = (countSnap.data().count || 0) + 1;
-
-            // Add to waitlist
-            await db.collection('waitlist').doc(email).set({
-                email,
-                position,
-                joinedAt: admin.firestore.FieldValue.serverTimestamp(),
-                status: 'waiting', // waiting | approved
-                approvedAt: null,
-                inviteCode: null,
-            });
-
-            // Send confirmation email
-            try {
-                const transporter = getEmailTransporter();
-                await transporter.sendMail({
-                    from: `"PennyHelm" <${SMTP_FROM.value()}>`,
-                    to: email,
-                    subject: "You're on the PennyHelm Waitlist!",
-                    html: `
-                    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;">
-                        <div style="text-align:center;margin-bottom:24px;">
-                            <div style="font-size:48px;">&#9973;</div>
-                            <h1 style="margin:8px 0 4px;font-size:22px;color:#1a1a2e;">PennyHelm</h1>
-                        </div>
-                        <h2 style="text-align:center;font-size:18px;color:#1a1a2e;">You're on the list!</h2>
-                        <p style="color:#555;line-height:1.6;">
-                            Thanks for your interest in PennyHelm Cloud. You're currently <strong>#${position}</strong> on the waitlist.
-                        </p>
-                        <p style="color:#555;line-height:1.6;">
-                            PennyHelm is invite-only right now, and we're letting people in on a rolling basis.
-                            You'll receive an email with your personal invite code when it's your turn — typically within 7 days.
-                        </p>
-                        <p style="color:#555;line-height:1.6;">
-                            <strong>Can't wait?</strong> If you know someone who already uses PennyHelm, ask them for one of their invite codes — every user gets 10 to share.
-                        </p>
-                        <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
-                        <p style="color:#999;font-size:12px;text-align:center;">
-                            PennyHelm &mdash; Navigate Your Finances
-                        </p>
-                    </div>
-                `,
-                    text: `You're on the PennyHelm Waitlist!\n\nThanks for your interest in PennyHelm Cloud. You're currently #${position} on the waitlist.\n\nPennyHelm is invite-only right now, and we're letting people in on a rolling basis. You'll receive an email with your personal invite code when it's your turn — typically within 7 days.\n\nCan't wait? If you know someone who already uses PennyHelm, ask them for one of their invite codes — every user gets 10 to share.\n\nPennyHelm — Navigate Your Finances`
-                });
-            } catch (err) {
-                console.error('Failed to send waitlist confirmation email:', err);
-                // Don't fail the waitlist join if email fails
-            }
-
-            return { success: true, position, message: `You're #${position} on the waitlist!` };
-        }
-    );
-
-    // getWaitlistStatus -- No auth required. Check waitlist status by email.
-    exports.getWaitlistStatus = onCall(async (request) => {
-        const email = (request.data?.email || '').trim().toLowerCase();
-        if (!email) {
-            throw new HttpsError("invalid-argument", "Email is required.");
-        }
-
-        const doc = await db.collection('waitlist').doc(email).get();
-        if (!doc.exists) {
-            return { onWaitlist: false };
-        }
-
-        const data = doc.data();
-        if (data.status === 'approved') {
-            return {
-                onWaitlist: true,
-                status: 'approved',
-                inviteCode: data.inviteCode,
-            };
-        }
-
-        // Calculate days waited
-        const joinedAt = data.joinedAt?.toDate ? data.joinedAt.toDate() : new Date(data.joinedAt);
-        const daysWaited = Math.floor((Date.now() - joinedAt.getTime()) / 86400000);
-
-        return {
-            onWaitlist: true,
-            status: 'waiting',
-            position: data.position,
-            daysWaited,
-        };
-    });
-
-    // approveWaitlistEntries -- Admin only. Approves waitlisted users and sends invite codes.
-    exports.approveWaitlistEntries = onCall(
-        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM] },
+    // getReferralStatus
+    //   Returns the calling user's referral code, link, progress, and reward status.
+    exports.getReferralStatus = onCall(
         async (request) => {
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
-            const tokenResult = await admin.auth().getUser(request.auth.uid);
-            if (!tokenResult.customClaims?.admin) {
-                throw new HttpsError("permission-denied", "Admin only.");
+
+            const uid = request.auth.uid;
+            const userDoc = await db.collection("users").doc(uid).get();
+
+            if (!userDoc.exists) {
+                throw new HttpsError("not-found", "User not found.");
             }
 
-            // Accept either specific emails or a count to auto-approve oldest entries
-            const { emails, count } = request.data || {};
-            let toApprove = [];
+            const data = userDoc.data();
 
-            if (emails && Array.isArray(emails) && emails.length > 0) {
-                // Approve specific emails
-                toApprove = emails.map(e => e.trim().toLowerCase()).filter(e => e);
-            } else {
-                // Auto-approve oldest N waiting entries (default: those who've waited 7+ days)
-                const approveCount = count || 10;
-                const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
-                const waitingSnap = await db.collection('waitlist')
-                    .where('status', '==', 'waiting')
-                    .where('joinedAt', '<=', sevenDaysAgo)
-                    .orderBy('joinedAt', 'asc')
-                    .limit(approveCount)
-                    .get();
-                toApprove = waitingSnap.docs.map(d => d.id);
+            // Backfill referralCode if missing
+            let referralCode = data.referralCode;
+            if (!referralCode) {
+                referralCode = "REF-" + generateCode();
+                await db.collection("users").doc(uid).update({ referralCode });
             }
 
-            if (toApprove.length === 0) {
-                return { approved: 0, message: "No eligible waitlist entries to approve." };
-            }
-
-            const results = [];
-            const transporter = getEmailTransporter();
-
-            for (const email of toApprove) {
-                try {
-                    const docRef = db.collection('waitlist').doc(email);
-                    const docSnap = await docRef.get();
-                    if (!docSnap.exists || docSnap.data().status === 'approved') {
-                        results.push({ email, success: false, reason: 'Not found or already approved' });
-                        continue;
-                    }
-
-                    // Generate an invite code for this person
-                    const code = 'PH-' + generateInviteCode();
-                    await db.collection('registrationCodes').doc(code).set({
-                        ownerUid: 'waitlist',
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                        redeemedBy: null,
-                        redeemedAt: null,
-                        status: 'available',
-                    });
-
-                    // Update waitlist entry
-                    await docRef.update({
-                        status: 'approved',
-                        approvedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        inviteCode: code,
-                    });
-
-                    // Send invite email
-                    await transporter.sendMail({
-                        from: `"PennyHelm" <${SMTP_FROM.value()}>`,
-                        to: email,
-                        subject: "Your PennyHelm Invite is Ready!",
-                        html: `
-                        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;">
-                            <div style="text-align:center;margin-bottom:24px;">
-                                <div style="font-size:48px;">&#9973;</div>
-                                <h1 style="margin:8px 0 4px;font-size:22px;color:#1a1a2e;">PennyHelm</h1>
-                            </div>
-                            <h2 style="text-align:center;font-size:18px;color:#1a1a2e;">You're In!</h2>
-                            <p style="color:#555;line-height:1.6;">
-                                Great news — your spot on the PennyHelm waitlist has been approved. Here's your personal invite code:
-                            </p>
-                            <div style="text-align:center;margin:24px 0;">
-                                <div style="display:inline-block;background:#f0f4ff;border:2px dashed #4361ee;border-radius:8px;padding:16px 32px;">
-                                    <div style="font-size:11px;color:#888;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Your Invite Code</div>
-                                    <div style="font-family:monospace;font-size:24px;font-weight:700;color:#4361ee;letter-spacing:2px;">${code}</div>
-                                </div>
-                            </div>
-                            <div style="text-align:center;margin:24px 0;">
-                                <a href="https://pennyhelm.com/login.html" style="display:inline-block;background:#4361ee;color:#fff;text-decoration:none;padding:14px 40px;border-radius:8px;font-weight:600;font-size:16px;">
-                                    Create Your Account
-                                </a>
-                            </div>
-                            <p style="color:#555;line-height:1.6;font-size:14px;">
-                                Once you sign up, you'll get your own 10 invite codes to share with friends and family.
-                            </p>
-                            <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
-                            <p style="color:#999;font-size:12px;text-align:center;">
-                                PennyHelm &mdash; Navigate Your Finances
-                            </p>
-                        </div>
-                    `,
-                        text: `Your PennyHelm Invite is Ready!\n\nGreat news — your spot on the PennyHelm waitlist has been approved.\n\nYour Invite Code: ${code}\n\nSign up at: https://pennyhelm.com/login.html\n\nOnce you sign up, you'll get your own 10 invite codes to share.\n\nPennyHelm — Navigate Your Finances`
-                    });
-
-                    results.push({ email, success: true, code });
-                } catch (err) {
-                    console.error(`Failed to approve ${email}:`, err);
-                    results.push({ email, success: false, reason: err.message });
-                }
-            }
-
-            const approved = results.filter(r => r.success).length;
-
-            // Recalculate positions for remaining waiting entries
-            if (approved > 0) {
-                const remainingSnap = await db.collection('waitlist')
-                    .where('status', '==', 'waiting')
-                    .orderBy('joinedAt', 'asc')
-                    .get();
-                const batch = db.batch();
-                remainingSnap.docs.forEach((doc, idx) => {
-                    batch.update(doc.ref, { position: idx + 1 });
-                });
-                await batch.commit();
-            }
-
-            return { results, approved, failed: results.length - approved };
+            return {
+                referralCode: referralCode,
+                referralLink: `https://pennyhelm.com/login?ref=${referralCode}`,
+                paidReferralCount: data.paidReferralCount || 0,
+                targetCount: 10,
+                rewardEarned: data.referralRewardEarned === true,
+            };
         }
     );
 

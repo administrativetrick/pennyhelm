@@ -1,8 +1,12 @@
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, APP_CHECK_SITE_KEY } from './firebase-config.js';
 import { APP_MODE } from './mode-config.js';
+import { activateAppCheck } from './app-check-boot.js';
 
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
+// App Check activation must precede any service getter so tokens are attached
+// to the very first auth / functions call. No-op if site key is empty.
+activateAppCheck(firebase, APP_CHECK_SITE_KEY);
 const auth = firebase.auth();
 const functions = firebase.functions();
 
@@ -19,11 +23,17 @@ const emailInput = document.getElementById('auth-email');
 const passwordInput = document.getElementById('auth-password');
 const confirmPasswordInput = document.getElementById('auth-confirm-password');
 const confirmGroup = document.getElementById('confirm-password-group');
-const inviteCodeGroup = document.getElementById('invite-code-group');
-const inviteCodeInput = document.getElementById('auth-invite-code');
+const referralCodeGroup = document.getElementById('referral-code-group');
+const referralCodeInput = document.getElementById('auth-referral-code');
 const errorDiv = document.getElementById('auth-error');
 const submitBtn = document.getElementById('auth-submit');
 const googleBtn = document.getElementById('google-signin');
+
+// Auto-fill referral code from URL param (e.g. ?ref=REF-A3X9K2M7)
+const urlRef = new URLSearchParams(window.location.search).get('ref');
+if (urlRef && referralCodeInput) {
+    referralCodeInput.value = urlRef.toUpperCase();
+}
 
 // Tab switching
 tabs.forEach(tab => {
@@ -33,8 +43,8 @@ tabs.forEach(tab => {
         isSignUp = tab.dataset.tab === 'signup';
 
         confirmGroup.style.display = isSignUp ? 'block' : 'none';
-        if (inviteCodeGroup) {
-            inviteCodeGroup.style.display = (isSignUp && isCloudMode) ? 'block' : 'none';
+        if (referralCodeGroup) {
+            referralCodeGroup.style.display = (isSignUp && isCloudMode) ? 'block' : 'none';
         }
         submitBtn.textContent = isSignUp ? 'Create Account' : 'Sign In';
         errorDiv.textContent = '';
@@ -46,6 +56,12 @@ tabs.forEach(tab => {
         }
     });
 });
+
+// If URL has ?ref=, auto-switch to Sign Up tab
+if (urlRef && isCloudMode) {
+    const signupTab = document.querySelector('.auth-tab[data-tab="signup"]');
+    if (signupTab) signupTab.click();
+}
 
 // Email/Password form submission
 form.addEventListener('submit', async (e) => {
@@ -71,38 +87,10 @@ form.addEventListener('submit', async (e) => {
 
     try {
         if (isSignUp) {
-            // Validate invite code before creating account (cloud mode only)
-            const inviteCode = inviteCodeInput ? inviteCodeInput.value.trim().toUpperCase() : '';
-            if (isCloudMode) {
-                if (!inviteCode) {
-                    errorDiv.textContent = 'An invite code is required to create an account.';
-                    setLoading(false);
-                    return;
-                }
-                try {
-                    const validateCode = functions.httpsCallable('validateRegistrationCode');
-                    await validateCode({ code: inviteCode });
-                } catch (err) {
-                    errorDiv.textContent = err.message || 'Invalid or already-used invite code.';
-                    setLoading(false);
-                    return;
-                }
-            }
+            const referralCode = referralCodeInput ? referralCodeInput.value.trim().toUpperCase() : '';
 
             const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-            await registerUser(userCredential.user, inviteCode);
-
-            // Redeem invite code and generate user's own codes (cloud mode)
-            if (isCloudMode && inviteCode) {
-                try {
-                    const redeemCode = functions.httpsCallable('redeemRegistrationCode');
-                    await redeemCode({ code: inviteCode });
-                    const genCodes = functions.httpsCallable('generateRegistrationCodes');
-                    await genCodes({});
-                } catch (err) {
-                    console.error('Failed to redeem/generate invite codes:', err);
-                }
-            }
+            await registerUser(userCredential.user, referralCode);
 
             window.location.href = '/app';
         } else {
@@ -139,22 +127,9 @@ form.addEventListener('submit', async (e) => {
 googleBtn.addEventListener('click', async () => {
     errorDiv.textContent = '';
 
-    // In cloud mode sign-up, validate invite code BEFORE Google popup
-    let inviteCode = null;
-    if (isSignUp && isCloudMode) {
-        inviteCode = inviteCodeInput ? inviteCodeInput.value.trim().toUpperCase() : '';
-        if (!inviteCode) {
-            errorDiv.textContent = 'Please enter your invite code before signing up with Google.';
-            return;
-        }
-        try {
-            const validateCode = functions.httpsCallable('validateRegistrationCode');
-            await validateCode({ code: inviteCode });
-        } catch (err) {
-            errorDiv.textContent = err.message || 'Invalid or already-used invite code.';
-            return;
-        }
-    }
+    const referralCode = (isSignUp && isCloudMode && referralCodeInput)
+        ? referralCodeInput.value.trim().toUpperCase()
+        : '';
 
     const provider = new firebase.auth.GoogleAuthProvider();
 
@@ -167,27 +142,9 @@ googleBtn.addEventListener('click', async () => {
         const userDoc = await db.collection('users').doc(user.uid).get();
         const isFirstTime = !userDoc.exists;
 
-        if (isFirstTime && isCloudMode && !inviteCode) {
-            // New user on Sign In tab without invite code — sign out and prompt
-            await auth.signOut();
-            errorDiv.textContent = 'No account found. Please switch to Sign Up and enter an invite code.';
-            return;
-        }
-
         if (isFirstTime) {
-            // New user — create doc (with invite code if in cloud mode)
-            await registerUser(user, inviteCode || null);
-
-            if (isCloudMode && inviteCode) {
-                try {
-                    const redeemCode = functions.httpsCallable('redeemRegistrationCode');
-                    await redeemCode({ code: inviteCode });
-                    const genCodes = functions.httpsCallable('generateRegistrationCodes');
-                    await genCodes({});
-                } catch (err) {
-                    console.error('Failed to redeem/generate invite codes:', err);
-                }
-            }
+            // New user — create doc with optional referral code
+            await registerUser(user, referralCode || null);
         } else {
             // Existing user — ensure doc is up to date
             await ensureUserRegistered(user);
@@ -502,8 +459,18 @@ function showMobileCredentialsModal(email) {
     if (emailEl) emailEl.textContent = email;
 }
 
+// Generate a referral code: REF- + 7 random chars
+function generateReferralCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let code = 'REF-';
+    for (let i = 0; i < 7; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
 // Register new user in Firestore (creates trial record)
-async function registerUser(firebaseUser, inviteCode) {
+async function registerUser(firebaseUser, referralCode) {
     try {
         const db = firebase.firestore();
         const userData = {
@@ -511,10 +478,12 @@ async function registerUser(firebaseUser, inviteCode) {
             displayName: firebaseUser.displayName || '',
             trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
             subscriptionStatus: 'trial',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            referralCode: generateReferralCode(),
+            paidReferralCount: 0,
         };
-        if (inviteCode) {
-            userData.invitedBy = inviteCode;
+        if (referralCode) {
+            userData.referredBy = referralCode;
         }
         await db.collection('users').doc(firebaseUser.uid).set(userData);
     } catch (e) {
@@ -535,7 +504,9 @@ async function ensureUserRegistered(firebaseUser) {
                 displayName: firebaseUser.displayName || '',
                 trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
                 subscriptionStatus: 'trial',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                referralCode: generateReferralCode(),
+                paidReferralCount: 0,
             });
         } else {
             // Doc exists — update email/displayName if they changed (Google can update these)
@@ -547,6 +518,10 @@ async function ensureUserRegistered(firebaseUser) {
             if (firebaseUser.displayName && firebaseUser.displayName !== data.displayName) {
                 updates.displayName = firebaseUser.displayName;
             }
+            // Backfill referralCode for existing users who don't have one
+            if (!data.referralCode) {
+                updates.referralCode = generateReferralCode();
+            }
             if (Object.keys(updates).length > 0) {
                 await db.collection('users').doc(firebaseUser.uid).set(updates, { merge: true });
             }
@@ -554,81 +529,6 @@ async function ensureUserRegistered(firebaseUser) {
     } catch (e) {
         console.error('Failed to ensure user registered in Firestore:', e);
     }
-}
-
-// ── Waitlist ─────────────────────────────────
-const waitlistSection = document.getElementById('waitlist-section');
-const showWaitlistLink = document.getElementById('show-waitlist-link');
-const hideWaitlistLink = document.getElementById('hide-waitlist-link');
-const waitlistEmailInput = document.getElementById('waitlist-email');
-const waitlistSubmitBtn = document.getElementById('waitlist-submit');
-const waitlistResult = document.getElementById('waitlist-result');
-
-if (showWaitlistLink) {
-    showWaitlistLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        inviteCodeGroup.style.display = 'none';
-        waitlistSection.style.display = 'block';
-        // Pre-fill with email from the main form if available
-        if (emailInput.value.trim()) {
-            waitlistEmailInput.value = emailInput.value.trim();
-        }
-    });
-}
-
-if (hideWaitlistLink) {
-    hideWaitlistLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        waitlistSection.style.display = 'none';
-        if (isSignUp && isCloudMode) {
-            inviteCodeGroup.style.display = 'block';
-        }
-    });
-}
-
-if (waitlistSubmitBtn) {
-    waitlistSubmitBtn.addEventListener('click', async () => {
-        const email = waitlistEmailInput.value.trim();
-        if (!email) {
-            waitlistResult.innerHTML = '<p style="color:var(--red);font-size:12px;margin-top:8px;">Please enter your email address.</p>';
-            return;
-        }
-
-        waitlistSubmitBtn.disabled = true;
-        waitlistSubmitBtn.innerHTML = '<span class="spinner"></span>';
-        waitlistResult.innerHTML = '';
-
-        try {
-            const joinWaitlist = functions.httpsCallable('joinWaitlist');
-            const result = await joinWaitlist({ email });
-            const data = result.data;
-
-            if (data.alreadyApproved) {
-                waitlistResult.innerHTML = `
-                    <div style="padding:12px;background:var(--green-bg, #e8f5e9);border-radius:6px;margin-top:8px;">
-                        <p style="color:var(--green, #2e7d32);font-size:13px;font-weight:600;margin:0;">You've already been approved!</p>
-                        <p style="color:var(--text-secondary);font-size:12px;margin:4px 0 0;">Check your email for your invite code, then come back and sign up.</p>
-                    </div>`;
-            } else if (data.alreadyOnList) {
-                waitlistResult.innerHTML = `
-                    <div style="padding:12px;background:var(--accent-bg, #e8eaf6);border-radius:6px;margin-top:8px;">
-                        <p style="color:var(--accent);font-size:13px;font-weight:600;margin:0;">You're already on the waitlist!</p>
-                        <p style="color:var(--text-secondary);font-size:12px;margin:4px 0 0;">You're #${data.position} in line. We'll email you when it's your turn.</p>
-                    </div>`;
-            } else {
-                waitlistResult.innerHTML = `
-                    <div style="padding:12px;background:var(--green-bg, #e8f5e9);border-radius:6px;margin-top:8px;">
-                        <p style="color:var(--green, #2e7d32);font-size:13px;font-weight:600;margin:0;">You're #${data.position} on the waitlist!</p>
-                        <p style="color:var(--text-secondary);font-size:12px;margin:4px 0 0;">Check your email for a confirmation. We'll send your invite code when it's your turn.</p>
-                    </div>`;
-            }
-        } catch (err) {
-            waitlistResult.innerHTML = `<p style="color:var(--red);font-size:12px;margin-top:8px;">${err.message || 'Failed to join waitlist. Please try again.'}</p>`;
-        }
-
-        waitlistSubmitBtn.disabled = false;
-        waitlistSubmitBtn.textContent = 'Join Waitlist';
-    });
 }
 
 // If already signed in, redirect to app (but not during login flow)

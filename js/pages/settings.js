@@ -436,12 +436,12 @@ export function renderSettings(container, store) {
         ${auth.isCloud() ? `
         <div class="card mb-24">
             <div class="settings-section">
-                <h3>🎟️ Your Invite Codes</h3>
+                <h3>Referral Program</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Share these codes with friends to invite them to PennyHelm. Each code can be used once.
+                    Refer friends to PennyHelm. When 10 of your referrals become paid subscribers, you earn a free year!
                 </p>
-                <div id="registration-codes-list">
-                    <p style="color:var(--text-secondary);font-size:13px;">Loading codes...</p>
+                <div id="referral-status-container">
+                    <p style="color:var(--text-secondary);font-size:13px;">Loading referral info...</p>
                 </div>
             </div>
         </div>
@@ -1230,69 +1230,62 @@ export function renderSettings(container, store) {
         }
     }
 
-    // Registration invite codes (cloud only)
-    const regCodesList = container.querySelector('#registration-codes-list');
-    if (regCodesList && auth.isCloud()) {
+    // Referral program status (cloud only)
+    const referralContainer = container.querySelector('#referral-status-container');
+    if (referralContainer && auth.isCloud()) {
         (async () => {
             try {
-                const db = firebase.firestore();
-                const userDoc = await db.collection('users').doc(auth.getUserId()).get();
-                let codes = userDoc.exists ? (userDoc.data().registrationCodes || []) : [];
+                const getReferralStatus = firebase.functions().httpsCallable('getReferralStatus');
+                const result = await getReferralStatus({});
+                const data = result.data;
 
-                // Generate codes on first view if not yet generated
-                if (codes.length === 0) {
-                    try {
-                        const genCodes = firebase.functions().httpsCallable('generateRegistrationCodes');
-                        const result = await genCodes({});
-                        codes = result.data.codes || [];
-                    } catch (err) {
-                        regCodesList.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load invite codes.</p>';
-                        return;
-                    }
+                const count = data.paidReferralCount || 0;
+                const target = data.targetCount || 10;
+                const remaining = Math.max(0, target - count);
+                const pct = Math.min(100, Math.round((count / target) * 100));
+
+                let statusHtml = '';
+                if (data.rewardEarned) {
+                    statusHtml = `
+                        <div style="padding:12px;background:var(--green-bg, #e8f5e9);border:1px solid var(--green, #2e7d32);border-radius:8px;margin-bottom:14px;">
+                            <div style="font-weight:600;color:var(--green, #2e7d32);font-size:14px;">You earned a free year!</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Applied to your next billing cycle.</div>
+                        </div>
+                    `;
+                } else {
+                    statusHtml = `
+                        <div style="font-size:13px;color:var(--text-primary);margin-bottom:10px;">
+                            <strong>${count}</strong> of <strong>${target}</strong> friends signed up &mdash; ${remaining > 0 ? remaining + ' more for a free year!' : 'Reward unlocked!'}
+                        </div>
+                        <div style="height:8px;background:var(--bg-tertiary, #e0e0e0);border-radius:4px;overflow:hidden;margin-bottom:14px;">
+                            <div style="height:100%;width:${pct}%;background:var(--accent, #4f8cff);border-radius:4px;transition:width 0.3s;"></div>
+                        </div>
+                    `;
                 }
 
-                // Fetch status of each code
-                const codeStatuses = await Promise.all(codes.map(async (code) => {
-                    try {
-                        const doc = await db.collection('registrationCodes').doc(code).get();
-                        return { code, ...(doc.exists ? doc.data() : { status: 'unknown' }) };
-                    } catch { return { code, status: 'unknown' }; }
-                }));
-
-                const available = codeStatuses.filter(c => c.status === 'available').length;
-                const used = codeStatuses.filter(c => c.status === 'redeemed').length;
-
-                regCodesList.innerHTML = `
-                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">
-                        ${available} available · ${used} used
+                referralContainer.innerHTML = `
+                    ${statusHtml}
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Your referral link:</div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <code id="referral-link-value" style="flex:1;padding:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:12px;word-break:break-all;user-select:all;">${escapeHtml(data.referralLink)}</code>
+                        <button class="btn btn-secondary btn-sm" id="copy-referral-link" style="white-space:nowrap;">Copy</button>
                     </div>
-                    ${codeStatuses.map(c => `
-                        <div class="settings-row" style="opacity:${c.status === 'redeemed' ? 0.5 : 1};padding:6px 0;">
-                            <div>
-                                <span style="font-family:monospace;letter-spacing:1px;font-size:14px;font-weight:600;">${escapeHtml(c.code)}</span>
-                                <span style="font-size:11px;margin-left:8px;color:${c.status === 'redeemed' ? 'var(--text-secondary)' : 'var(--green)'};">
-                                    ${c.status === 'redeemed' ? 'Used' : 'Available'}
-                                </span>
-                            </div>
-                            ${c.status !== 'redeemed' ? `
-                                <button class="btn btn-secondary btn-sm copy-reg-code" data-code="${escapeHtml(c.code)}" style="padding:4px 10px;font-size:11px;">
-                                    Copy
-                                </button>
-                            ` : ''}
-                        </div>
-                    `).join('')}
+                    <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
+                        Your code: <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;font-family:monospace;">${escapeHtml(data.referralCode)}</code>
+                    </div>
                 `;
 
-                regCodesList.querySelectorAll('.copy-reg-code').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        navigator.clipboard.writeText(btn.dataset.code);
-                        btn.textContent = 'Copied!';
-                        setTimeout(() => btn.textContent = 'Copy', 2000);
+                const copyBtn = referralContainer.querySelector('#copy-referral-link');
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', () => {
+                        navigator.clipboard.writeText(data.referralLink);
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
                     });
-                });
+                }
             } catch (err) {
-                console.error('Error loading registration codes:', err);
-                regCodesList.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load invite codes.</p>';
+                console.error('Error loading referral status:', err);
+                referralContainer.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load referral info.</p>';
             }
         })();
     }

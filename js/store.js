@@ -521,6 +521,43 @@ class Store {
         this._save();
     }
 
+    // ─── Holding Overrides ─────────────────────────────────────
+    // Per-account, per-security manual adjustments that survive Plaid refreshes.
+    // Use case: Plaid sometimes reports an RSU grant's full granted quantity
+    // even though only a portion is currently held (vested - sold). The override
+    // lets the user pin the real number or exclude the holding entirely.
+    // Shape: account.holdingOverrides = { [securityId]: { quantity, excluded, note, updatedAt } }
+
+    setHoldingOverride(accountId, securityId, override) {
+        if (!accountId || !securityId) return;
+        const data = this._load();
+        if (!data.accounts) return;
+        const acct = data.accounts.find(a => a.id === accountId);
+        if (!acct) return;
+        if (!acct.holdingOverrides) acct.holdingOverrides = {};
+        acct.holdingOverrides[securityId] = {
+            ...(acct.holdingOverrides[securityId] || {}),
+            ...override,
+            updatedAt: new Date().toISOString(),
+        };
+        acct.lastUpdated = new Date().toISOString();
+        this._save();
+    }
+
+    clearHoldingOverride(accountId, securityId) {
+        if (!accountId || !securityId) return;
+        const data = this._load();
+        if (!data.accounts) return;
+        const acct = data.accounts.find(a => a.id === accountId);
+        if (!acct || !acct.holdingOverrides) return;
+        delete acct.holdingOverrides[securityId];
+        if (Object.keys(acct.holdingOverrides).length === 0) {
+            delete acct.holdingOverrides;
+        }
+        acct.lastUpdated = new Date().toISOString();
+        this._save();
+    }
+
     // ─── Vehicle Mileage ─────────────────────────────────────
 
     getVehicleMileage(vehicleAccountId) {

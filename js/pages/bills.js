@@ -3,6 +3,8 @@ import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
 import { expandBillOccurrences } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
+import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
+import { capabilities } from '../mode/mode.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -144,13 +146,17 @@ export function renderBills(container, store) {
         : billsOwnerFilter === 'user' ? `${escapeHtml(userName)}'s Bills`
         : 'All Bills';
 
+    const showImportFromBank = capabilities().plaid && hasPlaidConnections(store);
     container.innerHTML = `
         <div class="page-header">
             <div>
                 <h2>${pageTitle}</h2>
                 <div class="subtitle">${billsViewMode === 'paycheck' ? `${bills.length} bills this period${periodicBills.length > 0 ? ` + ${periodicBills.length} annual/semi-annual` : ''}` : `${allRegularBills.length} bills + ${allPeriodicBills.length} annual/semi-annual &middot; ${allBills.filter(b => b.frozen).length} frozen`}</div>
             </div>
-            <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                ${showImportFromBank ? '<button class="btn btn-secondary" id="import-from-bank-btn" title="Detect recurring bills from your linked bank accounts">Import from bank</button>' : ''}
+                <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
+            </div>
         </div>
 
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
@@ -311,6 +317,14 @@ export function renderBills(container, store) {
     container.querySelector('#add-bill-btn').addEventListener('click', () => {
         showBillForm(store, sources, categories, null, depEnabled, userName, depName);
     });
+
+    // Event: Import from bank (Plaid recurring detection)
+    const importBtn = container.querySelector('#import-from-bank-btn');
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            showRecurringImportModal(store, sources, categories, depEnabled, userName, depName);
+        });
+    }
 
     // Event: Filter chips
     container.querySelectorAll('.filter-chip').forEach(chip => {
@@ -1032,13 +1046,17 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
 
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+    const showImportFromBankCf = capabilities().plaid && hasPlaidConnections(store);
     container.innerHTML = `
         <div class="page-header">
             <div>
                 <h2>${escapeHtml(userName)}'s Bills</h2>
                 <div class="subtitle">${monthNames[month]} ${year} Cashflow</div>
             </div>
-            <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                ${showImportFromBankCf ? '<button class="btn btn-secondary" id="import-from-bank-btn" title="Detect recurring bills from your linked bank accounts">Import from bank</button>' : ''}
+                <button class="btn btn-primary" id="add-bill-btn">+ Add Bill</button>
+            </div>
         </div>
 
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
@@ -1325,6 +1343,17 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
         showBillForm(store, sources, categories);
     });
 
+    // Import from bank (Plaid recurring detection) — cashflow view
+    const importBtnCf = container.querySelector('#import-from-bank-btn');
+    if (importBtnCf) {
+        importBtnCf.addEventListener('click', () => {
+            const depEn = store.isDependentEnabled();
+            const uName = store.getUserName();
+            const dName = store.getDependentName();
+            showRecurringImportModal(store, sources, categories, depEn, uName, dName);
+        });
+    }
+
     // Period navigation
     const prevBtn = container.querySelector('#cf-period-prev');
     const nextBtn = container.querySelector('#cf-period-next');
@@ -1539,4 +1568,268 @@ function buildPayPeriods(payDates, bills, store, income, year, month, coveredDep
     }
 
     return periods;
+}
+
+// ─── Recurring Import (Plaid) ────────────────────────────────────────────
+
+/**
+ * Map Plaid's personal_finance_category primary enum to a PennyHelm category.
+ * Primary values: INCOME, TRANSFER_IN, TRANSFER_OUT, LOAN_PAYMENTS, BANK_FEES,
+ * ENTERTAINMENT, FOOD_AND_DRINK, GENERAL_MERCHANDISE, HOME_IMPROVEMENT, MEDICAL,
+ * PERSONAL_CARE, GENERAL_SERVICES, GOVERNMENT_AND_NON_PROFIT, TRANSPORTATION,
+ * TRAVEL, RENT_AND_UTILITIES.
+ */
+function mapPlaidCategoryToPennyHelm(primary, detailed) {
+    const p = (primary || '').toUpperCase();
+    const d = (detailed || '').toUpperCase();
+
+    if (d.includes('RENT')) return 'Rent';
+    if (d.includes('MORTGAGE')) return 'Mortgage';
+    if (d.includes('INTERNET_AND_CABLE') || d.includes('INTERNET')) return 'Internet';
+    if (d.includes('TELEPHONE') || d.includes('PHONE')) return 'Phone';
+    if (d.includes('GAS_AND_ELECTRICITY') || d.includes('ELECTRIC')) return 'Electric';
+    if (d.includes('WATER')) return 'Water';
+    if (d.includes('SEWAGE_AND_WASTE_MANAGEMENT') || d.includes('TRASH')) return 'Trash';
+    if (d.includes('INSURANCE')) return 'Insurance';
+    if (d.includes('SUBSCRIPTION')) return 'Subscription';
+    if (d.includes('STREAM') || d.includes('VIDEO_AND_AUDIO')) return 'Streaming';
+    if (d.includes('GYMS_AND_FITNESS')) return 'Subscription';
+    if (d.includes('CREDIT_CARD_PAYMENT')) return 'Credit Card';
+    if (d.includes('STUDENT_LOAN')) return 'Student Loan';
+    if (d.includes('CAR_PAYMENT') || d.includes('AUTO_PAYMENT')) return 'Auto Loan';
+    if (d.includes('GROCERIES')) return 'Groceries';
+
+    switch (p) {
+        case 'RENT_AND_UTILITIES': return 'Utilities';
+        case 'LOAN_PAYMENTS': return 'Loan';
+        case 'ENTERTAINMENT': return 'Entertainment';
+        case 'FOOD_AND_DRINK': return 'Dining Out';
+        case 'MEDICAL': return 'Medical';
+        case 'TRANSPORTATION': return 'Car';
+        case 'TRAVEL': return 'Travel';
+        case 'PERSONAL_CARE': return 'Personal Care';
+        case 'GENERAL_MERCHANDISE': return 'Shopping';
+        case 'HOME_IMPROVEMENT': return 'Home Maintenance';
+        case 'BANK_FEES': return 'Fees';
+        case 'GOVERNMENT_AND_NON_PROFIT': return 'Taxes';
+        default: return 'Other';
+    }
+}
+
+function formatPlaidFrequencyLabel(f) {
+    switch ((f || '').toUpperCase()) {
+        case 'WEEKLY': return 'Weekly';
+        case 'BIWEEKLY': return 'Every 2 weeks';
+        case 'SEMI_MONTHLY': return 'Twice a month';
+        case 'MONTHLY': return 'Monthly';
+        case 'ANNUALLY': return 'Annually';
+        default: return 'Unknown';
+    }
+}
+
+function showRecurringImportModal(store, sources, categories, depEnabled, userName, depName) {
+    openModal('Import from bank', `
+        <div id="recurring-import-body">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 0;">
+                <div class="spinner" style="width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;"></div>
+                <div style="color:var(--text-secondary);font-size:13px;">Detecting recurring bills from your linked banks…</div>
+                <div style="color:var(--text-muted);font-size:11px;">This may take a few seconds.</div>
+            </div>
+        </div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    `);
+
+    fetchRecurringTransactions(store).then(({ outflows, errors }) => {
+        const body = document.getElementById('recurring-import-body');
+        if (!body) return; // modal closed
+
+        // Dedupe: drop any stream that already has a bill with matching plaidStreamId
+        const existingBills = store.getBills();
+        const existingStreamIds = new Set(
+            existingBills.map(b => b.plaidStreamId).filter(Boolean)
+        );
+
+        // Only keep active outflows we haven't already imported
+        const candidates = (outflows || [])
+            .filter(s => s.isActive !== false)
+            .filter(s => !existingStreamIds.has(s.streamId))
+            .filter(s => s.averageAmount > 0)
+            .sort((a, b) => b.averageAmount - a.averageAmount);
+
+        // Show a banner for each distinct error code
+        const errorBanners = [];
+        if (errors && errors.length) {
+            const seen = new Set();
+            for (const err of errors) {
+                const key = err.code || err.message;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                let msg = err.message || 'Unknown error.';
+                if (err.code === 'resource-exhausted') {
+                    msg = 'Plaid quota exhausted. Apply for full Production access to restore recurring detection.';
+                } else if (err.code === 'failed-precondition') {
+                    msg = 'One or more banks need re-authentication. Reconnect from the Accounts page.';
+                } else if (err.code === 'unavailable') {
+                    msg = 'Recurring detection is still warming up — try again in a minute.';
+                }
+                errorBanners.push(`<div style="background:var(--card);border:1px solid var(--red);color:var(--red);padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:12px;">${escapeHtml(msg)}</div>`);
+            }
+        }
+
+        if (candidates.length === 0) {
+            const skippedCount = (outflows || []).length - candidates.length;
+            body.innerHTML = `
+                ${errorBanners.join('')}
+                <div style="padding:24px;text-align:center;color:var(--text-secondary);">
+                    ${(outflows || []).length === 0
+                        ? 'No recurring bills detected yet. Plaid needs a few transactions of history before it can find repeating charges.'
+                        : `All ${skippedCount} detected bill${skippedCount === 1 ? '' : 's'} ${skippedCount === 1 ? 'is' : 'are'} already imported or inactive.`}
+                </div>
+                <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+                    <button class="btn btn-secondary" id="recurring-close-btn">Close</button>
+                </div>
+            `;
+            document.getElementById('recurring-close-btn').addEventListener('click', closeModal);
+            return;
+        }
+
+        // Build checkbox list
+        const firstSource = sources && sources.length ? sources[0] : '';
+        const rows = candidates.map((s, idx) => {
+            const category = mapPlaidCategoryToPennyHelm(s.personalFinanceCategory, s.personalFinanceCategoryDetailed);
+            const nextDate = s.predictedNextDate
+                ? new Date(s.predictedNextDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                : '—';
+            return `
+                <label style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer;" data-stream-idx="${idx}">
+                    <input type="checkbox" class="recurring-stream-check" data-idx="${idx}" checked style="width:16px;height:16px;">
+                    <div>
+                        <div style="font-weight:600;">${escapeHtml(s.merchantName)}</div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                            ${formatPlaidFrequencyLabel(s.frequency)} &middot; next ${nextDate} &middot; ${escapeHtml(category)}
+                        </div>
+                    </div>
+                    <div style="text-align:right;font-weight:600;">${formatCurrency(s.averageAmount)}</div>
+                </label>
+            `;
+        }).join('');
+
+        const ownerSelect = depEnabled ? `
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);">
+                <label>Assign to:</label>
+                <select id="recurring-owner" class="form-select" style="font-size:12px;padding:4px 8px;">
+                    <option value="user">${escapeHtml(userName)}</option>
+                    <option value="dependent">${escapeHtml(depName)}</option>
+                </select>
+            </div>
+        ` : '';
+
+        const sourceSelect = sources && sources.length > 1 ? `
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);">
+                <label>Payment source:</label>
+                <select id="recurring-source" class="form-select" style="font-size:12px;padding:4px 8px;">
+                    ${sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
+                </select>
+            </div>
+        ` : '';
+
+        body.innerHTML = `
+            ${errorBanners.join('')}
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
+                <div style="font-size:13px;color:var(--text-secondary);">
+                    Found <strong>${candidates.length}</strong> new recurring ${candidates.length === 1 ? 'bill' : 'bills'}. Uncheck any you want to skip.
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    ${ownerSelect}
+                    ${sourceSelect}
+                </div>
+            </div>
+            <div style="max-height:50vh;overflow-y:auto;">${rows}</div>
+            <div style="display:flex;justify-content:space-between;margin-top:16px;gap:8px;flex-wrap:wrap;">
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-secondary btn-sm" id="recurring-select-all">Select all</button>
+                    <button class="btn btn-secondary btn-sm" id="recurring-select-none">Select none</button>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-secondary" id="recurring-cancel-btn">Cancel</button>
+                    <button class="btn btn-primary" id="recurring-import-btn">Import <span id="recurring-import-count">${candidates.length}</span></button>
+                </div>
+            </div>
+        `;
+
+        const updateCount = () => {
+            const checked = body.querySelectorAll('.recurring-stream-check:checked').length;
+            const countEl = document.getElementById('recurring-import-count');
+            if (countEl) countEl.textContent = checked;
+            const importBtn = document.getElementById('recurring-import-btn');
+            if (importBtn) importBtn.disabled = checked === 0;
+        };
+
+        body.querySelectorAll('.recurring-stream-check').forEach(cb => {
+            cb.addEventListener('change', updateCount);
+        });
+        document.getElementById('recurring-select-all').addEventListener('click', () => {
+            body.querySelectorAll('.recurring-stream-check').forEach(cb => { cb.checked = true; });
+            updateCount();
+        });
+        document.getElementById('recurring-select-none').addEventListener('click', () => {
+            body.querySelectorAll('.recurring-stream-check').forEach(cb => { cb.checked = false; });
+            updateCount();
+        });
+        document.getElementById('recurring-cancel-btn').addEventListener('click', closeModal);
+
+        document.getElementById('recurring-import-btn').addEventListener('click', () => {
+            const owner = depEnabled ? (document.getElementById('recurring-owner').value || 'user') : 'user';
+            const chosenSource = document.getElementById('recurring-source')?.value || firstSource;
+
+            const checkedIdxs = [...body.querySelectorAll('.recurring-stream-check:checked')]
+                .map(cb => parseInt(cb.dataset.idx, 10));
+
+            let imported = 0;
+            for (const idx of checkedIdxs) {
+                const s = candidates[idx];
+                if (!s) continue;
+                const category = mapPlaidCategoryToPennyHelm(s.personalFinanceCategory, s.personalFinanceCategoryDetailed);
+                const bill = {
+                    name: s.merchantName,
+                    amount: Number(s.averageAmount) || 0,
+                    category,
+                    dueDay: extractDueDay(s),
+                    dueMonth: null,
+                    frequency: mapRecurringFrequency(s.frequency),
+                    paymentSource: chosenSource,
+                    frozen: false,
+                    autoPay: false,
+                    excludeFromTotal: false,
+                    notes: 'Imported from bank',
+                    owner,
+                    userCovering: false,
+                    // Dedup key so future re-imports skip this stream
+                    plaidStreamId: s.streamId,
+                };
+                store.addBill(bill);
+                imported++;
+            }
+
+            closeModal();
+            refreshPage();
+            // Gentle confirmation — alert is consistent with rest of codebase
+            setTimeout(() => {
+                alert(`Imported ${imported} bill${imported === 1 ? '' : 's'} from your bank.`);
+            }, 50);
+        });
+    }).catch(err => {
+        const body = document.getElementById('recurring-import-body');
+        if (!body) return;
+        console.error('Recurring import failed:', err);
+        body.innerHTML = `
+            <div style="padding:24px;text-align:center;color:var(--red);">
+                Failed to detect recurring bills: ${escapeHtml(err.message || 'Unknown error')}
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+                <button class="btn btn-secondary" id="recurring-close-btn">Close</button>
+            </div>
+        `;
+        document.getElementById('recurring-close-btn').addEventListener('click', closeModal);
+    });
 }
