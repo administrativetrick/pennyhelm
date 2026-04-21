@@ -1063,6 +1063,8 @@ class Store {
         const data = this._load();
         if (!data.businessNames) return;
         data.businessNames = data.businessNames.filter(n => n !== name);
+        // Keep default in sync — if the default business was removed, clear it.
+        if (data.defaultBusinessName === name) delete data.defaultBusinessName;
         this._save();
     }
 
@@ -1077,8 +1079,29 @@ class Store {
                     if (e.businessName === oldName) e.businessName = newName;
                 });
             }
+            // Preserve the default pointer across renames.
+            if (data.defaultBusinessName === oldName) data.defaultBusinessName = newName;
             this._save();
         }
+    }
+
+    /**
+     * The business name used by the inline Personal↔Business toggle on the
+     * Expenses table. Only meaningful when the user has 2+ businesses;
+     * otherwise the toggle falls back to the single business (or null).
+     */
+    getDefaultBusinessName() {
+        return this._load().defaultBusinessName || null;
+    }
+
+    setDefaultBusinessName(name) {
+        const data = this._load();
+        if (name) {
+            data.defaultBusinessName = name;
+        } else {
+            delete data.defaultBusinessName;
+        }
+        this._save();
     }
 
     // ─── Usage Type ──────────────────────────────────────────

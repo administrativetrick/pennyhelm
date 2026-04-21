@@ -16,7 +16,9 @@
  *       category?: string,        // set category
  *       addTags?: string[],       // append to tags (deduped)
  *       rename?: string,          // replace name
- *       ignore?: boolean          // mark as ignored (excluded from reports)
+ *       ignore?: boolean,         // mark as ignored (excluded from reports)
+ *       expenseType?: 'personal' | 'business',  // tag as personal or business
+ *       businessName?: string     // assign to a specific business (implies expenseType=business)
  *     }
  *   }
  *
@@ -86,6 +88,28 @@ export function applyActions(actions, expense) {
         next.tags = [...merged];
     }
 
+    // Expense type — "personal" clears any lingering businessName so the row
+    // renders cleanly. "business" stands on its own; a separate businessName
+    // action can also pin the expense to a specific company.
+    if (actions.expenseType === 'personal') {
+        next.expenseType = 'personal';
+        next.businessName = null;
+    } else if (actions.expenseType === 'business') {
+        next.expenseType = 'business';
+    }
+
+    // Setting a businessName implies the expense is business — promote if
+    // the user didn't set expenseType explicitly. An empty string means
+    // "no specific business" and leaves expenseType alone (so a rule can
+    // clear a stale businessName without changing type).
+    if (actions.businessName !== undefined && actions.businessName !== null) {
+        const bn = String(actions.businessName).trim();
+        next.businessName = bn || null;
+        if (bn && actions.expenseType !== 'personal') {
+            next.expenseType = 'business';
+        }
+    }
+
     return next;
 }
 
@@ -147,7 +171,13 @@ export function validateRule(rule) {
         || rule.actions.rename
         || (Array.isArray(rule.actions.addTags) && rule.actions.addTags.length > 0)
         || rule.actions.ignore === true
-        || rule.actions.ignore === false;
+        || rule.actions.ignore === false
+        || rule.actions.expenseType === 'personal'
+        || rule.actions.expenseType === 'business'
+        || (typeof rule.actions.businessName === 'string' && rule.actions.businessName.trim() !== '');
     if (!hasAction) return 'At least one action is required';
+    if (rule.actions.expenseType && !['personal', 'business'].includes(rule.actions.expenseType)) {
+        return `Invalid expenseType: ${rule.actions.expenseType}`;
+    }
     return null;
 }
