@@ -453,3 +453,78 @@ export function shouldSyncTransactions(store) {
     // Sync if last sync was more than 20 hours ago
     return (now.getTime() - lastSyncDate.getTime()) > 20 * 60 * 60 * 1000;
 }
+
+// ─── Recurring Transactions (Bill / Income Detection) ───
+
+/**
+ * Fetches Plaid's detected recurring streams for every connected item and
+ * returns a merged list. This is an on-demand call (the user explicitly clicks
+ * "Detect bills from bank") so we don't burn quota on silent refreshes.
+ *
+ * @param {Store} store
+ * @returns {Promise<{ outflows: Array, inflows: Array, errors: Array }>}
+ */
+export async function fetchRecurringTransactions(store) {
+    if (!capabilities().plaid) {
+        return { outflows: [], inflows: [], errors: [{ message: 'Plaid not available in this mode.' }] };
+    }
+    if (!hasPlaidConnections(store)) {
+        return { outflows: [], inflows: [], errors: [] };
+    }
+
+    const itemIds = store.getPlaidItemIds();
+    const allOutflows = [];
+    const allInflows = [];
+    const errors = [];
+
+    // Intentionally sequential: Plaid recommends spacing these out, and we
+    // want the first CREDITS_EXHAUSTED to surface quickly if the user has hit
+    // the quota — no point hammering on remaining items.
+    for (const itemId of itemIds) {
+        try {
+            const result = await callFunction('getRecurringTransactions', { item_id: itemId });
+            allOutflows.push(...(result.outflows || []));
+            allInflows.push(...(result.inflows || []));
+        } catch (err) {
+            console.error(`Recurring fetch failed for item ${itemId}:`, err);
+            errors.push({
+                itemId,
+                code: err.code || 'unknown',
+                message: err.message || 'Unknown error',
+            });
+        }
+    }
+
+    return { outflows: allOutflows, inflows: allInflows, errors };
+}
+
+/**
+ * Map Plaid's recurring frequency enum to PennyHelm's bill frequency string.
+ * Plaid values: WEEKLY, BIWEEKLY, SEMI_MONTHLY, MONTHLY, ANNUALLY, UNKNOWN.
+ * @param {string} plaidFreq
+ * @returns {string}
+ */
+export function mapRecurringFrequency(plaidFreq) {
+    switch ((plaidFreq || '').toUpperCase()) {
+        case 'WEEKLY': return 'weekly';
+        case 'BIWEEKLY': return 'biweekly';
+        case 'SEMI_MONTHLY': return 'semi-monthly';
+        case 'ANNUALLY': return 'yearly';
+        case 'MONTHLY':
+        default: return 'monthly';
+    }
+}
+
+/**
+ * Extract a sensible due-day-of-month from a recurring stream.
+ * Prefers predictedNextDate; falls back to lastDate; defaults to 1.
+ * @param {Object} stream
+ * @returns {number} 1-31
+ */
+export function extractDueDay(stream) {
+    const iso = stream.predictedNextDate || stream.lastDate;
+    if (!iso) return 1;
+    const d = new Date(iso + 'T00:00:00');
+    const day = d.getDate();
+    return Number.isFinite(day) && day >= 1 && day <= 31 ? day : 1;
+}

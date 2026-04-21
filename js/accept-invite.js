@@ -1,7 +1,11 @@
-import { firebaseConfig } from './firebase-config.js';
+import { firebaseConfig, APP_CHECK_SITE_KEY } from './firebase-config.js';
+import { activateAppCheck } from './app-check-boot.js';
 
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
+// App Check must activate before any auth / firestore / functions call.
+// No-op if APP_CHECK_SITE_KEY is empty.
+activateAppCheck(firebase, APP_CHECK_SITE_KEY);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const functions = firebase.functions();

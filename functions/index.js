@@ -10,7 +10,7 @@
  *   plaid.js     — Plaid Link, token exchange, balance refresh
  *   stripe.js    — Checkout, portal, webhook for subscriptions
  *   mfa.js       — TOTP two-factor authentication
- *   invites.js   — Sharing invites, registration codes, waitlist
+ *   invites.js   — Sharing invites, referral tracking
  *   scheduled.js — Cron jobs, admin utilities, transaction sync
  *   chatbot.js   — AI financial assistant (Gemini)
  *   api-keys.js  — API key management (create, list, revoke)
@@ -118,7 +118,8 @@ const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
 
 // ─── Re-export All Cloud Functions ───────────────────────────
 
-// Remove internal helper before exporting
+// Remove internal helpers before exporting
 delete apiKeyFns._validateApiKey;
+delete inviteFns.trackPaidReferral;
 
 Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns);
