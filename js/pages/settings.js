@@ -135,7 +135,8 @@ export function renderSettings(container, store) {
                 <div class="settings-section">
                     <h3>API Access</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Generate API keys to access your PennyHelm data programmatically via REST API.
+                    Generate API keys for <strong>read-only</strong> access to your PennyHelm data.
+                    Keys are scoped to your account only &mdash; they cannot view anyone else's data and cannot modify anything.
                 </p>
                 <div class="settings-row">
                     <div>
@@ -147,7 +148,13 @@ export function renderSettings(container, store) {
                 <div id="api-keys-list" style="margin-top:12px;"></div>
                 <div id="api-key-created-banner" style="display:none;margin-top:12px;padding:14px;background:var(--bg-secondary);border:1px solid var(--green);border-radius:var(--radius-sm);">
                     <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px;">NEW API KEY CREATED</div>
-                    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Copy this key now. It will not be shown again.</p>
+                    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;">
+                        Copy this key now &mdash; it will not be shown again.
+                    </p>
+                    <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+                        Treat it like a password. Anyone with this key can read your financial data.
+                        If it leaks, revoke it from the list below and create a new one.
+                    </p>
                     <div class="flex-align-center gap-8">
                         <code id="api-key-value" style="flex:1;padding:8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;font-size:13px;word-break:break-all;user-select:all;"></code>
                         <button class="btn btn-secondary btn-sm" id="copy-api-key-btn">Copy</button>
@@ -157,10 +164,10 @@ export function renderSettings(container, store) {
                     <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none;">API Documentation</summary>
                     <div style="margin-top:8px;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);">
                         <p style="margin:0 0 8px;font-weight:600;">Base URL</p>
-                        <code style="display:block;padding:6px 8px;background:var(--bg-primary);border-radius:4px;margin-bottom:12px;font-size:11px;">https://&lt;your-project&gt;.web.app/api/v1/</code>
+                        <code style="display:block;padding:6px 8px;background:var(--bg-primary);border-radius:4px;margin-bottom:12px;font-size:11px;">${escapeHtml(window.location.origin)}/api/v1/</code>
                         <p style="margin:0 0 8px;font-weight:600;">Authentication</p>
                         <code style="display:block;padding:6px 8px;background:var(--bg-primary);border-radius:4px;margin-bottom:12px;font-size:11px;">Authorization: Bearer ph_live_...</code>
-                        <p style="margin:0 0 6px;font-weight:600;">Endpoints</p>
+                        <p style="margin:0 0 6px;font-weight:600;">Endpoints <span style="font-weight:400;color:var(--text-muted);">(GET only &mdash; read-only)</span></p>
                         <div style="display:grid;gap:4px;">
                             <code style="padding:4px 8px;background:var(--bg-primary);border-radius:4px;font-size:11px;">GET /api/v1/bills</code>
                             <code style="padding:4px 8px;background:var(--bg-primary);border-radius:4px;font-size:11px;">GET /api/v1/accounts</code>
@@ -1093,6 +1100,15 @@ export function renderSettings(container, store) {
                         <div class="form-group">
                             <label class="form-label" for="api-key-name">Key Name</label>
                             <input type="text" class="form-input" id="api-key-name" placeholder="e.g. Budget Spreadsheet, Home Automation" maxlength="64">
+                        </div>
+                        <div style="margin:14px 0;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);line-height:1.5;">
+                            <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;">Before you continue</div>
+                            <ul style="margin:0;padding-left:18px;">
+                                <li>This key grants <strong>read-only</strong> access to <strong>your</strong> financial data (bills, accounts, debts, expenses, summary).</li>
+                                <li>The full key is shown <strong>only once</strong> &mdash; copy it immediately and store it somewhere safe (a password manager).</li>
+                                <li>Treat it like a password. Don't commit it to a public repo, paste it into a chat, or share it.</li>
+                                <li>If it leaks, revoke it from this page right away and create a new one.</li>
+                            </ul>
                         </div>
                         <div id="api-key-create-error" style="color:var(--red);font-size:13px;margin-bottom:8px;"></div>
                     </div>
