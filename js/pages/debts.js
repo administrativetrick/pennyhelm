@@ -5,6 +5,7 @@ import { auth } from '../auth.js';
 import { capabilities } from '../mode/mode.js';
 import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
 import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
+import { openInlineCategoryPicker } from '../inline-category-picker.js';
 
 let activeDebtsTab = 'debts';
 
@@ -772,7 +773,7 @@ function renderExpensesTab(container, store) {
                                         ${exp.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(exp.notes)}</div>` : ''}
                                         ${tagsHtml}
                                     </td>
-                                    <td>${getExpenseCategoryBadge(exp.category)}</td>
+                                    <td class="expense-category-cell" data-expense-id="${exp.id}" style="cursor:pointer;" title="Click to change category">${getExpenseCategoryBadge(exp.category, store)}</td>
                                     ${showTypeColumn ? `<td>${getExpenseTypeBadge(exp, { clickable: true })}</td>` : ''}
                                     <td style="color:var(--text-secondary);">${escapeHtml(exp.vendor || '')}</td>
                                     <td><div class="font-bold" style="color:var(--red);">${formatCurrency(exp.amount || 0)}</div></td>
@@ -885,6 +886,38 @@ function renderExpensesTab(container, store) {
             if (!confirm('Undo this split and restore the original expense? All split children will be deleted.')) return;
             store.unsplitExpense(btn.dataset.expenseId);
             refreshPage();
+        });
+    });
+
+    // Inline Category picker — click a category cell and get a floating
+    // searchable picker. Lets the user re-categorize a Plaid batch fast.
+    container.querySelectorAll('.expense-category-cell').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+            // Stop propagation so row-level selection/keyboard handlers
+            // don't compete with the picker.
+            e.stopPropagation();
+            // The cell is the anchor so the popover aligns with the cell,
+            // even if the user clicks on whitespace inside the <td>.
+            const id = cell.dataset.expenseId;
+            const expense = expenses.find(x => x.id === id);
+            if (!expense) return;
+            const all = getAllExpenseCategories(store);
+            const items = Object.entries(all).map(([key, cat]) => ({
+                key,
+                label: cat.label,
+                group: cat.group || 'Other',
+                color: cat.color,
+            }));
+            openInlineCategoryPicker(cell, {
+                items,
+                currentKey: expense.category || '',
+                onPick: (key) => {
+                    if (key && key !== expense.category) {
+                        store.updateExpense(id, { category: key });
+                        refreshPage();
+                    }
+                },
+            });
         });
     });
 
