@@ -906,7 +906,20 @@ async function lookupUser(db) {
                 <div style="margin-top:6px;font-size:13px;color:var(--text-secondary);">
                     Referred by: ${userData.referredBy ? '<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.referredBy) + '</code>' : 'N/A'}
                     &middot; Referral code: ${userData.referralCode ? '<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.referralCode) + '</code>' : 'Not generated'}
-                    &middot; Paid referrals: ${userData.paidReferralCount || 0}/10${userData.referralRewardApplied ? ' &middot; <span style="color:var(--green);">Free year earned</span>' : ''}
+                    &middot; Paid referrals: ${userData.paidReferralCount || 0}/10${(() => {
+                        // Show which tier rewards the user has unlocked so far.
+                        // referralTiersApplied is an array of thresholds, e.g. [1, 3].
+                        const tiers = Array.isArray(userData.referralTiersApplied) ? userData.referralTiersApplied : [];
+                        const parts = [];
+                        if (tiers.length) {
+                            parts.push(`<span style="color:var(--green);">Tiers earned: ${tiers.slice().sort((a,b) => a - b).join(', ')}</span>`);
+                        }
+                        // Legacy flag — covers users who earned the full year before tiered rewards shipped
+                        if (userData.referralRewardApplied && !tiers.includes(10)) {
+                            parts.push('<span style="color:var(--green);">Free year earned</span>');
+                        }
+                        return parts.length ? ' &middot; ' + parts.join(' &middot; ') : '';
+                    })()}
                 </div>
                 ${renderAcquisitionSource(userData.acquisitionSource)}
                 <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
