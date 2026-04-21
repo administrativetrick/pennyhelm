@@ -370,11 +370,74 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
     // REFERRAL TRACKING
     // ─────────────────────────────────────────────
 
+    // Tiered reward structure. Each threshold is how many *paid* referrals the
+    // user needs; totalMonths is the cumulative free subscription they've
+    // earned across all tiers up to and including this one. The per-tier
+    // reward is totalMonths minus whatever prior tiers have already granted.
+    //
+    //   1 paid  → 1 month total           (tier 1 grants 1 month)
+    //   3 paid  → 3 months total          (tier 3 grants +2 months)
+    //   5 paid  → 6 months total          (tier 5 grants +3 months)
+    //  10 paid  → 12 months total         (tier 10 grants +6 months)
+    const REFERRAL_TIERS = [
+        { threshold: 1,  totalMonths: 1  },
+        { threshold: 3,  totalMonths: 3  },
+        { threshold: 5,  totalMonths: 6  },
+        { threshold: 10, totalMonths: 12 },
+    ];
+
+    /**
+     * Credit the referrer's Stripe customer balance by (months × monthly price).
+     * Stripe automatically applies customer balance to subsequent invoices, so
+     * this cleanly stacks across tiers without the single-coupon-per-subscription
+     * limitation. Returns the credit amount in cents that was applied, or null
+     * if the referrer has no active subscription to credit against.
+     */
+    async function creditReferrerMonths(stripe, referrerData, months, tier) {
+        const stripeCustomerId = referrerData.stripeCustomerId;
+        const stripeSubId = referrerData.stripeSubscriptionId;
+        if (!stripeCustomerId || !stripeSubId) return null;
+
+        // Retrieve the subscription's current price so the credit matches
+        // whatever plan they're on (monthly vs yearly, different tiers, etc.).
+        const sub = await stripe.subscriptions.retrieve(stripeSubId, {
+            expand: ['items.data.price'],
+        });
+        const price = sub.items && sub.items.data && sub.items.data[0]
+            ? sub.items.data[0].price
+            : null;
+        if (!price || !price.unit_amount) {
+            throw new Error('Could not determine subscription price for referral credit');
+        }
+
+        // If the subscription is billed yearly, unit_amount is the yearly
+        // price — prorate per month so "1 free month" means 1/12th of the
+        // yearly cost, not a full yearly refund.
+        const interval = price.recurring && price.recurring.interval;
+        const intervalCount = (price.recurring && price.recurring.interval_count) || 1;
+        let perMonthCents = price.unit_amount;
+        if (interval === 'year') perMonthCents = Math.round(price.unit_amount / (12 * intervalCount));
+        else if (interval === 'week') perMonthCents = Math.round(price.unit_amount * 4 / intervalCount);
+        else if (interval === 'day') perMonthCents = Math.round(price.unit_amount * 30 / intervalCount);
+        else perMonthCents = Math.round(price.unit_amount / intervalCount); // month
+
+        const creditCents = perMonthCents * months;
+        if (creditCents <= 0) return null;
+
+        await stripe.customers.createBalanceTransaction(stripeCustomerId, {
+            amount: -creditCents, // negative = credit toward future invoices
+            currency: price.currency || 'usd',
+            description: `PennyHelm referral tier ${tier.threshold}: ${months} free month${months === 1 ? '' : 's'}`,
+        });
+
+        return creditCents;
+    }
+
     /**
      * Called internally (not exported as a Cloud Function) from the Stripe
      * webhook when a subscription becomes active. Looks up the subscriber's
      * referredBy code, finds the referrer, increments their paidReferralCount,
-     * and applies a free-year reward at 10 conversions.
+     * and applies any newly-unlocked tier rewards (1/3/5/10).
      */
     async function trackPaidReferral(subscriberUid, stripe) {
         const subscriberDoc = await db.collection("users").doc(subscriberUid).get();
@@ -401,44 +464,70 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
         }
 
         const newCount = (referrerData.paidReferralCount || 0) + 1;
+        const tiersApplied = referrerData.referralTiersApplied || [];
+        const legacyAllTiersApplied = !!referrerData.referralRewardApplied && tiersApplied.length === 0;
+
         const updates = {
             paidReferralCount: admin.firestore.FieldValue.increment(1),
             _trackedReferrals: admin.firestore.FieldValue.arrayUnion(subscriberUid),
         };
 
-        // At 10 paid referrals, reward the referrer with a free year
-        if (newCount >= 10 && !referrerData.referralRewardApplied) {
+        // For each tier the referrer has now crossed but not yet been rewarded
+        // for, credit the incremental months. Ordered low→high so tier 1 is
+        // credited before tier 3, etc.
+        let newlyRewardedTiers = [];
+        for (const tier of REFERRAL_TIERS) {
+            if (newCount < tier.threshold) continue;
+            if (tiersApplied.includes(tier.threshold)) continue;
+
+            // How many months the user should have accumulated from tiers
+            // strictly lower than this one. Covers the legacy case where
+            // referralRewardApplied=true existed without referralTiersApplied.
+            const priorAwarded = REFERRAL_TIERS
+                .filter(t => t.threshold < tier.threshold)
+                .filter(t => tiersApplied.includes(t.threshold) || legacyAllTiersApplied)
+                .reduce((max, t) => Math.max(max, t.totalMonths), 0);
+
+            const incrementalMonths = tier.totalMonths - priorAwarded;
+            if (incrementalMonths <= 0) {
+                // Legacy user already has >=totalMonths credited — just record
+                // the tier as applied so we don't revisit it.
+                newlyRewardedTiers.push({ threshold: tier.threshold, months: 0, creditCents: null });
+                continue;
+            }
+
             try {
-                const referrerStripeId = referrerData.stripeCustomerId;
-                const referrerSubId = referrerData.stripeSubscriptionId;
-
-                if (referrerStripeId && referrerSubId) {
-                    // Create a 100% off coupon valid for 12 months
-                    const coupon = await stripe.coupons.create({
-                        percent_off: 100,
-                        duration: "repeating",
-                        duration_in_months: 12,
-                        name: `Referral reward — ${referrerData.email || referrerDoc.id}`,
-                    });
-
-                    // Apply to the referrer's subscription
-                    await stripe.subscriptions.update(referrerSubId, {
-                        coupon: coupon.id,
-                    });
-
-                    updates.referralRewardApplied = true;
-                    updates.referralRewardDate = admin.firestore.FieldValue.serverTimestamp();
-                    console.log(`Applied free-year reward to referrer ${referrerDoc.id} (coupon ${coupon.id})`);
-                } else {
-                    console.warn(`Referrer ${referrerDoc.id} has no Stripe subscription — reward deferred`);
+                const creditCents = await creditReferrerMonths(stripe, referrerData, incrementalMonths, tier);
+                if (creditCents === null) {
+                    console.warn(`Referrer ${referrerDoc.id} has no Stripe subscription — tier ${tier.threshold} deferred`);
+                    // Don't mark as applied — we'll retry next time they
+                    // convert a referral. If they never subscribe, they lose
+                    // nothing (they had no subscription to credit).
+                    continue;
                 }
+                newlyRewardedTiers.push({ threshold: tier.threshold, months: incrementalMonths, creditCents });
+                console.log(`Tier ${tier.threshold} reward applied to ${referrerDoc.id}: ${incrementalMonths} months (${creditCents} cents)`);
             } catch (err) {
-                console.error(`Failed to apply referral reward to ${referrerDoc.id}:`, err);
+                console.error(`Failed to apply tier ${tier.threshold} reward to ${referrerDoc.id}:`, err);
+                // Leave tier unmarked so a future successful call can retry.
+            }
+        }
+
+        if (newlyRewardedTiers.length > 0) {
+            updates.referralTiersApplied = admin.firestore.FieldValue.arrayUnion(
+                ...newlyRewardedTiers.map(t => t.threshold)
+            );
+            updates.referralLastRewardAt = admin.firestore.FieldValue.serverTimestamp();
+            // Keep legacy flag in sync for old UI code that only knows about
+            // the "did they earn the full free year" concept.
+            if (newlyRewardedTiers.some(t => t.threshold === 10)) {
+                updates.referralRewardApplied = true;
+                updates.referralRewardDate = admin.firestore.FieldValue.serverTimestamp();
             }
         }
 
         await referrerDoc.ref.update(updates);
-        console.log(`Referral tracked: subscriber ${subscriberUid} → referrer ${referrerDoc.id} (count now ${newCount})`);
+        console.log(`Referral tracked: subscriber ${subscriberUid} → referrer ${referrerDoc.id} (count now ${newCount}, new tiers: ${newlyRewardedTiers.map(t => t.threshold).join(',') || 'none'})`);
     }
 
     // Expose as a plain function (not a Cloud Function) for stripe.js to call
@@ -460,14 +549,43 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
         }
 
         const data = userDoc.data();
+        const paidReferralCount = data.paidReferralCount || 0;
+        const tiersApplied = data.referralTiersApplied || [];
+        const legacyFullYear = !!data.referralRewardApplied && tiersApplied.length === 0;
+
+        // Compute tier state for each threshold so the UI can render the
+        // ladder without re-encoding the structure client-side.
+        const tiers = REFERRAL_TIERS.map(t => ({
+            threshold: t.threshold,
+            totalMonths: t.totalMonths,
+            reached: paidReferralCount >= t.threshold,
+            // Either explicitly marked applied, or legacy "referralRewardApplied" covers all tiers
+            rewarded: tiersApplied.includes(t.threshold) || legacyFullYear,
+        }));
+
+        // Find the next unreached tier for UI copy like "2 more for tier 2".
+        const nextTier = REFERRAL_TIERS.find(t => paidReferralCount < t.threshold) || null;
+
+        // Total months the user has ever been awarded (cumulative, across tiers).
+        const totalMonthsEarned = tiers.filter(t => t.rewarded)
+            .reduce((max, t) => Math.max(max, t.totalMonths), 0);
+
         return {
             referralCode: data.referralCode || null,
             referralLink: data.referralCode
                 ? `https://pennyhelm.com/login?ref=${data.referralCode}`
                 : null,
-            paidReferralCount: data.paidReferralCount || 0,
+            paidReferralCount,
             targetCount: 10,
-            rewardEarned: !!data.referralRewardApplied,
+            tiers,
+            nextTier: nextTier ? {
+                threshold: nextTier.threshold,
+                totalMonths: nextTier.totalMonths,
+                remaining: nextTier.threshold - paidReferralCount,
+            } : null,
+            totalMonthsEarned,
+            // Legacy field retained so older clients don't break
+            rewardEarned: !!data.referralRewardApplied || tiers.every(t => t.rewarded),
         };
     });
 

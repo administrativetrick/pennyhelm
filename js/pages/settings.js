@@ -570,7 +570,9 @@ export function renderSettings(container, store) {
             <div class="settings-section">
                 <h3>Referral Program</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Refer friends to PennyHelm. When 10 of your referrals become paid subscribers, you earn a free year!
+                    Earn free months when friends become paid subscribers &mdash;
+                    <strong>1 month at 1 referral, 3 months at 3, 6 months at 5, and a full year at 10.</strong>
+                    Rewards are applied as credits to your Stripe balance.
                 </p>
                 <div id="referral-status-container">
                     <p style="color:var(--text-secondary);font-size:13px;">Loading referral info...</p>
@@ -1371,59 +1373,152 @@ export function renderSettings(container, store) {
         }
     }
 
-    // Referral program status (cloud only)
+    // Referral program status (cloud only). Backend contract:
+    //   { referralCode, referralLink, paidReferralCount, targetCount,
+    //     tiers: [{ threshold, totalMonths, reached, rewarded }, ...],
+    //     nextTier: { threshold, totalMonths, remaining } | null,
+    //     totalMonthsEarned, rewardEarned }
     const referralContainer = container.querySelector('#referral-status-container');
     if (referralContainer && auth.isCloud()) {
         (async () => {
             try {
                 const getReferralStatus = firebase.functions().httpsCallable('getReferralStatus');
                 const result = await getReferralStatus({});
-                const data = result.data;
+                const data = result.data || {};
 
                 const count = data.paidReferralCount || 0;
                 const target = data.targetCount || 10;
-                const remaining = Math.max(0, target - count);
                 const pct = Math.min(100, Math.round((count / target) * 100));
+                // Fall back gracefully if an older backend is deployed and
+                // didn't return tiers yet — show a simple bar only.
+                const tiers = Array.isArray(data.tiers) ? data.tiers : [];
+                const nextTier = data.nextTier || null;
+                const totalMonthsEarned = data.totalMonthsEarned || 0;
 
-                let statusHtml = '';
-                if (data.rewardEarned) {
-                    statusHtml = `
-                        <div style="padding:12px;background:var(--green-bg, #e8f5e9);border:1px solid var(--green, #2e7d32);border-radius:8px;margin-bottom:14px;">
-                            <div style="font-weight:600;color:var(--green, #2e7d32);font-size:14px;">You earned a free year!</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Applied to your next billing cycle.</div>
+                // Celebration banner whenever the user has earned anything.
+                // Different copy if they've fully maxed out (hit tier 10).
+                const maxed = tiers.length > 0 && tiers.every(t => t.rewarded);
+                const banner = totalMonthsEarned > 0 ? `
+                    <div style="padding:12px;background:var(--green-bg, #e8f5e9);border:1px solid var(--green, #2e7d32);border-radius:8px;margin-bottom:14px;">
+                        <div style="font-weight:600;color:var(--green, #2e7d32);font-size:14px;">
+                            ${maxed ? 'Maxed out &mdash; you earned a free year!' : `You've earned ${totalMonthsEarned} free month${totalMonthsEarned === 1 ? '' : 's'}!`}
+                        </div>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                            Credits are on your Stripe account and auto-apply to upcoming invoices.
+                        </div>
+                    </div>
+                ` : '';
+
+                // Progress line + bar
+                const progressLine = nextTier
+                    ? `<strong>${count}</strong> paid referral${count === 1 ? '' : 's'} &mdash; ${nextTier.remaining} more for ${nextTier.totalMonths} free month${nextTier.totalMonths === 1 ? '' : 's'}`
+                    : `<strong>${count}</strong> paid referrals &mdash; you've hit every tier!`;
+
+                // Tier ladder: ✓ earned, ● next-up, ○ future. Using inline SVG
+                // would be heavier — Unicode bullets are fine for a settings row.
+                const tierRows = tiers.map(t => {
+                    const icon = t.rewarded ? '✓'
+                        : t.reached ? '●'  // reached but not yet credited (e.g. no sub on file)
+                        : (nextTier && nextTier.threshold === t.threshold) ? '●'
+                        : '○';
+                    const color = t.rewarded ? 'var(--green, #2e7d32)'
+                        : (nextTier && nextTier.threshold === t.threshold) ? 'var(--accent, #4f8cff)'
+                        : 'var(--text-muted, #999)';
+                    const textStyle = t.rewarded
+                        ? 'color:var(--text-primary);'
+                        : (nextTier && nextTier.threshold === t.threshold)
+                            ? 'color:var(--text-primary);font-weight:500;'
+                            : 'color:var(--text-muted);';
+                    return `
+                        <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12px;${textStyle}">
+                            <span style="display:inline-block;width:16px;text-align:center;color:${color};font-weight:700;">${icon}</span>
+                            <span style="flex:1;">${t.threshold} paid referral${t.threshold === 1 ? '' : 's'} &rarr; ${t.totalMonths} month${t.totalMonths === 1 ? '' : 's'} free</span>
+                            ${t.rewarded ? '<span style="font-size:11px;color:var(--green, #2e7d32);">Earned</span>' : (nextTier && nextTier.threshold === t.threshold) ? '<span style="font-size:11px;color:var(--accent, #4f8cff);">Next</span>' : ''}
                         </div>
                     `;
-                } else {
-                    statusHtml = `
-                        <div style="font-size:13px;color:var(--text-primary);margin-bottom:10px;">
-                            <strong>${count}</strong> of <strong>${target}</strong> friends signed up &mdash; ${remaining > 0 ? remaining + ' more for a free year!' : 'Reward unlocked!'}
+                }).join('');
+
+                const tierLadderHtml = tiers.length > 0 ? `
+                    <div style="margin:10px 0 14px;padding:10px 12px;background:var(--bg-tertiary, #f5f5f5);border-radius:6px;">
+                        ${tierRows}
+                    </div>
+                ` : '';
+
+                // Share button URLs. Each one opens in a new tab and passes
+                // the user's link plus a short pitch. Reddit and LinkedIn take
+                // both a URL and a title; X/Twitter wants 'text' that includes
+                // the URL; Facebook only takes a URL.
+                const link = data.referralLink || '';
+                const safeLink = encodeURIComponent(link);
+                const shareTitle = encodeURIComponent('I use PennyHelm to manage my bills, debts, and cash flow. Get a month free when you sign up:');
+                const shareTitleShort = encodeURIComponent('Try PennyHelm with me — get a month free:');
+                const shareButtons = link ? `
+                    <div style="margin-bottom:14px;">
+                        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Share your link</div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <a href="https://twitter.com/intent/tweet?text=${shareTitleShort}%20${safeLink}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm share-btn" data-network="twitter" style="display:inline-flex;align-items:center;gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                                X
+                            </a>
+                            <a href="https://www.linkedin.com/sharing/share-offsite/?url=${safeLink}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm share-btn" data-network="linkedin" style="display:inline-flex;align-items:center;gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14zM8.339 18.337V9.75H5.67v8.587h2.669zM7.005 8.575a1.548 1.548 0 1 0 0-3.095 1.548 1.548 0 0 0 0 3.095zm11.335 9.762v-4.907c0-2.315-.5-4.093-3.204-4.093-1.3 0-2.173.714-2.53 1.39h-.036V9.75H9.998v8.587h2.669v-4.245c0-1.12.212-2.205 1.6-2.205 1.369 0 1.387 1.28 1.387 2.276v4.174h2.686z"/></svg>
+                                LinkedIn
+                            </a>
+                            <a href="https://www.reddit.com/submit?url=${safeLink}&title=${shareTitle}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm share-btn" data-network="reddit" style="display:inline-flex;align-items:center;gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M22 12.08a2.2 2.2 0 0 0-3.73-1.58 10.72 10.72 0 0 0-5.83-1.85l1-4.7 3.27.7a1.56 1.56 0 1 0 .16-.89l-3.64-.77a.43.43 0 0 0-.51.33l-1.11 5.23a10.74 10.74 0 0 0-5.92 1.85 2.2 2.2 0 1 0-2.42 3.59 4.54 4.54 0 0 0-.05.66c0 3.38 3.93 6.12 8.77 6.12s8.77-2.74 8.77-6.12a4.54 4.54 0 0 0-.05-.66A2.2 2.2 0 0 0 22 12.08zM7 13.58a1.56 1.56 0 1 1 1.56 1.56A1.56 1.56 0 0 1 7 13.58zm8.78 4.16a4.88 4.88 0 0 1-3.26 1 4.88 4.88 0 0 1-3.26-1 .36.36 0 0 1 .5-.5 4.17 4.17 0 0 0 2.76.84 4.17 4.17 0 0 0 2.76-.84.36.36 0 1 1 .5.5zm-.33-2.6a1.56 1.56 0 1 1 1.56-1.56 1.56 1.56 0 0 1-1.56 1.56z"/></svg>
+                                Reddit
+                            </a>
+                            <a href="https://www.facebook.com/sharer/sharer.php?u=${safeLink}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm share-btn" data-network="facebook" style="display:inline-flex;align-items:center;gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9.19 21.5v-8.56H6.31v-3.34h2.88V7.12c0-2.86 1.74-4.42 4.29-4.42 1.22 0 2.27.09 2.58.13v2.99h-1.77c-1.39 0-1.66.66-1.66 1.63v2.14h3.31l-.43 3.34h-2.88v8.56H9.19z"/></svg>
+                                Facebook
+                            </a>
                         </div>
-                        <div style="height:8px;background:var(--bg-tertiary, #e0e0e0);border-radius:4px;overflow:hidden;margin-bottom:14px;">
-                            <div style="height:100%;width:${pct}%;background:var(--accent, #4f8cff);border-radius:4px;transition:width 0.3s;"></div>
-                        </div>
-                    `;
-                }
+                    </div>
+                ` : '';
 
                 referralContainer.innerHTML = `
-                    ${statusHtml}
+                    ${banner}
+                    <div style="font-size:13px;color:var(--text-primary);margin-bottom:8px;">
+                        ${progressLine}
+                    </div>
+                    <div style="height:8px;background:var(--bg-tertiary, #e0e0e0);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+                        <div style="height:100%;width:${pct}%;background:var(--accent, #4f8cff);border-radius:4px;transition:width 0.3s;"></div>
+                    </div>
+                    ${tierLadderHtml}
+                    ${shareButtons}
                     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Your referral link:</div>
                     <div style="display:flex;align-items:center;gap:8px;">
-                        <code id="referral-link-value" style="flex:1;padding:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:12px;word-break:break-all;user-select:all;">${escapeHtml(data.referralLink)}</code>
+                        <code id="referral-link-value" style="flex:1;padding:8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;font-size:12px;word-break:break-all;user-select:all;">${escapeHtml(data.referralLink || '')}</code>
                         <button class="btn btn-secondary btn-sm" id="copy-referral-link" style="white-space:nowrap;">Copy</button>
                     </div>
                     <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
-                        Your code: <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;font-family:monospace;">${escapeHtml(data.referralCode)}</code>
+                        Your code: <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;font-family:monospace;">${escapeHtml(data.referralCode || '')}</code>
                     </div>
                 `;
 
                 const copyBtn = referralContainer.querySelector('#copy-referral-link');
-                if (copyBtn) {
+                if (copyBtn && data.referralLink) {
                     copyBtn.addEventListener('click', () => {
                         navigator.clipboard.writeText(data.referralLink);
                         copyBtn.textContent = 'Copied!';
                         setTimeout(() => copyBtn.textContent = 'Copy', 2000);
                     });
                 }
+
+                // Optional: fire a lightweight analytics ping when the user
+                // clicks a share button so we can see which networks actually
+                // get used. Graceful no-op if gtag isn't on the page.
+                referralContainer.querySelectorAll('.share-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const network = btn.getAttribute('data-network');
+                        if (typeof window.gtag === 'function') {
+                            window.gtag('event', 'share', {
+                                method: network,
+                                content_type: 'referral_link',
+                            });
+                        }
+                    });
+                });
             } catch (err) {
                 console.error('Error loading referral status:', err);
                 referralContainer.innerHTML = '<p style="color:var(--red);font-size:13px;">Failed to load referral info.</p>';
