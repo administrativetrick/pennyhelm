@@ -288,19 +288,26 @@ export function renderSettings(container, store) {
             </div>
         </div>
 
-        <!-- ───── People & Sharing ───── -->
-        <div class="settings-section-header">People & Sharing</div>
-        <div class="settings-grid">
-            <div class="card mb-24">
+        <!-- ───── Partner & Sharing ───── -->
+        <!-- One unified card: track a partner's bills (management on their
+             behalf) and/or invite people to collaborate (active cooperation).
+             These two concerns used to be separate cards but they describe
+             different positions on the same spectrum: how involved is the
+             other person in your finances? -->
+        <div class="settings-section-header">Partner &amp; Sharing</div>
+        <div class="card mb-24">
             <div class="settings-section">
-                <h3>Partner</h3>
+                <h3>Partner &amp; Household</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Track a partner, spouse, or another household member's bills and toggle whether you're covering them.
+                    Tracking alone lets you manage a partner's bills on their behalf.
+                    Add an invite if you want them (or a CPA, financial planner) to view or edit alongside you.
                 </p>
+
+                <!-- Partner tracking toggle (works in any mode) -->
                 <div class="settings-row">
                     <div>
-                        <div class="setting-label">Enable partner tracking</div>
-                        <div class="setting-desc">${depEnabled ? `Tracking <strong>${escapeHtml(depName)}</strong>'s bills` : 'Disabled'}</div>
+                        <div class="setting-label">Track a partner's bills</div>
+                        <div class="setting-desc">${depEnabled ? `Tracking <strong>${escapeHtml(depName)}</strong>'s bills` : 'Disabled &mdash; turn on to add their bills to your dashboard'}</div>
                     </div>
                     <label class="toggle">
                         <input type="checkbox" ${depEnabled ? 'checked' : ''} id="dep-enabled-toggle">
@@ -311,26 +318,21 @@ export function renderSettings(container, store) {
                 <div class="settings-row">
                     <div>
                         <div class="setting-label">Partner's name</div>
-                        <div class="setting-desc">Currently: <strong>${escapeHtml(depName)}</strong></div>
+                        <div class="setting-desc">Used in labels and totals. Currently: <strong>${escapeHtml(depName)}</strong></div>
                     </div>
                     <button class="btn btn-secondary btn-sm" id="edit-dep-name">Edit</button>
                 </div>
                 ` : ''}
-            </div>
-            </div>
 
-            ${auth.isCloud() ? `
-            <div class="card mb-24">
-                <div class="settings-section">
-                    <h3>🤝 Sharing & Invites</h3>
-                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                        Invite others to view or collaborate on your finances. Perfect for partners, spouses, or financial professionals.
-                    </p>
-
+                ${auth.isCloud() ? `
+                <!-- Invites (cloud only). Visually separated with a rule so
+                     the tracking toggle and the collaboration section are
+                     distinct even though they live in one card. -->
+                <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
                     <div class="settings-row">
                         <div>
-                            <div class="setting-label">Invite Someone</div>
-                            <div class="setting-desc">Share access with a partner, spouse, or financial professional</div>
+                            <div class="setting-label">People with access</div>
+                            <div class="setting-desc">Invite a partner, CPA, or financial planner to view or edit your finances</div>
                         </div>
                         <button class="btn btn-primary btn-sm" id="invite-person-btn">+ Invite</button>
                     </div>
@@ -344,20 +346,17 @@ export function renderSettings(container, store) {
                         <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PEOPLE WITH ACCESS</div>
                         <div id="shared-with-list"></div>
                     </div>
-                </div>
-            </div>
-            <div class="card mb-24">
-                <div class="settings-section">
-                    <h3>🎁 Referral Program</h3>
-                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                        Invite friends to PennyHelm. When 10 friends sign up for a paid plan, you earn a <strong>free year</strong>.
-                    </p>
-                    <div id="referral-status">
-                        <p style="color:var(--text-secondary);font-size:13px;">Loading...</p>
+
+                    <!-- Clarifying note for new users: the two controls above
+                         sit on a spectrum. Tracking only = you manage alone.
+                         Tracking + invite with edit = shared management. -->
+                    <div style="margin-top:12px;font-size:11px;color:var(--text-muted);line-height:1.5;">
+                        <strong>Tracking only</strong> &mdash; you manage their bills on their behalf.<br>
+                        <strong>Tracking + Invite</strong> &mdash; you both see and collaborate on the finances.
                     </div>
                 </div>
+                ` : ''}
             </div>
-            ` : ''}
         </div>
 
         <!-- ───── Categorization ───── -->
@@ -531,35 +530,6 @@ export function renderSettings(container, store) {
                         <div class="setting-desc">This will permanently delete your account, all financial data, linked bank connections, and subscription. This action cannot be undone.</div>
                     </div>
                     <button class="btn btn-danger btn-sm" id="delete-account-btn">Delete Account</button>
-                </div>
-            </div>
-        </div>
-        ` : ''}
-
-        ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>🤝 Sharing & Invites</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Invite others to view or collaborate on your finances. Perfect for partners, spouses, or financial professionals.
-                </p>
-
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Invite Someone</div>
-                        <div class="setting-desc">Share access with a partner, spouse, or financial professional</div>
-                    </div>
-                    <button class="btn btn-primary btn-sm" id="invite-person-btn">+ Invite</button>
-                </div>
-
-                <div id="pending-invites-section" style="margin-top:16px;display:none;">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PENDING INVITES</div>
-                    <div id="pending-invites-list"></div>
-                </div>
-
-                <div id="shared-with-section" style="margin-top:16px;display:none;">
-                    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PEOPLE WITH ACCESS</div>
-                    <div id="shared-with-list"></div>
                 </div>
             </div>
         </div>
