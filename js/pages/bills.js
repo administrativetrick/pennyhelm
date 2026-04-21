@@ -1,6 +1,7 @@
 import { formatCurrency, getCategoryBadgeClass, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
-import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
+import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup, getCategoryColor } from '../categories.js';
+import { openInlineCategoryPicker } from '../inline-category-picker.js';
 import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
@@ -583,7 +584,7 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
                     ${bill.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(bill.notes)}</div>` : ''}
                 </td>
                 <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every check</div>' : bill.frequency === 'twice-monthly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">2x/month</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : ''}</td>
-                <td><span class="badge ${badgeClass}">${escapeHtml(bill.category)}</span></td>
+                <td class="bill-category-cell" data-bill-id="${bill.id}" style="cursor:pointer;" title="Click to change category"><span class="badge ${badgeClass}">${escapeHtml(bill.category)}</span></td>
                 <td>${bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
                 <td style="font-size:12px;">
                     ${escapeHtml(bill.paymentSource || '-')}
@@ -635,6 +636,49 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month, 
                 store.deleteBill(btn.dataset.billId);
                 refreshPage();
             }
+        });
+    });
+
+    // Inline category picker — click a bill's category cell to get a
+    // floating searchable picker. Reuses the same helper as Expenses.
+    const customCategories = store.getCustomCategories();
+    const billItems = (() => {
+        const items = DEFAULT_CATEGORIES.map(c => ({
+            key: c.name,
+            label: c.name,
+            group: c.group,
+            color: getCategoryColor(c.name, customCategories),
+        }));
+        for (const c of customCategories) {
+            items.push({
+                key: c.name,
+                label: c.name,
+                group: 'Custom',
+                color: getCategoryColor(c.name, customCategories),
+            });
+        }
+        return items;
+    })();
+
+    tbody.querySelectorAll('.bill-category-cell').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+            // The <tr> has its own click listener for row-selection mode;
+            // stop here so Ctrl+click on the category cell doesn't
+            // accidentally start a selection.
+            e.stopPropagation();
+            const id = cell.dataset.billId;
+            const bill = bills.find(b => b.id === id);
+            if (!bill) return;
+            openInlineCategoryPicker(cell, {
+                items: billItems,
+                currentKey: bill.category || '',
+                onPick: (name) => {
+                    if (name && name !== bill.category) {
+                        store.updateBill(id, { category: name });
+                        refreshPage();
+                    }
+                },
+            });
         });
     });
 }
