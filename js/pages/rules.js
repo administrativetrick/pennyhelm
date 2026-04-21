@@ -49,6 +49,12 @@ function actionSummary(actions) {
     if (Array.isArray(actions.addTags) && actions.addTags.length) {
         parts.push(`add tags: ${actions.addTags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join(' ')}`);
     }
+    if (actions.expenseType) {
+        parts.push(`set type → <code>${escapeHtml(actions.expenseType)}</code>`);
+    }
+    if (actions.businessName) {
+        parts.push(`set business → <code>${escapeHtml(actions.businessName)}</code>`);
+    }
     if (actions.ignore) parts.push('<em>mark as ignored</em>');
     return parts.join(' &middot; ') || '<em>no actions</em>';
 }
@@ -186,8 +192,14 @@ function showRuleForm(store, existing = null) {
         name: '',
         enabled: true,
         match: { field: 'vendor', op: 'contains', value: '' },
-        actions: { category: '', addTags: [], rename: '', ignore: false },
+        actions: { category: '', addTags: [], rename: '', ignore: false, expenseType: '', businessName: '' },
     };
+
+    // Business tagging only makes sense if the user tracks business expenses
+    // at all — otherwise hide the whole section to keep the form simple.
+    const usageType = store.getUsageType();
+    const showBizFields = usageType === 'business' || usageType === 'both';
+    const businessNames = store.getBusinessNames();
 
     const html = `
         <div class="form-group">
@@ -228,6 +240,30 @@ function showRuleForm(store, existing = null) {
             <label>Rename transaction (optional)</label>
             <input type="text" class="form-input" id="rule-action-rename" value="${escapeHtml(rule.actions.rename || '')}" placeholder="Leave blank to keep original name">
         </div>
+        ${showBizFields ? `
+        <div class="form-row">
+            <div class="form-group">
+                <label>Set expense type (optional)</label>
+                <select class="form-select" id="rule-action-expense-type">
+                    <option value="" ${!rule.actions.expenseType ? 'selected' : ''}>Don't change</option>
+                    <option value="personal" ${rule.actions.expenseType === 'personal' ? 'selected' : ''}>Personal</option>
+                    <option value="business" ${rule.actions.expenseType === 'business' ? 'selected' : ''}>Business</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Set business name (optional)</label>
+                <select class="form-select" id="rule-action-business-name">
+                    <option value="" ${!rule.actions.businessName ? 'selected' : ''}>Don't change</option>
+                    ${businessNames.map(bn =>
+                        `<option value="${escapeHtml(bn)}" ${rule.actions.businessName === bn ? 'selected' : ''}>${escapeHtml(bn)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin:-8px 0 12px;">
+            Setting a business name automatically tags the expense as Business.
+        </div>
+        ` : ''}
         <div class="form-group">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
                 <input type="checkbox" id="rule-action-ignore" ${rule.actions.ignore ? 'checked' : ''}>
@@ -265,6 +301,10 @@ function showRuleForm(store, existing = null) {
         const category = document.getElementById('rule-action-category').value.trim();
         const rename = document.getElementById('rule-action-rename').value.trim();
         const ignore = document.getElementById('rule-action-ignore').checked;
+        const expenseTypeEl = document.getElementById('rule-action-expense-type');
+        const businessNameEl = document.getElementById('rule-action-business-name');
+        const expenseType = expenseTypeEl ? expenseTypeEl.value : '';
+        const businessName = businessNameEl ? businessNameEl.value : '';
 
         const field = fieldSel.value;
         const op = opSel.value;
@@ -279,6 +319,8 @@ function showRuleForm(store, existing = null) {
                 addTags: tags.length > 0 ? tags : undefined,
                 rename: rename || undefined,
                 ignore: ignore ? true : undefined,
+                expenseType: expenseType || undefined,
+                businessName: businessName || undefined,
             },
         };
         // Strip undefined so validateRule sees a clean object

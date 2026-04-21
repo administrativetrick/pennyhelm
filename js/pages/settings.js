@@ -424,6 +424,20 @@ export function renderSettings(container, store) {
                         <input type="text" class="form-input" id="new-business-name-input" placeholder="New business name..." style="flex:1;">
                         <button class="btn btn-primary btn-sm" id="add-business-name-btn">Add</button>
                     </div>
+                    ${store.getBusinessNames().length >= 2 ? `
+                    <div class="settings-row" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+                        <div>
+                            <div class="setting-label">Default business</div>
+                            <div class="setting-desc">Used when you toggle an expense to Business with one click on the Expenses table.</div>
+                        </div>
+                        <select class="form-select" id="default-business-select" style="width:auto;min-width:140px;">
+                            <option value="" ${!store.getDefaultBusinessName() ? 'selected' : ''}>(first in list)</option>
+                            ${store.getBusinessNames().map(bn =>
+                                `<option value="${escapeHtml(bn)}" ${store.getDefaultBusinessName() === bn ? 'selected' : ''}>${escapeHtml(bn)}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    ` : ''}
                 </div>
             </div>
         </div>
@@ -1629,6 +1643,16 @@ export function renderSettings(container, store) {
             }
         });
     });
+
+    // Default business (only present when user has 2+ businesses). Controls
+    // which business the inline Personal↔Business toggle on the Expenses
+    // table assigns.
+    const defaultBizSel = container.querySelector('#default-business-select');
+    if (defaultBizSel) {
+        defaultBizSel.addEventListener('change', () => {
+            store.setDefaultBusinessName(defaultBizSel.value || null);
+        });
+    }
 
     // === Custom Categories ===
 

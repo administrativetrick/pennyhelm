@@ -620,12 +620,19 @@ export function renderDebts(container, store, subTab = null) {
     });
 }
 
-function getExpenseTypeBadge(expense) {
+function getExpenseTypeBadge(expense, opts = {}) {
+    // `clickable` flips the badge into an interactive toggle with a cursor
+    // and tooltip. The click handler is wired centrally after render so we
+    // don't inline JS here.
+    const interactive = opts.clickable
+        ? ` class="badge expense-type-toggle" data-expense-id="${escapeHtml(expense.id || '')}" role="button" tabindex="0" title="Click to toggle personal / business"`
+        : ' class="badge"';
+    const base = `cursor:${opts.clickable ? 'pointer' : 'default'};`;
     if (expense.expenseType === 'business') {
         var bName = expense.businessName ? escapeHtml(expense.businessName) : 'Business';
-        return '<span class="badge" style="background:#f59e0b20;color:#f59e0b;border:1px solid #f59e0b40;">' + bName + '</span>';
+        return `<span${interactive} style="${base}background:#f59e0b20;color:#f59e0b;border:1px solid #f59e0b40;">${bName}</span>`;
     }
-    return '<span class="badge" style="background:#3b82f620;color:#3b82f6;border:1px solid #3b82f640;">Personal</span>';
+    return `<span${interactive} style="${base}background:#3b82f620;color:#3b82f6;border:1px solid #3b82f640;">Personal</span>`;
 }
 
 function getSourceBadge(expense) {
@@ -766,7 +773,7 @@ function renderExpensesTab(container, store) {
                                         ${tagsHtml}
                                     </td>
                                     <td>${getExpenseCategoryBadge(exp.category)}</td>
-                                    ${showTypeColumn ? `<td>${getExpenseTypeBadge(exp)}</td>` : ''}
+                                    ${showTypeColumn ? `<td>${getExpenseTypeBadge(exp, { clickable: true })}</td>` : ''}
                                     <td style="color:var(--text-secondary);">${escapeHtml(exp.vendor || '')}</td>
                                     <td><div class="font-bold" style="color:var(--red);">${formatCurrency(exp.amount || 0)}</div></td>
                                     <td>
@@ -878,6 +885,38 @@ function renderExpensesTab(container, store) {
             if (!confirm('Undo this split and restore the original expense? All split children will be deleted.')) return;
             store.unsplitExpense(btn.dataset.expenseId);
             refreshPage();
+        });
+    });
+
+    // Inline Personal ↔ Business toggle. Keeps the user on the Expenses
+    // sub-tab (see the debts.js fix for currentSubTab tracking) so they
+    // can tag a long list of rows quickly.
+    container.querySelectorAll('.expense-type-toggle').forEach(el => {
+        const toggle = () => {
+            const id = el.dataset.expenseId;
+            const expense = expenses.find(e => e.id === id);
+            if (!expense) return;
+            if (expense.expenseType === 'business') {
+                store.updateExpense(id, { expenseType: 'personal', businessName: null });
+            } else {
+                // Toggling into Business — prefer the default business,
+                // fall back to the single/first business, otherwise leave
+                // businessName unset so the badge just reads "Business".
+                const defaultBiz = store.getDefaultBusinessName();
+                const allBiz = store.getBusinessNames();
+                const bizToAssign = defaultBiz || (allBiz.length > 0 ? allBiz[0] : null);
+                store.updateExpense(id, { expenseType: 'business', businessName: bizToAssign });
+            }
+            refreshPage();
+        };
+        el.addEventListener('click', toggle);
+        el.addEventListener('keydown', (e) => {
+            // Keep keyboard parity with a real button — Enter/Space trigger
+            // the toggle for accessibility.
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggle();
+            }
         });
     });
 }
