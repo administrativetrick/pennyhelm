@@ -1,0 +1,4 @@
+{
+  "//": "Scopes ES module treatment to the tests/ tree. Keeps the root package.json as CommonJS for server.js and scripts/.",
+  "type": "module"
+}

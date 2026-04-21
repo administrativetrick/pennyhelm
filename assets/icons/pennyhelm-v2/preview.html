@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PennyHelm Icon Set V2 Preview</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --panel: #171b25;
+            --panel-2: #202636;
+            --border: #2c3347;
+            --text: #e8eaed;
+            --muted: #9aa0b0;
+            --accent: #4f8cff;
+            --green: #34d399;
+            --purple: #a78bfa;
+            --orange: #fb923c;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 40px;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background:
+                radial-gradient(circle at top, rgba(79, 140, 255, 0.12), transparent 30%),
+                var(--bg);
+            color: var(--text);
+        }
+        .wrap {
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: clamp(2rem, 4vw, 3.5rem);
+            line-height: 1.05;
+            margin: 0 0 12px;
+            letter-spacing: -0.04em;
+        }
+        p {
+            margin: 0 0 28px;
+            color: var(--muted);
+            max-width: 760px;
+            line-height: 1.6;
+        }
+        .notes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 32px;
+        }
+        .note {
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 999px;
+            padding: 8px 12px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 18px;
+        }
+        .card {
+            background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 20px 18px;
+            min-height: 162px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-shadow: 0 24px 50px -35px rgba(0, 0, 0, 0.8);
+        }
+        .icon-frame {
+            width: 64px;
+            height: 64px;
+            border-radius: 18px;
+            display: grid;
+            place-items: center;
+            background: var(--panel-2);
+            color: var(--accent);
+        }
+        .glyph {
+            width: 30px;
+            height: 30px;
+            background: currentColor;
+            -webkit-mask: var(--icon) center / contain no-repeat;
+            mask: var(--icon) center / contain no-repeat;
+        }
+        .name {
+            margin-top: 18px;
+            font-weight: 700;
+            font-size: 15px;
+        }
+        .file {
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 4px;
+        }
+        .accent-green .icon-frame { color: var(--green); }
+        .accent-purple .icon-frame { color: var(--purple); }
+        .accent-orange .icon-frame { color: var(--orange); }
+        @media (max-width: 640px) {
+            body { padding: 24px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <h1>PennyHelm Custom Icon Set V2</h1>
+        <p>
+            Second-pass refinement with a more premium enterprise-fintech posture:
+            quieter geometry, cleaner metaphors, and less decorative detail.
+        </p>
+        <div class="notes">
+            <div class="note">24x24 viewBox</div>
+            <div class="note">Enterprise refinement pass</div>
+            <div class="note">`currentColor` ready</div>
+            <div class="note">Cleaner metaphor system</div>
+        </div>
+        <div class="grid">
+            <div class="card"><div class="icon-frame"><div class="glyph" style="--icon: url('dashboard.svg')"></div></div><div><div class="name">Dashboard</div><div class="file">dashboard.svg</div></div></div>
+            <div class="card accent-green"><div class="icon-frame"><div class="glyph" style="--icon: url('bills.svg')"></div></div><div><div class="name">Bills</div><div class="file">bills.svg</div></div></div>
+            <div class="card accent-purple"><div class="icon-frame"><div class="glyph" style="--icon: url('calendar.svg')"></div></div><div><div class="name">Calendar</div><div class="file">calendar.svg</div></div></div>
+            <div class="card"><div class="icon-frame"><div class="glyph" style="--icon: url('income.svg')"></div></div><div><div class="name">Income</div><div class="file">income.svg</div></div></div>
+            <div class="card accent-orange"><div class="icon-frame"><div class="glyph" style="--icon: url('debts.svg')"></div></div><div><div class="name">Debts</div><div class="file">debts.svg</div></div></div>
+            <div class="card"><div class="icon-frame"><div class="glyph" style="--icon: url('accounts.svg')"></div></div><div><div class="name">Accounts</div><div class="file">accounts.svg</div></div></div>
+            <div class="card accent-purple"><div class="icon-frame"><div class="glyph" style="--icon: url('budgets.svg')"></div></div><div><div class="name">Budgets</div><div class="file">budgets.svg</div></div></div>
+            <div class="card accent-green"><div class="icon-frame"><div class="glyph" style="--icon: url('savings.svg')"></div></div><div><div class="name">Savings</div><div class="file">savings.svg</div></div></div>
+            <div class="card"><div class="icon-frame"><div class="glyph" style="--icon: url('cashflow.svg')"></div></div><div><div class="name">Cashflow</div><div class="file">cashflow.svg</div></div></div>
+            <div class="card accent-orange"><div class="icon-frame"><div class="glyph" style="--icon: url('rules.svg')"></div></div><div><div class="name">Rules</div><div class="file">rules.svg</div></div></div>
+            <div class="card"><div class="icon-frame"><div class="glyph" style="--icon: url('settings.svg')"></div></div><div><div class="name">Settings</div><div class="file">settings.svg</div></div></div>
+            <div class="card accent-purple"><div class="icon-frame"><div class="glyph" style="--icon: url('sharing.svg')"></div></div><div><div class="name">Sharing</div><div class="file">sharing.svg</div></div></div>
+            <div class="card accent-green"><div class="icon-frame"><div class="glyph" style="--icon: url('taxes.svg')"></div></div><div><div class="name">Taxes</div><div class="file">taxes.svg</div></div></div>
+        </div>
+    </div>
+</body>
+</html>

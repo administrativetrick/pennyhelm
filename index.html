@@ -6,6 +6,85 @@
     <title>PennyHelm - Take Control of Your Finances</title>
     <meta name="description" content="Track bills, accounts, debts, and taxes in one place. Self-host for total privacy or use PennyHelm Cloud for seamless access anywhere.">
     <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
+    <script>
+        // First-touch acquisition capture: stash UTM/ref/gclid/fbclid params on
+        // landing so they survive the navigation to /login → signup. Kept inline
+        // (not a module) so it runs synchronously before any click can fire.
+        (function(){
+            try {
+                var p = new URLSearchParams(window.location.search);
+                var utms = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
+                var hasAny = p.has('ref') || p.has('gclid') || p.has('fbclid');
+                for (var i = 0; i < utms.length && !hasAny; i++) if (p.has(utms[i])) hasAny = true;
+                if (!hasAny) return;
+                var key = 'pennyhelm-acquisition';
+                var existing = {};
+                try { existing = JSON.parse(sessionStorage.getItem(key) || '{}') || {}; } catch(_) {}
+                utms.forEach(function(k){ var v = p.get(k); if (v) existing[k] = String(v).slice(0, 200); });
+                var ref = p.get('ref'); if (ref) existing.ref = String(ref).slice(0, 50).toUpperCase();
+                var g = p.get('gclid'); if (g) existing.gclid = String(g).slice(0, 200);
+                var f = p.get('fbclid'); if (f) existing.fbclid = String(f).slice(0, 200);
+                if (!existing.referrer && document.referrer) {
+                    try {
+                        var ru = new URL(document.referrer);
+                        if (ru.host !== window.location.host) existing.referrer = document.referrer.slice(0, 500);
+                    } catch(_) {}
+                }
+                if (!existing.landingPath) existing.landingPath = window.location.pathname.slice(0, 200);
+                if (!existing.capturedAt) existing.capturedAt = new Date().toISOString();
+                sessionStorage.setItem(key, JSON.stringify(existing));
+            } catch(_) { /* sessionStorage disabled — attribution is best-effort */ }
+        })();
+    </script>
+
+    <!-- Google Ads (gtag.js) + Consent Mode v2.
+         Production-hostname only so selfhost installs never contact Google.
+         EEA visitors default all consent categories to 'denied' until the
+         /switch banner writes 'granted' to pennyhelm-consent localStorage.
+         Non-EEA defaults to granted. See privacy.html §1.9 for details. -->
+    <script>
+        (function () {
+            var host = window.location.hostname || '';
+            if (host.indexOf('pennyhelm.com') === -1) return; // selfhost / localhost: skip
+            var STORAGE_KEY = 'pennyhelm-consent';
+            function isEea() {
+                try {
+                    var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+                    return (
+                        tz.indexOf('Europe/') === 0 ||
+                        tz === 'Atlantic/Reykjavik' ||
+                        tz === 'Atlantic/Faroe' ||
+                        tz === 'Atlantic/Azores' ||
+                        tz === 'Atlantic/Madeira'
+                    );
+                } catch (_) { return true; }
+            }
+            function stored() {
+                try {
+                    var v = localStorage.getItem(STORAGE_KEY);
+                    return v === 'granted' || v === 'denied' ? v : null;
+                } catch (_) { return null; }
+            }
+            window.dataLayer = window.dataLayer || [];
+            function gtag() { dataLayer.push(arguments); }
+            window.gtag = gtag;
+            var state = isEea() ? (stored() === 'granted' ? 'granted' : 'denied') : 'granted';
+            gtag('consent', 'default', {
+                ad_storage: state,
+                ad_user_data: state,
+                ad_personalization: state,
+                analytics_storage: state,
+                wait_for_update: 500
+            });
+            gtag('js', new Date());
+            gtag('config', 'AW-1061347212');
+            var s = document.createElement('script');
+            s.async = true;
+            s.src = 'https://www.googletagmanager.com/gtag/js?id=AW-1061347212';
+            document.head.appendChild(s);
+        })();
+    </script>
+
     <link rel="stylesheet" href="css/landing.css">
 </head>
 <body>
@@ -45,6 +124,28 @@
                     <span>Self Host</span>
                     <span class="btn-sub">Free &middot; Run on your machine</span>
                 </a>
+            </div>
+            <div class="hero-screenshot" data-showcase>
+                <div class="showcase-stage" aria-label="Animated PennyHelm product showcase">
+                    <figure class="showcase-slide active" data-slide="0">
+                        <img src="screenshots/dashboard.png" alt="PennyHelm dashboard — monthly income, bills, remaining, financial health score" loading="eager">
+                    </figure>
+                    <figure class="showcase-slide" data-slide="1">
+                        <img src="screenshots/bills.png" alt="Bills page with recurring bills, due days, categories, and paid status" loading="lazy">
+                    </figure>
+                    <figure class="showcase-slide" data-slide="2">
+                        <img src="screenshots/calendar.png" alt="Calendar view with paydays and bill due dates across the month" loading="lazy">
+                    </figure>
+                    <figure class="showcase-slide" data-slide="3">
+                        <img src="screenshots/cashflow.png" alt="Cashflow page with Sankey diagram showing money flow to expenses and savings" loading="lazy">
+                    </figure>
+                </div>
+                <div class="showcase-dots" role="tablist" aria-label="Product screens">
+                    <button class="showcase-dot active" type="button" data-showcase-dot="0" aria-label="Show dashboard"></button>
+                    <button class="showcase-dot" type="button" data-showcase-dot="1" aria-label="Show bills"></button>
+                    <button class="showcase-dot" type="button" data-showcase-dot="2" aria-label="Show calendar"></button>
+                    <button class="showcase-dot" type="button" data-showcase-dot="3" aria-label="Show cashflow"></button>
+                </div>
             </div>
         </div>
     </section>
@@ -101,6 +202,31 @@
         </div>
     </section>
 
+    <!-- Screenshots Gallery -->
+    <section class="screenshots-gallery" id="screenshots">
+        <div class="section-inner">
+            <h2 class="section-title">See it in action</h2>
+            <p class="section-subtitle">A few of the pages you'll use most</p>
+
+            <figure class="screenshot-card screenshot-featured">
+                <img src="screenshots/cashflow.png" alt="Interactive Sankey diagram showing money flowing from income sources into spending categories" loading="lazy">
+                <figcaption><strong>Cashflow Sankey</strong> — See exactly where every dollar of income ends up, with an interactive diagram that traces money from paychecks through savings, bills, and spending categories</figcaption>
+            </figure>
+
+            <div class="screenshot-grid">
+                <figure class="screenshot-card">
+                    <img src="screenshots/bills.png" alt="Bills page showing recurring bills with due dates, categories, and paid status" loading="lazy">
+                    <figcaption><strong>Bills</strong> — Recurring bills with due dates, payment sources, and paid/unpaid tracking</figcaption>
+                </figure>
+
+                <figure class="screenshot-card">
+                    <img src="screenshots/calendar.png" alt="Calendar view showing bill due dates and paydays throughout the month" loading="lazy">
+                    <figcaption><strong>Calendar</strong> — Visual month view of bill due dates and paydays so you always know what's coming</figcaption>
+                </figure>
+            </div>
+        </div>
+    </section>
+
     <!-- Pricing / Choose Your Path -->
     <section class="pricing" id="pricing">
         <div class="section-inner">
@@ -109,7 +235,7 @@
 
             <!-- Billing Toggle -->
             <div class="billing-toggle">
-                <button class="toggle-btn active" data-billing="annual">Annual <span class="toggle-save">Save 20%</span></button>
+                <button class="toggle-btn active" data-billing="annual">Annual <span class="toggle-save">Save 19%</span></button>
                 <button class="toggle-btn" data-billing="monthly">Monthly</button>
             </div>
 
@@ -149,12 +275,12 @@
                         <h3>PennyHelm Cloud</h3>
                         <!-- Annual pricing (default) -->
                         <div class="pricing-annual">
-                            <div class="path-price">$4.99<span>/month</span></div>
-                            <div class="path-price-detail">$59.88 billed annually &middot; Price locked — never increases</div>
+                            <div class="path-price">$6.49<span>/month</span></div>
+                            <div class="path-price-detail">$77.88 billed annually &middot; Save 19%</div>
                         </div>
                         <!-- Monthly pricing (hidden by default) -->
                         <div class="pricing-monthly" style="display:none;">
-                            <div class="path-price">$10<span>/month</span></div>
+                            <div class="path-price">$7.99<span>/month</span></div>
                             <div class="path-price-detail">Billed monthly, cancel anytime</div>
                         </div>
                         <div class="path-trial">30-day free trial &middot; No card required</div>
@@ -251,6 +377,12 @@
         </div>
     </footer>
 
+    <!-- Lightbox -->
+    <div class="lightbox-overlay" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged screenshot">
+        <button class="lightbox-close" type="button" id="lightbox-close" aria-label="Close">&times;</button>
+        <img id="lightbox-img" src="" alt="">
+    </div>
+
     <script>
         // Mobile menu toggle
         const menuBtn = document.getElementById('mobile-menu-btn');
@@ -280,6 +412,100 @@
                 document.querySelectorAll('.pricing-annual').forEach(el => el.style.display = isAnnual ? '' : 'none');
                 document.querySelectorAll('.pricing-monthly').forEach(el => el.style.display = isAnnual ? 'none' : '');
             });
+        });
+
+        // Hero showcase animation
+        const showcase = document.querySelector('[data-showcase]');
+        if (showcase) {
+            const slides = Array.from(showcase.querySelectorAll('.showcase-slide'));
+            const dots = Array.from(showcase.querySelectorAll('.showcase-dot'));
+            let activeIndex = 0;
+            let timerId = null;
+
+            const setActiveSlide = (index) => {
+                activeIndex = (index + slides.length) % slides.length;
+                slides.forEach((slide, i) => {
+                    slide.classList.toggle('active', i === activeIndex);
+                });
+                dots.forEach((dot, i) => {
+                    const isActive = i === activeIndex;
+                    dot.classList.toggle('active', isActive);
+                    dot.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                });
+            };
+
+            const startRotation = () => {
+                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    return;
+                }
+                if (timerId) {
+                    return;
+                }
+                timerId = window.setInterval(() => {
+                    setActiveSlide(activeIndex + 1);
+                }, 3800);
+            };
+
+            const stopRotation = () => {
+                if (!timerId) {
+                    return;
+                }
+                window.clearInterval(timerId);
+                timerId = null;
+            };
+
+            dots.forEach((dot, index) => {
+                dot.addEventListener('click', () => {
+                    setActiveSlide(index);
+                    stopRotation();
+                    startRotation();
+                });
+            });
+
+            showcase.addEventListener('mouseenter', stopRotation);
+            showcase.addEventListener('mouseleave', startRotation);
+            showcase.addEventListener('focusin', stopRotation);
+            showcase.addEventListener('focusout', startRotation);
+
+            setActiveSlide(0);
+            startRotation();
+        }
+
+        // Lightbox
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+        const lightboxClose = document.getElementById('lightbox-close');
+
+        function openLightbox(src, alt) {
+            lightboxImg.src = src;
+            lightboxImg.alt = alt || '';
+            lightbox.classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeLightbox() {
+            lightbox.classList.remove('open');
+            document.body.style.overflow = '';
+            // Free the image so it can be GC'd
+            setTimeout(() => { lightboxImg.src = ''; }, 250);
+        }
+
+        // Any image with class screenshot-* or inside a showcase-slide is clickable
+        document.querySelectorAll('.screenshot-card img, .showcase-slide img').forEach(img => {
+            img.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openLightbox(img.src, img.alt);
+            });
+        });
+
+        lightboxClose.addEventListener('click', closeLightbox);
+        lightbox.addEventListener('click', (e) => {
+            // Click anywhere outside the image to close
+            if (e.target === lightbox) closeLightbox();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox();
         });
     </script>
 </body>

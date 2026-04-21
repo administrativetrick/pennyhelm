@@ -1,7 +1,20 @@
-import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating, formatDate } from '../utils.js';
-import { openModal, closeModal, refreshPage } from '../app.js';
-import { calculateFinancialHealthScore } from '../services/financial-service.js';
+import { formatCurrency, getUpcomingBills, escapeHtml, getScoreRating, formatDate, getOrdinal } from '../utils.js';
+import { openModal, closeModal, refreshPage, navigate } from '../app.js';
+import {
+    calculateFinancialHealthScore,
+    calculateMonthlyIncome,
+    expandBillOccurrences,
+    buildPayPeriods,
+    resolveInvestmentHaircut,
+    getMonthlyMultiplier,
+    frequencyToMonthly,
+    calculateBillMonthlyAmount,
+    sumDebtMinimums,
+    HOUSING_BILL_CATEGORIES,
+    DEBT_BILL_CATEGORIES,
+} from '../services/financial-service.js';
 import { detectRecurringTransactions, buildBillSuggestion } from '../services/recurring-service.js';
+import { EXPENSE_CATEGORIES, getAllExpenseCategories } from '../expense-categories.js';
 
 const GOAL_CATEGORIES = [
     { value: 'emergency', label: 'Emergency Fund', icon: '🛡️' },
@@ -22,6 +35,7 @@ const DASHBOARD_WIDGETS = [
     { id: 'spending-category', label: 'Spending by Category',    icon: '🏷️' },
     { id: 'payment-sources',   label: 'Bills by Payment Source', icon: '💳' },
     { id: 'savings-goals',     label: 'Savings Goals',           icon: '🎯' },
+    { id: 'budget-health',     label: 'Budget Health',           icon: '📊' },
     { id: 'smart-insights',    label: 'Smart Insights',          icon: '💡' },
 ];
 
@@ -148,7 +162,7 @@ function buildPayPeriodsHtml(ctx) {
 
     var html = '<div class="card mb-24">';
     html += '<div class="flex-between mb-16"><h3>Pay Period Breakdown</h3>';
-    html += '<div style="display:flex;align-items:center;gap:8px;">';
+    html += '<div class="flex-align-center gap-8">';
     html += '<button class="btn-icon" id="period-prev"' + (!canGoPrev ? ' disabled style="opacity:0.3;cursor:default;"' : '') + '>';
     html += '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
     if (!showingCurrent) html += '<button class="btn btn-secondary btn-sm" id="period-today" style="font-size:11px;padding:2px 8px;">Current</button>';
@@ -424,24 +438,17 @@ export function renderDashboard(container, store, subTab) {
     const dependentBills = bills.filter(b => b.owner === 'dependent');
     const payDates = store.getPayDates();
 
-    // Calculate totals
+    // Calculate totals (via shared financial-service helper)
     const paySchedule = store.getPaySchedule();
     const otherIncome = store.getOtherIncome();
     const combineDepIncome = income.combineDependentIncome !== false;
-    const monthlyMultiplier = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    const userPayMonthly = income.user.payAmount * monthlyMultiplier;
-    const otherIncomeMonthly = otherIncome.reduce((s, src) => {
-        const amt = src.amount || 0;
-        switch (src.frequency) {
-            case 'weekly': return s + amt * 52 / 12;
-            case 'biweekly': return s + amt * 26 / 12;
-            case 'monthly': return s + amt;
-            case 'quarterly': return s + amt / 3;
-            case 'yearly': return s + amt / 12;
-            default: return s;
-        }
-    }, 0);
-    const depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    const monthlyMultiplier = getMonthlyMultiplier(paySchedule.frequency);
+    const {
+        userPayMonthly,
+        otherIncomeMonthly,
+        depMonthlyPay: rawDepMonthly,
+    } = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    const depMonthlyPay = depEnabled && combineDepIncome ? rawDepMonthly : 0;
     const userMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
     const countDayOfWeekInMonth = (targetDay, yr, mo) => {
         const lastOfMonth = new Date(yr, mo + 1, 0);
@@ -527,13 +534,22 @@ export function renderDashboard(container, store, subTab) {
         'spending-category': () => buildSpendingCategoryHtml(ctx),
         'payment-sources':   () => buildPaymentSourcesHtml(ctx),
         'savings-goals':     () => renderSavingsGoals(store),
+        'budget-health':     () => buildBudgetHealthHtml(store),
         'smart-insights':    () => buildSmartInsightsHtml(ctx),
     };
 
     const layout = store.getDashboardLayout();
 
-    // Build widgets HTML in layout order
-    var widgetsHtml = '';
+    // Build widgets HTML in layout order.
+    // In view mode, the first PINNED_COUNT visible widgets render as a vertical
+    // stack and the rest collapse into a horizontal scroll-snap carousel to
+    // reduce scroll length on narrow screens. Edit mode disables the carousel
+    // so users can drag/reorder every widget in one list.
+    var PINNED_COUNT = 3;
+    var pinnedHtml = '';
+    var carouselHtml = '';
+    var carouselCount = 0;
+    var visibleIndex = 0;
     layout.order.forEach(function(id) {
         if (layout.hidden.includes(id)) return;
         var renderer = widgetRenderers[id];
@@ -541,11 +557,33 @@ export function renderDashboard(container, store, subTab) {
         var html = renderer();
         if (!html || html.trim() === '') return;
         if (dashboardEditMode) {
-            widgetsHtml += wrapWidgetForEdit(id, html);
+            pinnedHtml += wrapWidgetForEdit(id, html);
+        } else if (visibleIndex < PINNED_COUNT) {
+            pinnedHtml += html;
         } else {
-            widgetsHtml += html;
+            carouselHtml += html;
+            carouselCount++;
         }
+        visibleIndex++;
     });
+
+    var widgetsHtml = pinnedHtml;
+    if (carouselHtml) {
+        var dotsHtml = '';
+        for (var d = 0; d < carouselCount; d++) {
+            dotsHtml += '<button class="widget-carousel-dot' + (d === 0 ? ' active' : '') +
+                '" data-index="' + d + '" aria-label="Go to widget ' + (d + 1) + '"></button>';
+        }
+        widgetsHtml +=
+            '<div class="widget-carousel-wrapper">' +
+                '<div class="widget-carousel-header">' +
+                    '<span class="widget-carousel-title">More Insights</span>' +
+                    '<span class="widget-carousel-hint">← swipe to explore ' + carouselCount + ' more →</span>' +
+                '</div>' +
+                '<div class="widget-carousel">' + carouselHtml + '</div>' +
+                '<div class="widget-carousel-dots">' + dotsHtml + '</div>' +
+            '</div>';
+    }
 
     // Dependent alert (not a widget, always shown when applicable)
     var depAlertHtml = buildDependentAlertHtml(ctx);
@@ -622,6 +660,52 @@ export function renderDashboard(container, store, subTab) {
         customizeBtn.addEventListener('click', () => {
             dashboardEditMode = true;
             renderDashboard(container, store);
+        });
+    }
+
+    // Widget carousel — dots sync with scroll position + click-to-scroll
+    const carousel = container.querySelector('.widget-carousel');
+    const dots = container.querySelectorAll('.widget-carousel-dot');
+    if (carousel && dots.length > 0) {
+        const children = carousel.children;
+        // Click dot → smooth-scroll to that widget
+        dots.forEach(function(dot) {
+            dot.addEventListener('click', function() {
+                const idx = parseInt(dot.dataset.index, 10);
+                if (children[idx]) {
+                    carousel.scrollTo({
+                        left: children[idx].offsetLeft - carousel.offsetLeft,
+                        behavior: 'smooth',
+                    });
+                }
+            });
+        });
+        // Scroll → highlight the nearest-snapped dot
+        const updateActiveDot = function() {
+            const scrollMid = carousel.scrollLeft + carousel.clientWidth / 2;
+            let activeIdx = 0;
+            let bestDist = Infinity;
+            for (let i = 0; i < children.length; i++) {
+                const childMid = children[i].offsetLeft - carousel.offsetLeft + children[i].offsetWidth / 2;
+                const dist = Math.abs(childMid - scrollMid);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    activeIdx = i;
+                }
+            }
+            dots.forEach(function(d, i) {
+                d.classList.toggle('active', i === activeIdx);
+            });
+        };
+        carousel.addEventListener('scroll', updateActiveDot, { passive: true });
+    }
+
+    // Budget Health widget — "Set up a budget" / "View all" navigate to budgets page
+    const budgetGoto = container.querySelector('#dashboard-goto-budgets');
+    if (budgetGoto) {
+        budgetGoto.addEventListener('click', (e) => {
+            e.preventDefault();
+            navigate('budgets');
         });
     }
 
@@ -785,193 +869,6 @@ function setupDragAndDrop(container, store) {
     });
 }
 
-// ─────────────────────────────────────────────
-// PAY PERIOD HELPERS
-// ─────────────────────────────────────────────
-
-// Expand a recurring bill into individual dated occurrences within a date range
-function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = []) {
-    const occurrences = [];
-    const freq = bill.frequency;
-
-    if (freq === 'weekly') {
-        const targetDay = (bill.dueDay || 0) % 7;
-        let cursor = new Date(rangeStart);
-        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
-        while (cursor <= rangeEnd) {
-            occurrences.push({
-                ...bill,
-                _occurrenceDate: new Date(cursor),
-                _occurrenceKey: `${bill.id}_w_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
-            });
-            cursor = new Date(cursor.getTime() + 7 * 86400000);
-        }
-    } else if (freq === 'biweekly') {
-        const targetDay = (bill.dueDay || 0) % 7;
-        let cursor = new Date(rangeStart);
-        while (cursor.getDay() !== targetDay) cursor = new Date(cursor.getTime() + 86400000);
-        while (cursor <= rangeEnd) {
-            occurrences.push({
-                ...bill,
-                _occurrenceDate: new Date(cursor),
-                _occurrenceKey: `${bill.id}_bw_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
-            });
-            cursor = new Date(cursor.getTime() + 14 * 86400000);
-        }
-    } else if (freq === 'per-paycheck') {
-        payDatesInRange.forEach((pd, idx) => {
-            const payDate = new Date(pd);
-            if (payDate >= rangeStart && payDate <= rangeEnd) {
-                occurrences.push({
-                    ...bill,
-                    _occurrenceDate: payDate,
-                    _occurrenceKey: `${bill.id}_pp_${idx}_${payDate.getTime()}`,
-                });
-            }
-        });
-    } else if (freq === 'twice-monthly') {
-        const byMonth = {};
-        payDatesInRange.forEach(pd => {
-            const d = new Date(pd);
-            const key = `${d.getFullYear()}-${d.getMonth()}`;
-            if (!byMonth[key]) byMonth[key] = [];
-            byMonth[key].push(d);
-        });
-        Object.values(byMonth).forEach(monthDates => {
-            monthDates.sort((a, b) => a - b);
-            const first = monthDates[0];
-            const last = monthDates[monthDates.length - 1];
-            if (first >= rangeStart && first <= rangeEnd) {
-                occurrences.push({ ...bill, _occurrenceDate: first, _occurrenceKey: `${bill.id}_tm_first_${first.getTime()}` });
-            }
-            if (last.getTime() !== first.getTime() && last >= rangeStart && last <= rangeEnd) {
-                occurrences.push({ ...bill, _occurrenceDate: last, _occurrenceKey: `${bill.id}_tm_last_${last.getTime()}` });
-            }
-        });
-    } else {
-        return null; // monthly, yearly, semi-annual — no expansion
-    }
-    return occurrences;
-}
-
-function buildPayPeriods(payDates, bills, store, income, year, month, coveredDepBills = [], otherIncomeSources = []) {
-    if (!payDates || payDates.length === 0) return [];
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const activeBills = bills.filter(b => !b.frozen && b.amount > 0);
-    const sorted = [...payDates].sort((a, b) => a - b);
-
-    const periods = [];
-
-    for (let i = 0; i < sorted.length; i++) {
-        const periodStart = sorted[i];
-        const periodEnd = sorted[i + 1]
-            ? new Date(sorted[i + 1].getTime() - 24 * 60 * 60 * 1000)
-            : new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000);
-
-        const periodBills = [];
-        const startMonth = periodStart.getMonth();
-        const startYear = periodStart.getFullYear();
-        const payDatesInPeriod = sorted.filter(d => d >= periodStart && d <= periodEnd);
-
-        activeBills.forEach(bill => {
-            if (bill.frequency === 'yearly' && bill.dueMonth != null) {
-                const dueDate = new Date(startYear, bill.dueMonth, bill.dueDay);
-                const dueDateNextYear = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
-                if ((dueDate >= periodStart && dueDate <= periodEnd) ||
-                    (dueDateNextYear >= periodStart && dueDateNextYear <= periodEnd)) {
-                    periodBills.push(bill);
-                }
-                return;
-            }
-            if (bill.frequency === 'semi-annual' && bill.dueMonth != null) {
-                const secondMonth = (bill.dueMonth + 6) % 12;
-                const dueDate1 = new Date(startYear, bill.dueMonth, bill.dueDay);
-                const dueDate2 = new Date(startYear, secondMonth, bill.dueDay);
-                const dueDate1Next = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
-                const dueDate2Next = new Date(startYear + 1, secondMonth, bill.dueDay);
-                if ((dueDate1 >= periodStart && dueDate1 <= periodEnd) ||
-                    (dueDate2 >= periodStart && dueDate2 <= periodEnd) ||
-                    (dueDate1Next >= periodStart && dueDate1Next <= periodEnd) ||
-                    (dueDate2Next >= periodStart && dueDate2Next <= periodEnd)) {
-                    periodBills.push(bill);
-                }
-                return;
-            }
-
-            const expanded = expandBillOccurrences(bill, periodStart, periodEnd, payDatesInPeriod);
-            if (expanded !== null) {
-                periodBills.push(...expanded);
-            } else {
-                const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
-                const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
-
-                if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
-                    periodBills.push(bill);
-                } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
-                    periodBills.push(bill);
-                }
-            }
-        });
-
-        coveredDepBills.forEach(depBill => {
-            if (!depBill.amount || depBill.amount <= 0) return;
-            const dueDayThisMonth = new Date(startYear, startMonth, depBill.dueDay || 1);
-            const dueDayNextMonth = new Date(startYear, startMonth + 1, depBill.dueDay || 1);
-            if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
-                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
-            } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
-                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
-            }
-        });
-
-        const periodIncome = [];
-        const recurringOtherIncome = otherIncomeSources.filter(s => s.payDay && s.frequency !== 'one-time' && s.amount > 0);
-        recurringOtherIncome.forEach(src => {
-            const payDayThisMonth = new Date(startYear, startMonth, src.payDay);
-            const payDayNextMonth = new Date(startYear, startMonth + 1, src.payDay);
-            if (payDayThisMonth >= periodStart && payDayThisMonth <= periodEnd) {
-                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
-            } else if (payDayNextMonth >= periodStart && payDayNextMonth <= periodEnd) {
-                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
-            }
-        });
-
-        periodBills.sort((a, b) => (a.dueDay || 0) - (b.dueDay || 0));
-        periodIncome.sort((a, b) => (a.payDay || 0) - (b.payDay || 0));
-
-        const billsTotal = periodBills.reduce((s, b) => s + (b.excludeFromTotal ? 0 : b.amount), 0);
-        const otherIncomeTotal = periodIncome.reduce((s, i) => s + i.amount, 0);
-        const available = income.user.payAmount + otherIncomeTotal - billsTotal;
-
-        const isCurrent = today >= periodStart && today <= periodEnd;
-
-        const dateOpts = { month: 'short', day: 'numeric' };
-        periods.push({
-            label: `Pay Period ${i + 1}`,
-            startLabel: periodStart.toLocaleDateString('en-US', dateOpts),
-            endLabel: periodEnd.toLocaleDateString('en-US', dateOpts),
-            start: periodStart,
-            end: periodEnd,
-            bills: periodBills,
-            billsTotal,
-            income: periodIncome,
-            otherIncomeTotal,
-            available,
-            isCurrent
-        });
-    }
-
-    return periods;
-}
-
-function getOrdinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return s[(v - 20) % 10] || s[v] || s[0];
-}
-
 function getPaymentSourceBreakdown(bills, store, year, month) {
     const sources = {};
     bills.filter(b => !b.frozen && !b.excludeFromTotal && b.paymentSource).forEach(bill => {
@@ -997,28 +894,71 @@ function getPaymentSourceBreakdown(bills, store, year, month) {
 // ─────────────────────────────────────────────
 
 function buildHealthScoreHtml(ctx) {
-    const { store, userMonthlyIncome, totalBills, cashTotal, debts,
+    const { store, userMonthlyIncome, totalBills, cashTotal, debts, bills,
             totalDebtBalance, userScore, accounts } = ctx;
 
     // Gather inputs for the score engine
     const monthlyDebtPayments = debts.reduce((s, d) => s + (d.minimumPayment || 0), 0);
+    // Flag for the DTI engine when the user has debt balances recorded but
+    // no minimum payments set — computing DTI without minimums would lie.
+    const hasDebtsWithoutMinimumPayment = debts.some(d => (d.currentBalance || 0) > 0)
+        && debts.every(d => !(d.minimumPayment > 0));
+
+    // ── Mortgage-aware DTI ──
+    // Housing = mortgage debt minimums + bills categorized as housing/rent.
+    // Non-housing = all other debt minimums + bills categorized as
+    // auto/student/personal/credit-card payments. Lenders treat these
+    // on separate ratios (28% housing vs 36% total) — this gives users
+    // with a large mortgage but otherwise low debt an accurate score.
+    const mortgageMinimums = sumDebtMinimums(debts, { type: 'mortgage' });
+    const nonMortgageMinimums = sumDebtMinimums(debts, { excludeType: 'mortgage' });
+    // Annualize bills consistently with the rest of the app (treat one-time
+    // / frozen / excluded bills as 0). Canonical helper in financial-service.
+    const billMonthly = calculateBillMonthlyAmount;
+    // Only count bills NOT already represented by a debt's minimumPayment.
+    // PennyHelm's entity-linker attaches `linkedDebtId` when a bill mirrors
+    // a debt — counting both the debt min AND the linked bill would double
+    // the real payment (caught by james.l.curtis on 2026-04-19, where a
+    // linked mortgage bill drove DTI to 86% vs. the correct ~44%).
+    const housingBillMonthly = bills
+        .filter(b => HOUSING_BILL_CATEGORIES.has(b.category) && !b.linkedDebtId)
+        .reduce((s, b) => s + billMonthly(b), 0);
+    const debtBillMonthly = bills
+        .filter(b => DEBT_BILL_CATEGORIES.has(b.category) && !b.linkedDebtId)
+        .reduce((s, b) => s + billMonthly(b), 0);
+    const monthlyHousingPayment = mortgageMinimums + housingBillMonthly;
+    const monthlyNonHousingDebt = nonMortgageMinimums + debtBillMonthly;
+
     const savingsBalance = accounts
         .filter(a => a.type === 'savings')
         .reduce((s, a) => s + (a.balance || 0), 0);
+    // Taxable brokerage ONLY — retirement accounts don't count as liquid
+    // reserves because the early-withdrawal penalty (10%) plus income tax
+    // makes them a poor emergency backstop.
+    const taxableInvestmentBalance = accounts
+        .filter(a => a.type === 'investment')
+        .reduce((s, a) => s + (a.balance || 0), 0);
     const billPaymentRate = store.getBillPaymentRate(3);
+    const healthSettings = store.getHealthScoreSettings();
+    const investmentHaircut = resolveInvestmentHaircut(healthSettings.riskTolerance);
 
     const result = calculateFinancialHealthScore({
         monthlyIncome: userMonthlyIncome,
         totalMonthlyBills: totalBills,
         totalDebtBalance: totalDebtBalance,
         monthlyDebtPayments: monthlyDebtPayments,
+        monthlyHousingPayment: monthlyHousingPayment,
+        monthlyNonHousingDebt: monthlyNonHousingDebt,
+        hasDebtsWithoutMinimumPayment: hasDebtsWithoutMinimumPayment,
         cashTotal: cashTotal,
         savingsBalance: savingsBalance,
         billPaymentRate: billPaymentRate,
         creditScore: userScore,
+        taxableInvestmentBalance: taxableInvestmentBalance,
+        investmentHaircut: investmentHaircut,
     });
 
-    const { score, grade, components } = result;
+    const { score, grade, components, missingComponents, completeness } = result;
 
     // SVG circular gauge
     const radius = 58;
@@ -1026,8 +966,10 @@ function buildHealthScoreHtml(ctx) {
     const dashOffset = circumference - (score / 100) * circumference;
 
     var html = '<div class="card health-score-widget">';
-    html += '<div class="flex-between mb-16"><h3>Financial Health Score</h3>';
-    html += '<span style="font-size:18px;">' + grade.emoji + '</span></div>';
+    // The colored score ring + grade label below already communicate the
+    // grade — dropping the header-corner emoji avoids it reading as an
+    // error/alert icon when the grade is Needs Work or Critical.
+    html += '<div class="flex-between mb-16"><h3>Financial Health Score</h3></div>';
 
     // ── Score Ring ──
     html += '<div style="display:flex;align-items:center;gap:24px;margin-bottom:20px;">';
@@ -1050,9 +992,17 @@ function buildHealthScoreHtml(ctx) {
 
     // ── Grade + Legend ──
     html += '<div style="flex:1;min-width:0;">';
-    html += '<div style="font-size:18px;font-weight:700;color:' + grade.color + ';margin-bottom:6px;">' + grade.label + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">';
+    html += '<div style="font-size:18px;font-weight:700;color:' + grade.color + ';">' + grade.label + '</div>';
+    if (completeness !== 'full') {
+        const badgeLabel = completeness === 'insufficient' ? 'Not enough data' : 'Partial';
+        const badgeColor = completeness === 'insufficient' ? 'var(--orange)' : 'var(--yellow)';
+        html += '<span style="font-size:10px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase;padding:2px 8px;border-radius:10px;background:' + badgeColor + '22;color:' + badgeColor + ';border:1px solid ' + badgeColor + '55;">' + badgeLabel + '</span>';
+    }
+    html += '</div>';
     html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">';
-    if (score >= 90) html += 'Your finances are in outstanding shape. Keep it up!';
+    if (completeness === 'insufficient') html += 'Add more data below — your score will become meaningful once 3+ components are filled in.';
+    else if (score >= 90) html += 'Your finances are in outstanding shape. Keep it up!';
     else if (score >= 75) html += 'Solid financial health. A few areas to optimize.';
     else if (score >= 55) html += 'You\'re on the right track — focus on the weak spots below.';
     else if (score >= 35) html += 'Several areas need attention. Follow the tips below.';
@@ -1070,16 +1020,32 @@ function buildHealthScoreHtml(ctx) {
     html += '<span>0</span><span>35</span><span>55</span><span>75</span><span>100</span></div>';
     html += '</div></div>';
 
+    // ── Missing Components (onboarding nudge) ──
+    if (missingComponents && missingComponents.length > 0) {
+        html += '<div style="background:var(--bg-secondary);padding:12px 14px;border-radius:var(--radius-sm);border:1px dashed var(--border);margin-bottom:12px;">';
+        html += '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;">';
+        html += 'Add these to improve your score accuracy:';
+        html += '</div>';
+        html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+        missingComponents.forEach(function(m) {
+            html += '<div style="display:flex;align-items:flex-start;gap:8px;font-size:11px;color:var(--text-secondary);">';
+            html += '<span style="font-size:14px;opacity:0.5;">' + m.icon + '</span>';
+            html += '<div><span style="font-weight:600;color:var(--text-primary);">' + m.name + '</span> — ' + m.tip + '</div>';
+            html += '</div>';
+        });
+        html += '</div></div>';
+    }
+
     // ── Component Breakdown ──
     html += '<div style="display:flex;flex-direction:column;gap:10px;">';
     components.forEach(function(c) {
         var barColor = c.score >= 80 ? 'var(--green)' : c.score >= 55 ? 'var(--accent)' : c.score >= 35 ? 'var(--yellow)' : 'var(--red)';
         html += '<div style="background:var(--bg-secondary);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
-        html += '<div style="display:flex;align-items:center;gap:8px;">';
+        html += '<div class="flex-align-center gap-8">';
         html += '<span style="font-size:16px;">' + c.icon + '</span>';
         html += '<span style="font-size:13px;font-weight:600;">' + c.name + '</span></div>';
-        html += '<div style="display:flex;align-items:center;gap:6px;">';
+        html += '<div class="icon-label gap-6">';
         html += '<span style="font-size:14px;font-weight:700;color:' + barColor + ';">' + c.score + '</span>';
         html += '<span style="font-size:10px;color:var(--text-muted);font-weight:600;">' + Math.round(c.weight * 100) + '%</span></div></div>';
         // Progress bar
@@ -1093,6 +1059,108 @@ function buildHealthScoreHtml(ctx) {
 
     html += '</div>';
     return html;
+}
+
+// ─────────────────────────────────────────────
+// BUDGET HEALTH
+// ─────────────────────────────────────────────
+
+function buildBudgetHealthHtml(store) {
+    const budgets = store.getBudgets();
+    if (!budgets || budgets.length === 0) {
+        return `
+            <div class="card mt-16">
+                <h3 class="mb-16">📊 Budget Health</h3>
+                <div style="text-align:center;padding:20px 10px;">
+                    <p style="color:var(--text-secondary);margin:0 0 14px;font-size:13px;">
+                        Set monthly limits per category and track spending automatically.
+                    </p>
+                    <button class="btn btn-secondary btn-sm" id="dashboard-goto-budgets">Set up a budget</button>
+                </div>
+            </div>
+        `;
+    }
+
+    const statuses = store.getBudgetStatuses().filter(s => !s.notStarted);
+    if (statuses.length === 0) {
+        return `
+            <div class="card mt-16">
+                <h3 class="mb-16">📊 Budget Health</h3>
+                <p style="color:var(--text-secondary);font-size:13px;margin:0;">
+                    No budgets active in the current month yet. Check back once a budget's start month is reached.
+                </p>
+            </div>
+        `;
+    }
+
+    const overCount = statuses.filter(s => s.remaining < -0.005).length;
+    const warningCount = statuses.filter(s => s.remaining >= -0.005 && s.pctUsed >= 0.9).length;
+    const okCount = statuses.length - overCount - warningCount;
+
+    const totals = {
+        spent: statuses.reduce((s, b) => s + b.spent, 0),
+        available: statuses.reduce((s, b) => s + b.available, 0),
+    };
+    const remaining = totals.available - totals.spent;
+
+    // Top 4 by pctUsed, desc
+    const top = [...statuses]
+        .sort((a, b) => (b.pctUsed || 0) - (a.pctUsed || 0))
+        .slice(0, 4);
+
+    const headlineColor = overCount > 0 ? 'var(--red)' : warningCount > 0 ? 'var(--orange)' : 'var(--green)';
+    const headline = overCount > 0
+        ? `${overCount} over budget`
+        : warningCount > 0
+            ? `${warningCount} near limit`
+            : 'All on track';
+
+    return `
+        <div class="card mt-16">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <h3 style="margin:0;">📊 Budget Health</h3>
+                <a href="#budgets" id="dashboard-goto-budgets" style="font-size:12px;color:var(--accent);text-decoration:none;">View all &rarr;</a>
+            </div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;">
+                <div style="font-size:18px;font-weight:700;color:${headlineColor};">${headline}</div>
+                <div style="font-size:13px;color:var(--text-secondary);">
+                    ${formatCurrency(totals.spent)} / ${formatCurrency(totals.available)}
+                    &middot; ${remaining >= 0 ? formatCurrency(remaining) + ' left' : formatCurrency(Math.abs(remaining)) + ' over'}
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-bottom:14px;">
+                ${okCount > 0 ? `<span class="tag-pill" style="background:${'rgba(34,197,94,0.15)'};color:var(--green);">${okCount} on track</span>` : ''}
+                ${warningCount > 0 ? `<span class="tag-pill" style="background:rgba(249,115,22,0.15);color:var(--orange);">${warningCount} near limit</span>` : ''}
+                ${overCount > 0 ? `<span class="tag-pill" style="background:rgba(239,68,68,0.15);color:var(--red);">${overCount} over</span>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                ${top.map(s => {
+                    const allCats = getAllExpenseCategories(store);
+                    const cat = allCats[s.category] || allCats['other'];
+                    const pct = Math.min(100, (s.pctUsed || 0) * 100);
+                    const over = s.remaining < -0.005;
+                    const almost = !over && s.pctUsed >= 0.9;
+                    const barColor = over ? 'var(--red)' : almost ? 'var(--orange)' : 'var(--green)';
+                    return `
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                                <span style="font-weight:600;">
+                                    <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${cat.color};margin-right:6px;vertical-align:middle;"></span>
+                                    ${escapeHtml(cat.label)}
+                                </span>
+                                <span style="color:${over ? 'var(--red)' : 'var(--text-secondary)'};">
+                                    ${formatCurrency(s.spent)} / ${formatCurrency(s.available)}
+                                </span>
+                            </div>
+                            <div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden;">
+                                <div style="height:100%;width:${isFinite(pct) ? pct : 100}%;background:${barColor};"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
 }
 
 // ─────────────────────────────────────────────
@@ -1137,7 +1205,7 @@ function buildSmartInsightsHtml(ctx) {
 
     // ── Recurring Suggestions ──
     if (recurring.length > 0) {
-        html += '<div style="margin-bottom:16px;">';
+        html += '<div class="mb-16">';
         html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);margin-bottom:10px;">';
         html += '🔄 Recurring Charges Detected (' + recurring.length + ')</div>';
 
@@ -1165,7 +1233,7 @@ function buildSmartInsightsHtml(ctx) {
 
             // Confidence + info row
             html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
-            html += '<div style="display:flex;align-items:center;gap:6px;">';
+            html += '<div class="icon-label gap-6">';
             html += '<div style="width:6px;height:6px;border-radius:50%;background:' + confidenceColor + ';"></div>';
             html += '<span style="font-size:11px;color:var(--text-secondary);">' + confidenceLabel + ' confidence</span></div>';
             html += '<span style="font-size:11px;color:var(--text-muted);">~Day ' + r.estimatedDueDay + '</span></div>';
@@ -1245,8 +1313,8 @@ function renderSavingsGoals(store) {
 
     // Summary bar
     html += '<div style="background:var(--bg-secondary);padding:12px 16px;border-radius:var(--radius-sm);margin-bottom:16px;">';
-    html += '<div class="flex-between" style="margin-bottom:8px;">';
-    html += '<span style="font-size:12px;color:var(--text-muted);">Overall Progress</span>';
+    html += '<div class="flex-between mb-8">';
+    html += '<span class="text-muted-sm">Overall Progress</span>';
     html += '<span style="font-size:13px;font-weight:600;">' + formatCurrency(totalCurrent) + ' of ' + formatCurrency(totalTarget) + '</span></div>';
     html += '<div style="background:var(--bg-input);border-radius:8px;height:8px;overflow:hidden;">';
     html += '<div style="height:100%;width:' + Math.min(100, overallProgress) + '%;background:' + (overallProgress >= 100 ? 'var(--green)' : 'var(--accent)') + ';border-radius:8px;transition:width 0.3s;"></div></div>';
@@ -1475,7 +1543,7 @@ function renderReportsTab(container, store) {
 
     // Reports content
     html += '<div class="card mb-24">';
-    html += '<h3 class="mb-16" style="display:flex;align-items:center;gap:8px;">';
+    html += '<h3 class="mb-16 flex-align-center gap-8">';
     html += '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
     html += 'PDF Reports</h3>';
     html += '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Generate printable PDF reports of your financial data. Each report opens in a print-ready view that you can save as PDF.</p>';
@@ -1504,7 +1572,7 @@ function renderReportsTab(container, store) {
 
     // CSV Export section
     html += '<div class="card mb-24">';
-    html += '<h3 class="mb-16" style="display:flex;align-items:center;gap:8px;">';
+    html += '<h3 class="mb-16 flex-align-center gap-8">';
     html += '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
     html += 'CSV Data Exports</h3>';
     html += '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Export your financial data as CSV files for use in spreadsheets or for your accountant.</p>';
@@ -1846,20 +1914,13 @@ function buildDashboardPdfContent(store, dateLabel) {
     var paySchedule = store.getPaySchedule();
     var otherIncome = store.getOtherIncome();
 
-    var monthlyMult = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    var userPayMonthly = income.user.payAmount * monthlyMult;
-    var otherIncomeMonthly = otherIncome.reduce(function(s, src) {
-        var amt = src.amount || 0;
-        if (src.frequency === 'weekly') return s + amt * 52 / 12;
-        if (src.frequency === 'biweekly') return s + amt * 26 / 12;
-        if (src.frequency === 'monthly') return s + amt;
-        if (src.frequency === 'quarterly') return s + amt / 3;
-        if (src.frequency === 'yearly') return s + amt / 12;
-        return s;
-    }, 0);
+    var monthlyMult = getMonthlyMultiplier(paySchedule.frequency);
     var depEnabled = store.isDependentEnabled();
     var combineDepIncome = income.combineDependentIncome !== false;
-    var depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    var incomeBreakdown = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    var userPayMonthly = incomeBreakdown.userPayMonthly;
+    var otherIncomeMonthly = incomeBreakdown.otherIncomeMonthly;
+    var depMonthlyPay = depEnabled && combineDepIncome ? incomeBreakdown.depMonthlyPay : 0;
     var totalMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
 
     var payDatesAll = store.getPayDates();
@@ -1941,8 +2002,8 @@ function buildIncomePdfContent(store, dateLabel) {
     var paySchedule = store.getPaySchedule();
     var depEnabled = store.isDependentEnabled();
 
-    var monthlyMult = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    var userPayMonthly = income.user.payAmount * monthlyMult;
+    var incomeBreakdown = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    var userPayMonthly = incomeBreakdown.userPayMonthly;
 
     var html = '<h2>Primary Income</h2>';
     html += '<div class="summary-grid">';
@@ -1967,16 +2028,8 @@ function buildIncomePdfContent(store, dateLabel) {
     }
 
     // Total
-    var otherMonthly = otherIncome.reduce(function(s, src) {
-        var amt = src.amount || 0;
-        if (src.frequency === 'weekly') return s + amt * 52 / 12;
-        if (src.frequency === 'biweekly') return s + amt * 26 / 12;
-        if (src.frequency === 'monthly') return s + amt;
-        if (src.frequency === 'quarterly') return s + amt / 3;
-        if (src.frequency === 'yearly') return s + amt / 12;
-        return s;
-    }, 0);
-    var totalHousehold = userPayMonthly + otherMonthly + (depEnabled ? (income.dependent.payAmount || 0) : 0);
+    var otherMonthly = incomeBreakdown.otherIncomeMonthly;
+    var totalHousehold = userPayMonthly + otherMonthly + (depEnabled ? incomeBreakdown.depMonthlyPay : 0);
     html += '<h2>Total Household Income</h2>';
     html += '<div class="summary-grid">';
     html += '<div class="summary-card"><div class="label">Total Monthly</div><div class="value text-green">' + formatCurrency(totalHousehold) + '</div></div>';
@@ -1995,19 +2048,11 @@ function buildCashflowPdfContent(store, dateLabel) {
     var depEnabled = store.isDependentEnabled();
     var combineDepIncome = income.combineDependentIncome !== false;
 
-    // Monthly income
-    var monthlyMult = paySchedule.frequency === 'weekly' ? 52/12 : paySchedule.frequency === 'biweekly' ? 26/12 : paySchedule.frequency === 'semimonthly' ? 2 : 1;
-    var userPayMonthly = (income.user.payAmount || 0) * monthlyMult;
-    var otherIncomeMonthly = otherIncome.reduce(function(s, src) {
-        var amt = src.amount || 0;
-        if (src.frequency === 'weekly') return s + amt * 52 / 12;
-        if (src.frequency === 'biweekly') return s + amt * 26 / 12;
-        if (src.frequency === 'monthly') return s + amt;
-        if (src.frequency === 'quarterly') return s + amt / 3;
-        if (src.frequency === 'yearly') return s + amt / 12;
-        return s;
-    }, 0);
-    var depMonthlyPay = depEnabled && combineDepIncome ? (income.dependent.payAmount || 0) : 0;
+    // Monthly income (via shared financial-service helper)
+    var incomeBreakdown = calculateMonthlyIncome(income, otherIncome, paySchedule);
+    var userPayMonthly = incomeBreakdown.userPayMonthly;
+    var otherIncomeMonthly = incomeBreakdown.otherIncomeMonthly;
+    var depMonthlyPay = depEnabled && combineDepIncome ? incomeBreakdown.depMonthlyPay : 0;
     var totalMonthlyIncome = userPayMonthly + otherIncomeMonthly + depMonthlyPay;
 
     // Income sources list
@@ -2015,8 +2060,7 @@ function buildCashflowPdfContent(store, dateLabel) {
     if (userPayMonthly > 0) incomeSources.push({ name: store.getUserName() + "'s Pay", amount: userPayMonthly });
     if (depMonthlyPay > 0) incomeSources.push({ name: store.getDependentName() + "'s Pay", amount: depMonthlyPay });
     otherIncome.forEach(function(src) {
-        var amt = src.amount || 0;
-        var m = src.frequency === 'weekly' ? amt * 52/12 : src.frequency === 'biweekly' ? amt * 26/12 : src.frequency === 'monthly' ? amt : src.frequency === 'quarterly' ? amt/3 : src.frequency === 'yearly' ? amt/12 : 0;
+        var m = frequencyToMonthly(src.amount, src.frequency);
         if (m > 0) incomeSources.push({ name: src.name || 'Other income', amount: m });
     });
 
@@ -2040,10 +2084,7 @@ function buildCashflowPdfContent(store, dateLabel) {
     } else {
         bills.filter(function(b) { return !b.frozen && !b.excludeFromTotal; }).forEach(function(bill) {
             var cat = bill.category || 'Uncategorized';
-            var amt = bill.amount || 0;
-            var freq = bill.frequency || 'monthly';
-            var monthly = freq === 'weekly' ? amt * 52/12 : freq === 'biweekly' ? amt * 26/12 : freq === 'quarterly' ? amt/3 : freq === 'yearly' ? amt/12 : amt;
-            categoryTotals[cat] = (categoryTotals[cat] || 0) + monthly;
+            categoryTotals[cat] = (categoryTotals[cat] || 0) + calculateBillMonthlyAmount(bill);
         });
     }
     var sortedCategories = Object.entries(categoryTotals).sort(function(a, b) { return b[1] - a[1]; });

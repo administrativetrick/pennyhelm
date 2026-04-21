@@ -94,7 +94,7 @@ export function renderAssetsTab(container, store) {
             const isCredit = cat.key === 'credit';
 
             return `
-            <div class="card mb-24" style="margin-top:16px;">
+            <div class="card mb-24 mt-16">
                 <div class="settings-section">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
                         <h3 style="margin:0;">${cat.icon} ${cat.label}</h3>
@@ -122,7 +122,7 @@ export function renderAssetsTab(container, store) {
                                     ${typeLabel}${updated ? ' &middot; Updated ' + updated : ''}${linkedDebt ? ' &middot; ' + linkedDebt.interestRate.toFixed(1) + '% APR' : ''}${linkedDebt && linkedDebt.minimumPayment > 0 ? ' &middot; ' + formatCurrency(linkedDebt.minimumPayment) + ' min' : ''}
                                 </div>
                             </div>
-                            <div style="display:flex;align-items:center;gap:8px;">
+                            <div class="flex-align-center gap-8">
                                 ${a.type === 'credit' ? `
                                     <span class="text-red" style="font-size:16px;font-weight:700;">-${formatCurrency(a.balance)}</span>
                                 ` : `
@@ -150,7 +150,7 @@ export function renderAssetsTab(container, store) {
         ` : `
         <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
             <div style="font-size:48px;margin-bottom:16px;">🏦</div>
-            <h3 style="margin-bottom:8px;">No assets tracked yet</h3>
+            <h3 class="mb-8">No assets tracked yet</h3>
             <p style="color:var(--text-muted);margin-bottom:24px;">Add your property, vehicles, equipment, investments, and credit cards to see your full asset picture.</p>
             <button class="btn btn-primary" id="empty-add-asset">+ Add Asset</button>
         </div>

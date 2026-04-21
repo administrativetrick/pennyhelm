@@ -258,6 +258,16 @@ body {
     margin-bottom: 24px;
 }
 
+/* Compact stats grid used on Debts / Income / Taxes / Assets.
+   Tighter minmax than .card-grid because these cards are smaller
+   (label + value only, no sub-text). */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
 .stat-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -265,7 +275,13 @@ body {
     padding: 18px 20px;
 }
 
-.stat-card .label {
+/* Make the compact summary cards a bit tighter to fit more per row */
+.stats-grid .stat-card {
+    padding: 14px 16px;
+}
+
+.stat-card .label,
+.stat-card .stat-label {
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
@@ -274,9 +290,15 @@ body {
     margin-bottom: 6px;
 }
 
-.stat-card .value {
+.stat-card .value,
+.stat-card .stat-value {
     font-size: 26px;
     font-weight: 700;
+}
+
+/* Compact stat-value in .stats-grid — trimmed size so 4 cards fit comfortably */
+.stats-grid .stat-card .stat-value {
+    font-size: 20px;
 }
 
 .stat-card .sub {
@@ -552,6 +574,19 @@ tbody tr:hover { background: var(--bg-card-hover); }
     font-size: 11.5px;
     font-weight: 600;
     white-space: nowrap;
+}
+
+.tag-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    line-height: 1.6;
 }
 
 .badge-housing, .badge-green { background: var(--green-bg); color: var(--green); }
@@ -1294,6 +1329,174 @@ tbody tr:hover { background: var(--bg-card-hover); }
     color: var(--accent);
 }
 
+/* ===== View Tabs (primary view-mode selector on a page) =====
+   Underlined tabs — visually distinct from filter-chip pills so users
+   read them as "which view am I in" vs "which filter is applied".
+   Horizontally scrollable on narrow screens instead of wrapping. */
+.view-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.view-tabs::-webkit-scrollbar { display: none; }
+
+.view-tab {
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    white-space: nowrap;
+    font-family: inherit;
+    transition: color 0.15s, border-color 0.15s;
+}
+.view-tab:hover { color: var(--text-primary); }
+.view-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+/* ===== Widget Carousel (horizontal scroll-snap row of cards) =====
+   Used on Dashboard to collapse 7+ secondary widgets into a
+   swipeable/scrollable row. Native scroll-snap — no JS. */
+.widget-carousel-wrapper {
+    margin-bottom: 24px;
+}
+
+.widget-carousel-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 12px;
+}
+
+.widget-carousel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.widget-carousel-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.widget-carousel {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 16px;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    /* Hide native scrollbar — pagination dots below tell the same story cleaner */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.widget-carousel::-webkit-scrollbar { display: none; }
+
+.widget-carousel > * {
+    flex: 0 0 min(calc(100% - 32px), 420px);
+    scroll-snap-align: start;
+    min-width: 0; /* allow flex children to size down for text wrap */
+    margin-bottom: 0 !important; /* cancel any mb-24 on inner cards */
+}
+
+.widget-carousel-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.widget-carousel-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    background: var(--border);
+    cursor: pointer;
+    transition: background 0.2s, width 0.2s;
+}
+.widget-carousel-dot:hover {
+    background: var(--text-muted);
+}
+.widget-carousel-dot.active {
+    background: var(--accent);
+    width: 22px; /* active dot elongates into a pill — iOS-style pagination */
+    border-radius: 4px;
+}
+
+@media (max-width: 680px) {
+    .widget-carousel > * {
+        flex: 0 0 calc(100% - 24px);
+    }
+    .widget-carousel-hint { display: none; }
+}
+
+/* ===== Strategy Drawer (<details> collapsible comparison card) =====
+   Used on Debts to hide the Avalanche vs Snowball comparison until
+   the user explicitly asks for it — saving ~500px of vertical space.
+   Summary row always shows the active strategy + current savings. */
+.strategy-drawer[open] > .strategy-drawer-summary {
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+}
+
+.strategy-drawer-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    user-select: none;
+}
+.strategy-drawer-summary::-webkit-details-marker { display: none; }
+
+.strategy-drawer-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+}
+
+.strategy-drawer-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.strategy-drawer-chevron {
+    font-size: 14px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+    flex-shrink: 0;
+}
+
+.strategy-drawer[open] .strategy-drawer-chevron {
+    transform: rotate(180deg);
+}
+
+@media (max-width: 560px) {
+    .strategy-drawer-title-row {
+        flex-direction: column;
+        gap: 4px;
+    }
+}
+
 /* ===== Settings ===== */
 .settings-section {
     margin-bottom: 28px;
@@ -1326,6 +1529,41 @@ tbody tr:hover { background: var(--bg-card-hover); }
     font-size: 12px;
     color: var(--text-secondary);
     margin-top: 2px;
+}
+
+/* Responsive grid for grouping settings cards side-by-side. Cards flow into
+   a natural masonry-ish layout: each column gets as many rows as needed,
+   and cards keep their intrinsic height so a tall card next to a short
+   card doesn't waste space. */
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+    align-items: start;
+}
+
+.settings-grid > .card {
+    margin-bottom: 0;
+}
+
+.settings-section-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin: 8px 0 12px;
+    padding: 0 2px;
+}
+
+.settings-section-header:first-child { margin-top: 0; }
+
+@media (max-width: 680px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
 }
 
 /* ===== Empty State ===== */
@@ -1720,17 +1958,76 @@ tbody tr:hover { background: var(--bg-card-hover); }
     color: var(--orange);
 }
 
-/* ===== Utility ===== */
+/* ===== Utility =====
+   Prefer these over inline styles. Combined: use multiple classes, e.g.
+   <div class="flex-align-center gap-8 mb-16">…</div>
+   Keep inline `style=""` only for truly dynamic values (computed widths,
+   per-row colors, calculated transforms). */
+
+/* Text color */
 .text-green { color: var(--green); }
 .text-red { color: var(--red); }
 .text-orange { color: var(--orange); }
 .text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
 .text-accent { color: var(--accent); }
+
+/* Text size */
+.text-xs { font-size: 11px; }
+.text-sm { font-size: 12px; }
+.text-base { font-size: 13px; }
+
+/* Common compound — 12px muted text (very frequent pattern) */
+.text-muted-sm { font-size: 12px; color: var(--text-muted); }
+.text-secondary-sm { font-size: 12px; color: var(--text-secondary); }
+
+/* Font weight */
 .font-bold { font-weight: 700; }
+.font-semibold { font-weight: 600; }
+
+/* Margin — vertical scale */
+.mt-4 { margin-top: 4px; }
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
 .mt-16 { margin-top: 16px; }
+.mt-20 { margin-top: 20px; }
+.mt-24 { margin-top: 24px; }
+.mb-4 { margin-bottom: 4px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
 .mb-16 { margin-bottom: 16px; }
+.mb-20 { margin-bottom: 20px; }
 .mb-24 { margin-bottom: 24px; }
+
+/* Flex helpers */
+.flex { display: flex; }
+.flex-align-center { display: flex; align-items: center; }
+.flex-col { display: flex; flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
 .flex-between { display: flex; align-items: center; justify-content: space-between; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+
+/* Gap scale — composes with any .flex / .flex-align-center / .flex-between / .icon-label */
+.gap-4 { gap: 4px; }
+.gap-6 { gap: 6px; }
+.gap-8 { gap: 8px; }
+.gap-12 { gap: 12px; }
+.gap-16 { gap: 16px; }
+
+/* ===== Icon + Label =====
+   Inline-flex wrapper for any icon-plus-text pair — buttons, spans,
+   chips, nav items. Uses inline-flex (not flex) so the container
+   shrinks to content and doesn't force block width.
+   Compose gap with .gap-4 / .gap-6 / .gap-8 — default gap is 8px. */
+.icon-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.icon-label.gap-4 { gap: 4px; }
+.icon-label.gap-6 { gap: 6px; }
+/* SVG children shouldn't shrink when the label text wraps */
+.icon-label > svg { flex-shrink: 0; }
 
 /* ===== Cashflow Charts ===== */
 

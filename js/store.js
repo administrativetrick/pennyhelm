@@ -1,11 +1,14 @@
 import { StorageAdapter } from './services/storage-adapter.js';
-import { migrateKeyNames, migrateBalanceHistory } from './services/migration-manager.js';
+import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions } from './services/financial-service.js';
+import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
+import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey } from './expense-categories.js';
+import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
 
 const defaultData = {
     userName: 'User',
-    dependentName: 'Dependent',
+    dependentName: 'Partner',
     dependentEnabled: false,
     income: {
         user: {
@@ -40,13 +43,16 @@ const defaultData = {
     },
     debts: [], // { id, name, type, currentBalance, originalBalance, interestRate, minimumPayment, createdDate, notes }
     debtBudget: { totalMonthlyBudget: 0, strategy: 'avalanche' },
-    expenses: [], // { id, name, amount, category, date, vendor, notes, createdDate, expenseType: 'personal'|'business', businessName?, plaidTransactionId?, source: 'manual'|'plaid' }
+    expenses: [], // { id, name, amount, category, date, vendor, notes, createdDate, expenseType: 'personal'|'business', businessName?, plaidTransactionId?, source: 'manual'|'plaid', tags?: string[], ignored?: boolean, splitOf?: string|null, splitChildren?: string[] }
+    transactionRules: [], // { id, name, enabled, priority, match: {field, op, value}, actions: {category?, addTags?, rename?, ignore?} } — see js/services/transaction-rules.js
+    categoryBudgets: [], // { id, category, monthlyAmount, rollover, startMonth: 'YYYY-MM', notes? } — see js/services/budget-service.js
     taxDeductions: [], // { id, taxYear, category, description, amount, date, vendor, receiptDocId, notes }
     otherIncome: [], // { id, name, amount, frequency, category, notes } — category: rental|dividend|freelance|side-hustle|gift|other
     savingsGoals: [], // { id, name, targetAmount, currentAmount, targetDate, category, linkedAccountId, notes, createdDate }
     invites: [], // { id, email, type: 'partner'|'financial-planner'|'cpa', status: 'pending'|'accepted'|'declined', permissions: 'view'|'edit', invitedAt, acceptedAt?, inviteeUid? }
     sharedWith: [], // { uid, email, type, permissions, sharedAt } — people who have access to this account
     customCategories: [], // { id, name, color, createdAt } — user-defined bill categories
+    customExpenseCategories: [], // { id, key, name, color, createdAt } — user-defined expense/budget categories
     vehicleMileage: [], // { id, vehicleAccountId, mileage, date, notes }
     vehicleTrips: [], // { id, vehicleAccountId, startMileage, endMileage, distance, date, purpose, notes }
     balanceHistory: [], // { date: "2026-01-15", checking, savings, investment, netWorth }
@@ -56,6 +62,12 @@ const defaultData = {
         preferredTime: '09:00',
         includeAutoPay: false
     },
+    healthScoreSettings: {
+        // conservative (50%) | balanced (75%) | aggressive (100%)
+        // Controls how much credit taxable brokerage balances get toward
+        // Liquid Reserves & Savings Cushion. See resolveInvestmentHaircut().
+        riskTolerance: 'balanced'
+    },
     dashboardLayout: null, // { order: [...widgetIds], hidden: [...widgetIds] }
     usageType: null, // 'personal' | 'business' | 'both' — set during onboarding
     businessNames: [], // ['Acme Corp', 'Side Hustle LLC'] — user-defined business names
@@ -63,6 +75,18 @@ const defaultData = {
     dismissedRecurringSuggestions: [], // merchant keys user has dismissed
     setupComplete: false // set to true after first-run welcome screen
 };
+
+/**
+ * Return a shallow-cloned rule whose actions.category is normalized to a
+ * canonical EXPENSE_CATEGORIES key. Safe to call with partial updates.
+ */
+function normalizeRuleCategory(rule, storeLike) {
+    if (!rule) return rule;
+    if (!rule.actions || !rule.actions.category) return rule;
+    const canonical = normalizeCategoryKey(rule.actions.category, storeLike);
+    if (canonical === rule.actions.category) return rule;
+    return { ...rule, actions: { ...rule.actions, category: canonical } };
+}
 
 class Store {
     constructor() {
@@ -103,6 +127,15 @@ class Store {
         // Migrate entity links (accounts ↔ debts ↔ bills)
         const linksMigrated = migrateEntityLinks(this._data);
         if (linksMigrated) this._syncToServer();
+
+        // Normalize category keys across expenses/bills/rules/budgets so the
+        // budget matcher lines up with Plaid imports + user-typed rule values.
+        // Idempotent: re-running rewrites nothing once keys are canonical.
+        const categoriesMigrated = migrateCategoryKeys(
+            this._data,
+            (value) => normalizeCategoryKey(value, this),
+        );
+        if (categoriesMigrated) this._syncToServer();
 
         return this._data;
     }
@@ -164,7 +197,7 @@ class Store {
     }
 
     getDependentName() {
-        return this._load().dependentName || 'Dependent';
+        return this._load().dependentName || 'Partner';
     }
 
     setDependentName(name) {
@@ -194,7 +227,45 @@ class Store {
         this._save();
     }
 
-    // ─── Custom Categories CRUD ──────────────────────────────
+    // ─── Custom Expense Categories (budget/expense taxonomy) ──
+
+    getCustomExpenseCategories() {
+        const data = this._load();
+        if (!data.customExpenseCategories) data.customExpenseCategories = [];
+        return data.customExpenseCategories;
+    }
+
+    addCustomExpenseCategory({ name, color }) {
+        if (!name || typeof name !== 'string' || !name.trim()) throw new Error('Category name is required');
+        const key = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        if (!key) throw new Error('Invalid category name');
+        const data = this._load();
+        if (!data.customExpenseCategories) data.customExpenseCategories = [];
+
+        // Check built-ins too (imported at top of file)
+        if (_builtinExpenseCategories[key]) throw new Error(`"${name}" already exists as a built-in category`);
+        if (data.customExpenseCategories.some(c => c.key === key)) throw new Error(`"${name}" already exists`);
+
+        const entry = {
+            id: crypto.randomUUID(),
+            key,
+            name: name.trim(),
+            color: color || '#94a3b8',
+            createdAt: new Date().toISOString(),
+        };
+        data.customExpenseCategories.push(entry);
+        this._save();
+        return entry;
+    }
+
+    deleteCustomExpenseCategory(id) {
+        const data = this._load();
+        if (!data.customExpenseCategories) return;
+        data.customExpenseCategories = data.customExpenseCategories.filter(c => c.id !== id);
+        this._save();
+    }
+
+    // ─── Custom Categories CRUD (bill taxonomy) ─────────────
 
     getCustomCategories() {
         const data = this._load();
@@ -248,6 +319,12 @@ class Store {
     addBill(bill) {
         const data = this._load();
         bill.id = crypto.randomUUID();
+        // Coerce expenseCategory to its canonical key so budget matching works
+        // regardless of whether the caller passed "Mortgage", "mortgage", or a
+        // custom slug. Unknown strings pass through unchanged.
+        if (bill.expenseCategory) {
+            bill.expenseCategory = normalizeCategoryKey(bill.expenseCategory, this);
+        }
         data.bills.push(bill);
         this._save();
         return bill;
@@ -257,6 +334,9 @@ class Store {
         const data = this._load();
         const idx = data.bills.findIndex(b => b.id === id);
         if (idx !== -1) {
+            if (updates && 'expenseCategory' in updates && updates.expenseCategory) {
+                updates = { ...updates, expenseCategory: normalizeCategoryKey(updates.expenseCategory, this) };
+            }
             data.bills[idx] = { ...data.bills[idx], ...updates };
             this._save();
             syncFromBill(data.bills[idx], data, () => this._save());
@@ -301,13 +381,23 @@ class Store {
 
     /**
      * Calculate bill payment rate over the last N months (0-1).
-     * Looks at each active (non-frozen) bill per month and checks paid status.
+     *
+     * A bill counts as paid in a given month if EITHER:
+     *   (a) it is marked paid manually in `paidHistory`, OR
+     *   (b) a Plaid-synced expense exists around the bill's due date
+     *       with a matching amount (±5% or ±$1).
+     *
+     * This fixes the "I paid on autopay but forgot to tick the box" issue
+     * that was artificially tanking users' payment score.
+     *
+     * Returns null if there is insufficient data to score (no bills at all).
      */
     getBillPaymentRate(months = 3) {
         const data = this._load();
         const bills = (data.bills || []).filter(b => !b.frozen && !b.excludeFromTotal);
         if (bills.length === 0) return null;
 
+        const expenses = data.expenses || [];
         const now = new Date();
         let totalBills = 0;
         let paidBills = 0;
@@ -328,15 +418,32 @@ class Store {
                     if (bill.dueMonth !== m && secondMonth !== m) continue;
                 }
                 totalBills++;
-                // Check if paid (by billId or any occurrence key)
+
+                // (a) Manually marked paid — either by billId or any occurrence key
                 if (monthHistory[bill.id]) {
                     paidBills++;
-                } else {
-                    const prefix = bill.id + '_';
-                    if (Object.keys(monthHistory).some(k => k.startsWith(prefix) && monthHistory[k])) {
-                        paidBills++;
-                    }
+                    continue;
                 }
+                const prefix = bill.id + '_';
+                if (Object.keys(monthHistory).some(k => k.startsWith(prefix) && monthHistory[k])) {
+                    paidBills++;
+                    continue;
+                }
+
+                // (b) Plaid fallback — scan for a matching transaction near the
+                // expected due date. Covers users who pay on autopay but haven't
+                // ticked the paid checkbox in the app.
+                const dueDay = bill.dueDay || 1;
+                let dueDate;
+                if (bill.frequency === 'semi-annual') {
+                    // Semi-annual: use whichever of the two cycle months equals
+                    // the loop month.
+                    dueDate = new Date(y, m, dueDay);
+                } else {
+                    dueDate = new Date(y, m, dueDay);
+                }
+                const { matched } = matchBillToPlaidTransactions(bill, dueDate, expenses);
+                if (matched) paidBills++;
             }
         }
 
@@ -881,6 +988,10 @@ class Store {
         if (!data.expenses) data.expenses = [];
         expense.id = crypto.randomUUID();
         expense.createdDate = new Date().toISOString();
+        // Normalize category so budget rollups and reports see canonical keys.
+        if (expense.category) {
+            expense.category = normalizeCategoryKey(expense.category, this);
+        }
         data.expenses.push(expense);
         this._save();
         return expense;
@@ -891,6 +1002,9 @@ class Store {
         if (!data.expenses) return;
         const idx = data.expenses.findIndex(e => e.id === id);
         if (idx !== -1) {
+            if (updates && 'category' in updates && updates.category) {
+                updates = { ...updates, category: normalizeCategoryKey(updates.category, this) };
+            }
             data.expenses[idx] = { ...data.expenses[idx], ...updates };
             this._save();
         }
@@ -992,14 +1106,18 @@ class Store {
     importPlaidTransactions(transactions) {
         const data = this._load();
         if (!data.expenses) data.expenses = [];
+        if (!data.transactionRules) data.transactionRules = [];
         let imported = 0;
         for (const txn of transactions) {
             if (data.expenses.some(e => e.plaidTransactionId === txn.plaidTransactionId)) continue;
-            const expense = {
+            let expense = {
                 id: crypto.randomUUID(),
                 name: txn.name,
                 amount: txn.amount,
-                category: txn.category || 'other',
+                // Plaid returns labels like "Groceries"/"Food and Drink" — normalize
+                // to the canonical EXPENSE_CATEGORIES key so downstream budget
+                // rollups match by value, not by capitalization.
+                category: normalizeCategoryKey(txn.category, this) || 'other',
                 date: txn.date,
                 vendor: txn.merchantName || '',
                 notes: '',
@@ -1008,13 +1126,292 @@ class Store {
                 businessName: null,
                 plaidTransactionId: txn.plaidTransactionId,
                 plaidAccountId: txn.plaidAccountId,
-                source: 'plaid'
+                source: 'plaid',
+                tags: [],
+                ignored: false,
             };
+            // Apply user-defined transaction rules (categorize, tag, rename, ignore)
+            expense = applyRulesToExpense(data.transactionRules, expense);
             data.expenses.push(expense);
             imported++;
         }
         if (imported > 0) this._save();
         return imported;
+    }
+
+    // ─── Transaction Rules ───────────────────────────────────
+
+    getRules() {
+        const data = this._load();
+        if (!data.transactionRules) data.transactionRules = [];
+        return data.transactionRules;
+    }
+
+    addRule(rule) {
+        const err = validateRule(rule);
+        if (err) throw new Error(err);
+        const data = this._load();
+        if (!data.transactionRules) data.transactionRules = [];
+        // The rules UI is a plain text input — users type "Mortgage" or
+        // "Groceries" (display labels), which never match lowercase budget
+        // keys. Coerce here so rules written today apply cleanly to every
+        // downstream consumer (budgets, variance reports, Sankey).
+        const normalizedRule = normalizeRuleCategory(rule, this);
+        const next = {
+            id: crypto.randomUUID(),
+            enabled: true,
+            priority: data.transactionRules.length, // append to end
+            ...normalizedRule,
+        };
+        data.transactionRules.push(next);
+        this._save();
+        return next;
+    }
+
+    updateRule(id, updates) {
+        const data = this._load();
+        if (!data.transactionRules) return;
+        const idx = data.transactionRules.findIndex(r => r.id === id);
+        if (idx === -1) return;
+        const normalizedUpdates = normalizeRuleCategory(updates, this);
+        const merged = { ...data.transactionRules[idx], ...normalizedUpdates };
+        const err = validateRule(merged);
+        if (err) throw new Error(err);
+        data.transactionRules[idx] = merged;
+        this._save();
+    }
+
+    deleteRule(id) {
+        const data = this._load();
+        if (!data.transactionRules) return;
+        data.transactionRules = data.transactionRules.filter(r => r.id !== id);
+        this._save();
+    }
+
+    /**
+     * Re-apply all rules to every existing expense. Useful after creating
+     * or editing rules retroactively.
+     * Returns the number of expenses whose JSON representation changed.
+     */
+    reapplyRulesToAllExpenses() {
+        const data = this._load();
+        if (!data.expenses || !data.transactionRules) return 0;
+        let changed = 0;
+        for (let i = 0; i < data.expenses.length; i++) {
+            const before = JSON.stringify(data.expenses[i]);
+            const after = applyRulesToExpense(data.transactionRules, data.expenses[i]);
+            if (JSON.stringify(after) !== before) {
+                data.expenses[i] = after;
+                changed++;
+            }
+        }
+        if (changed > 0) this._save();
+        return changed;
+    }
+
+    // ─── Tags ────────────────────────────────────────────────
+
+    getAllExpenseTags() {
+        const data = this._load();
+        const tags = new Set();
+        (data.expenses || []).forEach(e => {
+            (Array.isArray(e.tags) ? e.tags : []).forEach(t => {
+                const clean = String(t).trim();
+                if (clean) tags.add(clean);
+            });
+        });
+        return [...tags].sort();
+    }
+
+    // ─── Splits ──────────────────────────────────────────────
+
+    /**
+     * Split an expense into N child parts. Each part has its own category,
+     * tags, amount, and optional note. The parent expense is kept but marked
+     * as split (via `splitChildren`) and excluded from reporting totals to
+     * avoid double-counting (reports should sum children, skip parents with
+     * a non-empty splitChildren array).
+     *
+     * @param {string} parentId
+     * @param {Array<{amount, category, tags?, notes?}>} parts
+     */
+    splitExpense(parentId, parts) {
+        if (!Array.isArray(parts) || parts.length < 2) {
+            throw new Error('A split requires at least 2 parts');
+        }
+        const data = this._load();
+        if (!data.expenses) data.expenses = [];
+        const parent = data.expenses.find(e => e.id === parentId);
+        if (!parent) throw new Error('Parent expense not found');
+        if (Array.isArray(parent.splitChildren) && parent.splitChildren.length > 0) {
+            throw new Error('Expense is already split — unsplit first before re-splitting');
+        }
+
+        const total = parts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        if (Math.abs(total - Number(parent.amount)) > 0.01) {
+            throw new Error(`Split parts total ${total.toFixed(2)} does not match parent amount ${Number(parent.amount).toFixed(2)}`);
+        }
+
+        const childIds = [];
+        for (const part of parts) {
+            const child = {
+                id: crypto.randomUUID(),
+                name: parent.name,
+                amount: Number(part.amount),
+                category: part.category || parent.category || 'other',
+                date: parent.date,
+                vendor: parent.vendor || '',
+                notes: part.notes || '',
+                createdDate: new Date().toISOString(),
+                expenseType: parent.expenseType || 'personal',
+                businessName: parent.businessName || null,
+                plaidTransactionId: null, // children are manual subdivisions, don't dedupe against Plaid
+                plaidAccountId: parent.plaidAccountId || null,
+                source: 'split',
+                tags: Array.isArray(part.tags) ? [...part.tags] : [],
+                ignored: false,
+                splitOf: parent.id,
+            };
+            data.expenses.push(child);
+            childIds.push(child.id);
+        }
+
+        parent.splitChildren = childIds;
+        this._save();
+        return childIds;
+    }
+
+    /**
+     * Undo a split — deletes all children and restores the parent to
+     * being counted again.
+     */
+    unsplitExpense(parentId) {
+        const data = this._load();
+        if (!data.expenses) return;
+        const parent = data.expenses.find(e => e.id === parentId);
+        if (!parent || !Array.isArray(parent.splitChildren) || parent.splitChildren.length === 0) return;
+        const childIds = new Set(parent.splitChildren);
+        data.expenses = data.expenses.filter(e => !childIds.has(e.id));
+        parent.splitChildren = [];
+        this._save();
+    }
+
+    // ─── Category Budgets ────────────────────────────────────
+
+    getBudgets() {
+        const data = this._load();
+        if (!data.categoryBudgets) data.categoryBudgets = [];
+        return data.categoryBudgets;
+    }
+
+    addBudget(budget) {
+        const err = validateBudget(budget);
+        if (err) throw new Error(err);
+        const data = this._load();
+        if (!data.categoryBudgets) data.categoryBudgets = [];
+        // Normalize so the "one active budget per category" dedupe below
+        // treats "Mortgage" and "mortgage" as the same bucket.
+        const normalized = budget.category
+            ? { ...budget, category: normalizeCategoryKey(budget.category, this) }
+            : budget;
+        const needle = String(normalized.category || '').toLowerCase();
+        data.categoryBudgets = data.categoryBudgets.filter(b =>
+            String(b.category || '').toLowerCase() !== needle
+        );
+        const next = {
+            id: crypto.randomUUID(),
+            rollover: false,
+            startMonth: monthKey(),
+            ...normalized,
+        };
+        data.categoryBudgets.push(next);
+        this._save();
+        return next;
+    }
+
+    updateBudget(id, updates) {
+        const data = this._load();
+        if (!data.categoryBudgets) return;
+        const idx = data.categoryBudgets.findIndex(b => b.id === id);
+        if (idx === -1) return;
+        if (updates && 'category' in updates && updates.category) {
+            updates = { ...updates, category: normalizeCategoryKey(updates.category, this) };
+        }
+        const merged = { ...data.categoryBudgets[idx], ...updates };
+        const err = validateBudget(merged);
+        if (err) throw new Error(err);
+        data.categoryBudgets[idx] = merged;
+        this._save();
+    }
+
+    deleteBudget(id) {
+        const data = this._load();
+        if (!data.categoryBudgets) return;
+        data.categoryBudgets = data.categoryBudgets.filter(b => b.id !== id);
+        this._save();
+    }
+
+    /** Returns per-budget status array for a given 'YYYY-MM' (defaults to current). */
+    getBudgetStatuses(asOfMonth = monthKey()) {
+        const getBillSpend = (cat, mKey) => this._billSpendForMonth(cat, mKey);
+        return computeAllBudgetStatuses(this.getBudgets(), this.getExpenses(), asOfMonth, getBillSpend);
+    }
+
+    /** Top-line totals across all active budgets for the given month. */
+    getBudgetTotals(asOfMonth = monthKey()) {
+        return computeBudgetTotals(this.getBudgetStatuses(asOfMonth));
+    }
+
+    /**
+     * Sum of bill amounts that occur in `monthKey` and are tagged with
+     * the given expense category. Used by the budget engine to blend
+     * committed bill spending into category budget totals.
+     */
+    _billSpendForMonth(category, mKey) {
+        if (!category || !mKey) return 0;
+        const [y, m] = mKey.split('-').map(Number);
+        if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
+        const year = y;
+        const month = m - 1; // JS Date: 0-indexed
+
+        const data = this._load();
+        // Case-insensitive match — same reason as budget-service. A one-time
+        // migration normalizes expenseCategory to the canonical key, but we
+        // lowercase here too so mixed-casing data never yields a silent 0.
+        const needle = String(category || '').toLowerCase();
+        const bills = (data.bills || []).filter(b =>
+            !b.frozen && String(b.expenseCategory || '').toLowerCase() === needle
+        );
+        if (bills.length === 0) return 0;
+
+        const monthStart = new Date(year, month, 1);
+        const monthEnd = new Date(year, month + 1, 0);
+
+        // Pay dates — needed for per-paycheck / twice-monthly bills.
+        const payDates = generatePayDates(
+            data.paySchedule,
+            monthStart.toISOString().slice(0, 10),
+            monthEnd.toISOString().slice(0, 10)
+        );
+
+        let total = 0;
+        for (const bill of bills) {
+            const amt = Number(bill.amount) || 0;
+            if (amt === 0) continue;
+            if (bill.frequency === 'yearly') {
+                if (bill.dueMonth === month) total += amt;
+            } else if (bill.frequency === 'semi-annual') {
+                const second = (bill.dueMonth + 6) % 12;
+                if (bill.dueMonth === month || second === month) total += amt;
+            } else if (bill.frequency === 'monthly' || !bill.frequency) {
+                total += amt;
+            } else {
+                // weekly / biweekly / per-paycheck / twice-monthly → expand
+                const occ = expandBillOccurrences(bill, monthStart, monthEnd, payDates);
+                total += (occ?.length || 0) * amt;
+            }
+        }
+        return total;
     }
 
     // ─── Savings Goals ───────────────────────────────────────
@@ -1050,6 +1447,28 @@ class Store {
         if (!data.savingsGoals) return;
         data.savingsGoals = data.savingsGoals.filter(g => g.id !== id);
         this._save();
+    }
+
+    /**
+     * For each goal with a linkedAccountId, pull the account's current balance
+     * into the goal's currentAmount. Returns the number of goals updated.
+     */
+    syncGoalsFromLinkedAccounts() {
+        const data = this._load();
+        if (!data.savingsGoals || !data.accounts) return 0;
+        let updated = 0;
+        for (const goal of data.savingsGoals) {
+            if (!goal.linkedAccountId) continue;
+            const acct = data.accounts.find(a => a.id === goal.linkedAccountId);
+            if (!acct) continue;
+            const newVal = Number(acct.balance) || 0;
+            if (newVal !== goal.currentAmount) {
+                goal.currentAmount = newVal;
+                updated++;
+            }
+        }
+        if (updated > 0) this._save();
+        return updated;
     }
 
     // ─── Dashboard Layout ────────────────────────────────────
@@ -1230,6 +1649,19 @@ class Store {
     updateNotificationPreferences(updates) {
         const data = this._load();
         data.notificationPreferences = { ...data.notificationPreferences, ...updates };
+        this._save();
+    }
+
+    // ─── Health-Score Settings ───────────────────────────────
+
+    getHealthScoreSettings() {
+        const data = this._load();
+        return data.healthScoreSettings || { riskTolerance: 'balanced' };
+    }
+
+    updateHealthScoreSettings(updates) {
+        const data = this._load();
+        data.healthScoreSettings = { ...(data.healthScoreSettings || {}), ...updates };
         this._save();
     }
 }

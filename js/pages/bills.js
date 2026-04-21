@@ -1,10 +1,11 @@
-import { formatCurrency, getCategoryBadgeClass, escapeHtml } from '../utils.js';
+import { formatCurrency, getCategoryBadgeClass, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup } from '../categories.js';
-import { expandBillOccurrences } from '../services/financial-service.js';
+import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
 import { capabilities } from '../mode/mode.js';
+import { EXPENSE_CATEGORIES, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -159,6 +160,13 @@ export function renderBills(container, store) {
             </div>
         </div>
 
+        <div class="view-tabs">
+            <button class="view-tab${billsViewMode === 'paycheck' ? ' active' : ''}" id="view-paycheck">By Paycheck</button>
+            <button class="view-tab${billsViewMode === 'month' ? ' active' : ''}" id="view-month">By Month</button>
+            <button class="view-tab${billsViewMode === 'cashflow' ? ' active' : ''}" id="view-cashflow">Cashflow</button>
+        </div>
+
+        ${depEnabled || (billsViewMode === 'paycheck' && periodLabel) ? `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
             ${depEnabled ? `
             <select class="form-select" id="owner-filter" style="font-size:12px;padding:4px 8px;min-width:140px;">
@@ -166,14 +174,10 @@ export function renderBills(container, store) {
                 <option value="user" ${billsOwnerFilter === 'user' ? 'selected' : ''}>${escapeHtml(userName)}'s Bills</option>
                 <option value="dependent" ${billsOwnerFilter === 'dependent' ? 'selected' : ''}>${escapeHtml(depName)}'s Bills</option>
             </select>
-            <span style="border-left:1px solid var(--border);height:20px;margin:0 4px;"></span>
             ` : ''}
-            <span style="font-size:12px;color:var(--text-secondary);">View:</span>
-            <button class="btn btn-sm ${billsViewMode === 'paycheck' ? 'btn-primary' : 'btn-secondary'}" id="view-paycheck">Paycheck</button>
-            <button class="btn btn-sm ${billsViewMode === 'month' ? 'btn-primary' : 'btn-secondary'}" id="view-month">Month</button>
-            <button class="btn btn-sm ${billsViewMode === 'cashflow' ? 'btn-primary' : 'btn-secondary'}" id="view-cashflow">Cashflow</button>
-            ${billsViewMode === 'paycheck' && periodLabel ? `<span style="font-size:12px;color:var(--text-muted);margin-left:4px;">${periodLabel}</span>` : ''}
+            ${billsViewMode === 'paycheck' && periodLabel ? `<span class="text-muted-sm">${periodLabel}</span>` : ''}
         </div>
+        ` : ''}
 
         <div class="filters" id="filters">
             <button class="filter-chip active" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
@@ -850,6 +854,16 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             </div>
         </div>
         <div class="form-group">
+            <label>Budget Category (optional)</label>
+            <select class="form-select" id="bill-expense-category">
+                <option value="">— none (don't count toward a budget) —</option>
+                ${renderCategoryOptions(bill.expenseCategory, store)}
+            </select>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                Tag this bill with a budget category to have it counted toward the matching Category Budget each month.
+            </div>
+        </div>
+        <div class="form-group">
             <label>Notes</label>
             <input type="text" class="form-input" id="bill-notes" value="${escapeHtml(bill.notes)}">
         </div>
@@ -861,8 +875,11 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
 
     openModal(isEdit ? 'Edit Bill' : 'Add New Bill', formHtml);
 
-    // Setup category picker dropdown
+    // Setup category picker dropdown (bill category — the Housing/Utilities taxonomy)
     setupCategoryPicker();
+
+    // Searchable category picker for the budget-category field
+    mountSearchableCategoryPicker(document.getElementById('bill-expense-category'), store);
 
     // Show/hide covering checkbox based on owner
     const ownerSelect = document.getElementById('bill-owner');
@@ -913,7 +930,8 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             excludeFromTotal: document.getElementById('bill-exclude').checked,
             notes: document.getElementById('bill-notes').value.trim(),
             owner: owner,
-            userCovering: owner === 'dependent' && coveringEl ? coveringEl.checked : false
+            userCovering: owner === 'dependent' && coveringEl ? coveringEl.checked : false,
+            expenseCategory: document.getElementById('bill-expense-category').value || null
         };
 
         if (!data.name) { alert('Please enter a bill name'); return; }
@@ -927,12 +945,6 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
         closeModal();
         refreshPage();
     });
-}
-
-function getOrdinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return s[(v - 20) % 10] || s[v] || s[0];
 }
 
 // =============== CASHFLOW VIEW ===============
@@ -975,7 +987,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
         categoryTotals[cat] += getBillAnnualizedMonthly(bill);
     });
     if (depCoverageTotal > 0) {
-        categoryTotals['Dependent Coverage'] = depCoverageTotal;
+        categoryTotals['Partner Coverage'] = depCoverageTotal;
     }
     const sortedCategories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
     const annualizedOutflow = sortedCategories.reduce((s, [, v]) => s + v, 0);
@@ -1059,11 +1071,10 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
             </div>
         </div>
 
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
-            <span style="font-size:12px;color:var(--text-secondary);">View:</span>
-            <button class="btn btn-sm btn-secondary" id="view-paycheck">Paycheck</button>
-            <button class="btn btn-sm btn-secondary" id="view-month">Month</button>
-            <button class="btn btn-sm btn-primary" id="view-cashflow">Cashflow</button>
+        <div class="view-tabs">
+            <button class="view-tab" id="view-paycheck">By Paycheck</button>
+            <button class="view-tab" id="view-month">By Month</button>
+            <button class="view-tab active" id="view-cashflow">Cashflow</button>
         </div>
 
         <!-- Summary Stat Cards -->
@@ -1101,9 +1112,9 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
                     </p>
                 </div>
                 <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--text-muted);">
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#10b981;border-radius:2px;display:inline-block;"></span> Income</span>
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#ef4444;border-radius:2px;display:inline-block;"></span> Expenses</span>
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:${sankeyNet >= 0 ? '#22c55e' : '#f59e0b'};border-radius:2px;display:inline-block;"></span> ${sankeyNet >= 0 ? 'Savings' : 'Shortfall'}</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:#10b981;border-radius:2px;display:inline-block;"></span> Income</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:#ef4444;border-radius:2px;display:inline-block;"></span> Expenses</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:${sankeyNet >= 0 ? '#22c55e' : '#f59e0b'};border-radius:2px;display:inline-block;"></span> ${sankeyNet >= 0 ? 'Savings' : 'Shortfall'}</span>
                 </div>
             </div>
             <div id="cashflow-sankey-mount" style="min-height:360px;width:100%;"></div>
@@ -1114,8 +1125,8 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
             <div class="flex-between mb-16">
                 <h3>6-Month Projection</h3>
                 <div style="display:flex;align-items:center;gap:16px;font-size:11px;">
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Income</span>
-                    <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--red);border-radius:2px;display:inline-block;"></span> Expenses</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Income</span>
+                    <span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--red);border-radius:2px;display:inline-block;"></span> Expenses</span>
                 </div>
             </div>
             ${projMax > 0 ? `
@@ -1215,7 +1226,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
                     <h3>Pay Period Cashflow</h3>
                     <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Starting balance: ${formatCurrency(startingBalance)} (checking + savings)</div>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="flex-align-center gap-8">
                     <button class="btn-icon" id="cf-period-prev" ${!canGoPrev ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
                     </button>
@@ -1379,28 +1390,8 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
     }
 }
 
-// Helper: frequency to monthly multiplier
-function getMonthlyMultiplier(freq) {
-    switch (freq) {
-        case 'weekly': return 52 / 12;
-        case 'biweekly': return 26 / 12;
-        case 'semimonthly': return 2;
-        default: return 1;
-    }
-}
-
 // Helper: other income source to monthly amount
-function getOtherIncomeMonthly(src) {
-    const amt = src.amount || 0;
-    switch (src.frequency) {
-        case 'weekly': return amt * 52 / 12;
-        case 'biweekly': return amt * 26 / 12;
-        case 'monthly': return amt;
-        case 'quarterly': return amt / 3;
-        case 'yearly': return amt / 12;
-        default: return 0;
-    }
-}
+const getOtherIncomeMonthly = (src) => frequencyToMonthly(src?.amount, src?.frequency);
 
 // Helper: count occurrences of a day-of-week in a given month
 function countDayOfWeekInMonth(targetDay, yr, mo) {
@@ -1443,132 +1434,8 @@ function getBillMonthlyAmount(bill, targetMonth, store) {
     return bill.amount;
 }
 
-// Helper: annualized monthly amount for waterfall
-function getBillAnnualizedMonthly(bill) {
-    if (bill.frozen || bill.excludeFromTotal) return 0;
-    if (bill.frequency === 'per-paycheck') return bill.amount * 2;
-    if (bill.frequency === 'twice-monthly') return bill.amount * 2;
-    if (bill.frequency === 'weekly') return bill.amount * 52 / 12;
-    if (bill.frequency === 'biweekly') return bill.amount * 26 / 12;
-    if (bill.frequency === 'yearly') return bill.amount / 12;
-    if (bill.frequency === 'semi-annual') return bill.amount / 6;
-    return bill.amount;
-}
-
-// Build pay periods for cashflow view
-function buildPayPeriods(payDates, bills, store, income, year, month, coveredDepBills = [], otherIncomeSources = []) {
-    if (!payDates || payDates.length === 0) return [];
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const activeBills = bills.filter(b => !b.frozen && b.amount > 0);
-    const sorted = [...payDates].sort((a, b) => a - b);
-
-    const periods = [];
-
-    for (let i = 0; i < sorted.length; i++) {
-        const periodStart = sorted[i];
-        const periodEnd = sorted[i + 1]
-            ? new Date(sorted[i + 1].getTime() - 24 * 60 * 60 * 1000)
-            : new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000);
-
-        const periodBills = [];
-        const startMonth = periodStart.getMonth();
-        const startYear = periodStart.getFullYear();
-        const payDatesInPeriod = sorted.filter(d => d >= periodStart && d <= periodEnd);
-
-        activeBills.forEach(bill => {
-            if (bill.frequency === 'yearly' && bill.dueMonth != null) {
-                const dueDate = new Date(startYear, bill.dueMonth, bill.dueDay);
-                const dueDateNextYear = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
-                if ((dueDate >= periodStart && dueDate <= periodEnd) ||
-                    (dueDateNextYear >= periodStart && dueDateNextYear <= periodEnd)) {
-                    periodBills.push(bill);
-                }
-                return;
-            }
-            if (bill.frequency === 'semi-annual' && bill.dueMonth != null) {
-                const secondMonth = (bill.dueMonth + 6) % 12;
-                const dueDate1 = new Date(startYear, bill.dueMonth, bill.dueDay);
-                const dueDate2 = new Date(startYear, secondMonth, bill.dueDay);
-                const dueDate1Next = new Date(startYear + 1, bill.dueMonth, bill.dueDay);
-                const dueDate2Next = new Date(startYear + 1, secondMonth, bill.dueDay);
-                if ((dueDate1 >= periodStart && dueDate1 <= periodEnd) ||
-                    (dueDate2 >= periodStart && dueDate2 <= periodEnd) ||
-                    (dueDate1Next >= periodStart && dueDate1Next <= periodEnd) ||
-                    (dueDate2Next >= periodStart && dueDate2Next <= periodEnd)) {
-                    periodBills.push(bill);
-                }
-                return;
-            }
-
-            // Expand recurring bills into individual occurrences
-            const expanded = expandBillOccurrences(bill, periodStart, periodEnd, payDatesInPeriod);
-            if (expanded !== null) {
-                periodBills.push(...expanded);
-            } else {
-                // Monthly bill — check due day
-                const dueDayThisMonth = new Date(startYear, startMonth, bill.dueDay);
-                const dueDayNextMonth = new Date(startYear, startMonth + 1, bill.dueDay);
-
-                if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
-                    periodBills.push(bill);
-                } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
-                    periodBills.push(bill);
-                }
-            }
-        });
-
-        coveredDepBills.forEach(depBill => {
-            if (!depBill.amount || depBill.amount <= 0) return;
-            const dueDayThisMonth = new Date(startYear, startMonth, depBill.dueDay || 1);
-            const dueDayNextMonth = new Date(startYear, startMonth + 1, depBill.dueDay || 1);
-            if (dueDayThisMonth >= periodStart && dueDayThisMonth <= periodEnd) {
-                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
-            } else if (dueDayNextMonth >= periodStart && dueDayNextMonth <= periodEnd) {
-                periodBills.push({ name: depBill.name, amount: depBill.amount, dueDay: depBill.dueDay || 1, _virtual: true });
-            }
-        });
-
-        const periodIncome = [];
-        const recurringOtherIncome = otherIncomeSources.filter(s => s.payDay && s.frequency !== 'one-time' && s.amount > 0);
-        recurringOtherIncome.forEach(src => {
-            const payDayThisMonth = new Date(startYear, startMonth, src.payDay);
-            const payDayNextMonth = new Date(startYear, startMonth + 1, src.payDay);
-            if (payDayThisMonth >= periodStart && payDayThisMonth <= periodEnd) {
-                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
-            } else if (payDayNextMonth >= periodStart && payDayNextMonth <= periodEnd) {
-                periodIncome.push({ name: src.name, amount: src.amount, payDay: src.payDay, _income: true });
-            }
-        });
-
-        periodBills.sort((a, b) => (a.dueDay || 0) - (b.dueDay || 0));
-        periodIncome.sort((a, b) => (a.payDay || 0) - (b.payDay || 0));
-
-        const billsTotal = periodBills.reduce((s, b) => s + (b.excludeFromTotal ? 0 : b.amount), 0);
-        const otherIncomeTotal = periodIncome.reduce((s, i) => s + i.amount, 0);
-        const available = income.user.payAmount + otherIncomeTotal - billsTotal;
-
-        const isCurrent = today >= periodStart && today <= periodEnd;
-
-        const dateOpts = { month: 'short', day: 'numeric' };
-        periods.push({
-            label: `Pay Period ${i + 1}`,
-            startLabel: periodStart.toLocaleDateString('en-US', dateOpts),
-            endLabel: periodEnd.toLocaleDateString('en-US', dateOpts),
-            start: periodStart,
-            end: periodEnd,
-            bills: periodBills,
-            billsTotal,
-            income: periodIncome,
-            otherIncomeTotal,
-            available,
-            isCurrent
-        });
-    }
-
-    return periods;
-}
+// Helper: annualized monthly amount for waterfall (delegates to service)
+const getBillAnnualizedMonthly = calculateBillMonthlyAmount;
 
 // ─── Recurring Import (Plaid) ────────────────────────────────────────────
 

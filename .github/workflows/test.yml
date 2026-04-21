@@ -1,0 +1,27 @@
+name: test
+
+# Runs the unit test suite on every push to master and every pull request.
+# Uses Node's built-in test runner — no dependencies to install.
+# See tests/financial-service.test.js and tests/recurring-service.test.js.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node 22 LTS — `node --test` gained glob-pattern support in v21,
+          # which the test script relies on (`tests/**/*.test.js`).
+          node-version: '22'
+
+      - name: Run tests
+        run: npm test

@@ -116,7 +116,7 @@ function renderMileageLog(store, account) {
             </div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <span style="font-size:12px;color:var(--text-muted);">${entries.length} reading${entries.length !== 1 ? 's' : ''}</span>
+            <span class="text-muted-sm">${entries.length} reading${entries.length !== 1 ? 's' : ''}</span>
             <button class="btn btn-primary btn-sm" id="add-mileage-btn">+ Add Reading</button>
         </div>
     `;
@@ -200,7 +200,7 @@ function renderTripTracker(store, account) {
 
     html += `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <span style="font-size:12px;color:var(--text-muted);">${trips.length} trip${trips.length !== 1 ? 's' : ''}</span>
+            <span class="text-muted-sm">${trips.length} trip${trips.length !== 1 ? 's' : ''}</span>
             <button class="btn btn-primary btn-sm" id="add-trip-btn">+ Add Trip</button>
         </div>
     `;

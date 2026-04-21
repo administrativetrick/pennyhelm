@@ -2,7 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
 const { TOTP, Secret } = require("otpauth");
 
-module.exports = function({ admin, db, secrets }) {
+module.exports = function({ admin, db, secrets, enforceRateLimit }) {
     const { MFA_ENCRYPTION_KEY } = secrets;
     const exports = {};
 
@@ -65,6 +65,11 @@ module.exports = function({ admin, db, secrets }) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
 
+            // Guard against repeated setup spam (each call writes a pending doc).
+            await enforceRateLimit({
+                db, request, name: 'setupMFA', limit: 5, windowSec: 300,
+            });
+
             const uid = request.auth.uid;
             const email = request.auth.token.email || 'user';
 
@@ -124,6 +129,12 @@ module.exports = function({ admin, db, secrets }) {
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Same brute-force profile as login.
+            await enforceRateLimit({
+                db, request, name: 'verifyMFASetup', limit: 10, windowSec: 60,
+                message: 'Too many MFA attempts. Try again in a minute.',
+            });
 
             const uid = request.auth.uid;
             const code = request.data?.code;
@@ -195,6 +206,13 @@ module.exports = function({ admin, db, secrets }) {
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Brute-force guard: 10 attempts/min is generous for a legit typo-prone
+            // user, miles below what's needed to enumerate a 6-digit TOTP.
+            await enforceRateLimit({
+                db, request, name: 'verifyMFALogin', limit: 10, windowSec: 60,
+                message: 'Too many MFA attempts. Try again in a minute.',
+            });
 
             const uid = request.auth.uid;
             const code = request.data?.code;

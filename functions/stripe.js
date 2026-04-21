@@ -2,7 +2,7 @@ const { onCall, HttpsError, onRequest } = require("firebase-functions/v2/https")
 const Stripe = require("stripe");
 
 module.exports = function({ admin, db, secrets }) {
-    const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID, STRIPE_FIRST_YEAR_COUPON_ID } = secrets;
+    const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID } = secrets;
     const exports = {};
 
     // Helper to get or create a Stripe customer for a Firebase user
@@ -34,7 +34,7 @@ module.exports = function({ admin, db, secrets }) {
     //     Creates a Stripe Checkout session for subscription
     exports.createCheckoutSession = onCall(
         {
-            secrets: [STRIPE_SECRET_KEY, STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID, STRIPE_FIRST_YEAR_COUPON_ID],
+            secrets: [STRIPE_SECRET_KEY, STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID],
         },
         async (request) => {
             if (!request.auth) {
@@ -70,19 +70,6 @@ module.exports = function({ admin, db, secrets }) {
                     allow_promotion_codes: true,
                     metadata: { firebaseUid: uid },
                 };
-
-                // Apply permanent annual-plan discount coupon.
-                // NOTE: the secret is still named STRIPE_FIRST_YEAR_COUPON_ID for
-                // backwards compatibility, but its duration in the Stripe dashboard
-                // must be set to `forever` so the $4.99/mo price never increases.
-                if (plan === 'annual') {
-                    const couponId = STRIPE_FIRST_YEAR_COUPON_ID.value();
-                    if (couponId) {
-                        sessionParams.discounts = [{ coupon: couponId }];
-                        // Can't use both discounts and allow_promotion_codes
-                        delete sessionParams.allow_promotion_codes;
-                    }
-                }
 
                 const session = await stripe.checkout.sessions.create(sessionParams);
 
@@ -205,7 +192,7 @@ module.exports = function({ admin, db, secrets }) {
                             }, { merge: true });
                             console.log(`User ${uid} subscription updated to ${status}.`);
 
-                            // Track referral reward when subscription becomes active
+                            // Track referral when subscription becomes active
                             if (subscription.status === "active") {
                                 try {
                                     const inviteFns = require("./invites")({ admin, db, getEmailTransporter: () => null, secrets });

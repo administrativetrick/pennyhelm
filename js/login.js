@@ -1,6 +1,15 @@
 import { firebaseConfig, APP_CHECK_SITE_KEY } from './firebase-config.js';
 import { APP_MODE } from './mode-config.js';
+import {
+    captureAcquisitionParams,
+    getAcquisitionSourceForSignup,
+    clearAcquisition,
+} from './acquisition.js';
 import { activateAppCheck } from './app-check-boot.js';
+
+// Capture any UTM / ref / gclid / fbclid params that landed the user here.
+// Runs before Firebase init so it's captured even if Firebase fails to load.
+captureAcquisitionParams();
 
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
@@ -11,6 +20,124 @@ const auth = firebase.auth();
 const functions = firebase.functions();
 
 const isCloudMode = APP_MODE === 'cloud';
+
+// ─── Google Ads + Consent Mode v2 ────────────────────────────────
+// Cloud-only. Loads gtag.js asynchronously and fires the signup conversion
+// after a successful registration. Skipped entirely in selfhost so no third
+// parties are contacted from local installs.
+//
+// Consent Mode v2 (advanced):
+//   https://developers.google.com/tag-platform/security/guides/consent
+// We set `consent default` BEFORE loading gtag.js with `*_storage` and
+// `ad_user_data` / `ad_personalization` denied for EEA visitors. gtag then
+// runs in "cookieless ping" mode — conversions are still modeled in aggregate
+// without setting any cookies or sharing identifiers. The /switch banner
+// calls `gtag('consent', 'update', { ... })` with granted values when an EEA
+// user clicks Accept, and persists that choice in localStorage so we can
+// restore it on subsequent visits.
+//
+// Non-EEA traffic defaults to granted (no banner required by law).
+//
+// TO ENABLE CONVERSION ATTRIBUTION: create a Conversion Action in Google
+// Ads → Tools → Conversions (Website → Sign-up). Google gives you a snippet
+// like `gtag('event', 'conversion', { send_to: 'AW-1061347212/AbCdEfGh' })`.
+// Replace CONVERSION_LABEL below with the real label after the slash. Until
+// then, the conversion fires with a placeholder Google Ads ignores (no user
+// impact, just no conversions counted).
+const GOOGLE_ADS_ID = 'AW-1061347212';
+const SIGNUP_CONVERSION_SEND_TO = 'AW-1061347212/CONVERSION_LABEL';
+const CONSENT_STORAGE_KEY = 'pennyhelm-consent';
+
+function isEeaVisitor() {
+    try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+        // Europe/* covers every EEA country + UK (UK-GDPR). A few Atlantic
+        // zones are EU dependencies (Iceland, Azores, Madeira, Faroe).
+        return (
+            tz.indexOf('Europe/') === 0 ||
+            tz === 'Atlantic/Reykjavik' ||
+            tz === 'Atlantic/Faroe' ||
+            tz === 'Atlantic/Azores' ||
+            tz === 'Atlantic/Madeira'
+        );
+    } catch (_) {
+        // Fail closed — if we can't tell, assume EEA so we require consent.
+        return true;
+    }
+}
+
+function readStoredConsent() {
+    try {
+        const v = localStorage.getItem(CONSENT_STORAGE_KEY);
+        return v === 'granted' || v === 'denied' ? v : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function loadGtag() {
+    if (!isCloudMode) return;
+
+    // Initialize dataLayer + gtag shim BEFORE the script tag so `consent
+    // default` queues up before gtag.js reads it.
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { window.dataLayer.push(arguments); }
+    window.gtag = gtag;
+
+    // Consent Mode v2 defaults. EEA users start denied; non-EEA granted.
+    // If an EEA user previously accepted the banner on /switch, honor it.
+    const stored = readStoredConsent();
+    let adsState = 'granted';
+    let analyticsState = 'granted';
+    if (isEeaVisitor()) {
+        adsState = stored === 'granted' ? 'granted' : 'denied';
+        analyticsState = stored === 'granted' ? 'granted' : 'denied';
+    }
+    gtag('consent', 'default', {
+        ad_storage: adsState,
+        ad_user_data: adsState,
+        ad_personalization: adsState,
+        analytics_storage: analyticsState,
+        // EU region scoping — Google restricts automatic region inference to
+        // best-effort; being explicit with EEA+UK+CH is safer.
+        wait_for_update: 500,
+    });
+
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ADS_ID}`;
+    document.head.appendChild(s);
+    gtag('js', new Date());
+    gtag('config', GOOGLE_ADS_ID);
+}
+
+// Fire the Google Ads signup conversion, then invoke `onDone` (usually the
+// post-signup redirect). Uses the event_callback pattern so the redirect
+// doesn't race the beacon, with a hard-timeout fallback in case gtag.js is
+// blocked or never calls the callback (ad blockers, offline, etc.).
+// With Consent Mode v2, conversions still fire when consent is denied —
+// Google Ads receives a cookieless ping and models them in aggregate.
+function fireSignupConversion(onDone) {
+    if (!isCloudMode || typeof window.gtag !== 'function') {
+        onDone();
+        return;
+    }
+    let called = false;
+    const done = () => { if (called) return; called = true; onDone(); };
+    try {
+        window.gtag('event', 'conversion', {
+            send_to: SIGNUP_CONVERSION_SEND_TO,
+            event_callback: done,
+        });
+    } catch (_) {
+        // If gtag throws for any reason, still redirect.
+        done();
+        return;
+    }
+    setTimeout(done, 1500);
+}
+
+loadGtag();
 
 // State
 let isSignUp = false;
@@ -90,9 +217,10 @@ form.addEventListener('submit', async (e) => {
             const referralCode = referralCodeInput ? referralCodeInput.value.trim().toUpperCase() : '';
 
             const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-            await registerUser(userCredential.user, referralCode);
+            await registerUser(userCredential.user, referralCode || null);
 
-            window.location.href = '/app';
+            // Fire Google Ads signup conversion, then redirect. No-op in selfhost.
+            fireSignupConversion(() => { window.location.href = '/app'; });
         } else {
             isLoggingIn = true; // Prevent onAuthStateChanged redirect
             const userCredential = await auth.signInWithEmailAndPassword(email, password);
@@ -162,7 +290,13 @@ googleBtn.addEventListener('click', async () => {
             }
         }
 
-        window.location.href = '/app';
+        // Only fire signup conversion for first-time Google registrations.
+        // Re-logins of existing users must not double-count.
+        if (isFirstTime) {
+            fireSignupConversion(() => { window.location.href = '/app'; });
+        } else {
+            window.location.href = '/app';
+        }
     } catch (error) {
         if (error.code !== 'auth/popup-closed-by-user') {
             errorDiv.textContent = getErrorMessage(error.code);
@@ -250,7 +384,7 @@ function showMFAVerificationModal() {
         <div class="modal-content" style="max-width:380px;">
             <h2>🔐 Two-Factor Authentication</h2>
             <p id="mfa-prompt-text">Enter the 6-digit code from your authenticator app.</p>
-            <div class="form-group" style="margin-top:16px;">
+            <div class="form-group mt-16">
                 <input type="text" class="form-input" id="mfa-code-input"
                     placeholder="000000" maxlength="6" autocomplete="one-time-code"
                     inputmode="numeric" pattern="[0-9]*"
@@ -364,7 +498,7 @@ function showPasswordChangeModal(user, currentPassword) {
         <div class="modal-content">
             <h2>🔐 Password Change Required</h2>
             <p>For security reasons, you must change your temporary password.</p>
-            <div class="form-group" style="margin-top:16px;">
+            <div class="form-group mt-16">
                 <label>New Password</label>
                 <input type="password" class="form-input" id="new-password" placeholder="Enter new password" minlength="6">
             </div>
@@ -459,7 +593,7 @@ function showMobileCredentialsModal(email) {
     if (emailEl) emailEl.textContent = email;
 }
 
-// Generate a referral code: REF- + 7 random chars
+// Generate a REF-XXXXXXX referral code (client-side, for new user registration)
 function generateReferralCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     let code = 'REF-';
@@ -469,7 +603,7 @@ function generateReferralCode() {
     return code;
 }
 
-// Register new user in Firestore (creates trial record)
+// Register new user in Firestore (creates trial record + referral code)
 async function registerUser(firebaseUser, referralCode) {
     try {
         const db = firebase.firestore();
@@ -478,14 +612,21 @@ async function registerUser(firebaseUser, referralCode) {
             displayName: firebaseUser.displayName || '',
             trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
             subscriptionStatus: 'trial',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             referralCode: generateReferralCode(),
             paidReferralCount: 0,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         if (referralCode) {
             userData.referredBy = referralCode;
         }
+        // Attach UTM / gclid / fbclid / referrer captured on landing so we can
+        // measure paid-ad ROI and organic attribution in the admin panel.
+        const acquisitionSource = getAcquisitionSourceForSignup();
+        if (acquisitionSource) {
+            userData.acquisitionSource = acquisitionSource;
+        }
         await db.collection('users').doc(firebaseUser.uid).set(userData);
+        clearAcquisition();
     } catch (e) {
         console.error('Failed to register user in Firestore:', e);
     }
@@ -510,6 +651,7 @@ async function ensureUserRegistered(firebaseUser) {
             });
         } else {
             // Doc exists — update email/displayName if they changed (Google can update these)
+            // Also backfill referralCode for users who predate the referral system.
             const data = userDoc.data();
             const updates = {};
             if (firebaseUser.email && firebaseUser.email !== data.email) {
@@ -521,6 +663,7 @@ async function ensureUserRegistered(firebaseUser) {
             // Backfill referralCode for existing users who don't have one
             if (!data.referralCode) {
                 updates.referralCode = generateReferralCode();
+                updates.paidReferralCount = data.paidReferralCount || 0;
             }
             if (Object.keys(updates).length > 0) {
                 await db.collection('users').doc(firebaseUser.uid).set(updates, { merge: true });
