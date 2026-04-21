@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
 
-module.exports = function({ admin, db, getEmailTransporter, secrets }) {
+module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRateLimit }) {
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = secrets;
     const exports = {};
 
@@ -41,6 +41,13 @@ module.exports = function({ admin, db, getEmailTransporter, secrets }) {
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Sends an email — the attractive vector for abuse is using your
+            // verified SMTP sender to phish via forwarded invite copy.
+            await enforceRateLimit({
+                db, request, name: 'sendInvite', limit: 10, windowSec: 3600,
+                message: 'You can send up to 10 invites per hour.',
+            });
 
             const uid = request.auth.uid;
             const inviterEmail = request.auth.token.email;
@@ -163,6 +170,11 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Guessing a valid inviteId is infeasible, but rate-limit anyway.
+            await enforceRateLimit({
+                db, request, name: 'acceptInvite', limit: 20, windowSec: 3600,
+            });
 
             const inviteeUid = request.auth.uid;
             const inviteeEmail = request.auth.token.email;
@@ -314,6 +326,10 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
 
+            await enforceRateLimit({
+                db, request, name: 'declineInvite', limit: 20, windowSec: 3600,
+            });
+
             const inviteeEmail = request.auth.token.email;
             const { inviteId } = request.data || {};
 
@@ -351,127 +367,109 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
     );
 
     // ─────────────────────────────────────────────
-    // REFERRAL FUNCTIONS
+    // REFERRAL TRACKING
     // ─────────────────────────────────────────────
 
-    // trackPaidReferral
-    //   Called from the Stripe webhook when a subscription becomes active.
-    //   Looks up the referrer and increments their paidReferralCount.
-    //   When count reaches 10, creates a 100% off coupon for 1 year and applies it.
-    exports.trackPaidReferral = async function trackPaidReferral(subscriberUid, stripe) {
-        try {
-            const subscriberDoc = await db.collection("users").doc(subscriberUid).get();
-            if (!subscriberDoc.exists) return;
+    /**
+     * Called internally (not exported as a Cloud Function) from the Stripe
+     * webhook when a subscription becomes active. Looks up the subscriber's
+     * referredBy code, finds the referrer, increments their paidReferralCount,
+     * and applies a free-year reward at 10 conversions.
+     */
+    async function trackPaidReferral(subscriberUid, stripe) {
+        const subscriberDoc = await db.collection("users").doc(subscriberUid).get();
+        if (!subscriberDoc.exists) return;
+        const referredBy = subscriberDoc.data().referredBy;
+        if (!referredBy) return;
 
-            const referredBy = subscriberDoc.data().referredBy;
-            if (!referredBy) return;
+        // Find the referrer by their referral code
+        const referrerSnap = await db.collection("users")
+            .where("referralCode", "==", referredBy)
+            .limit(1)
+            .get();
+        if (referrerSnap.empty) {
+            console.warn(`Referral code ${referredBy} not found for subscriber ${subscriberUid}`);
+            return;
+        }
 
-            // Find the referrer by referralCode
-            const referrerSnap = await db.collection("users")
-                .where("referralCode", "==", referredBy)
-                .limit(1)
-                .get();
+        const referrerDoc = referrerSnap.docs[0];
+        const referrerData = referrerDoc.data();
 
-            if (referrerSnap.empty) {
-                console.log(`No referrer found with code ${referredBy}`);
-                return;
-            }
+        // Prevent double-counting: check if this subscriber was already tracked
+        if (referrerData._trackedReferrals && referrerData._trackedReferrals.includes(subscriberUid)) {
+            return;
+        }
 
-            const referrerDoc = referrerSnap.docs[0];
-            const referrerUid = referrerDoc.id;
-            const referrerData = referrerDoc.data();
+        const newCount = (referrerData.paidReferralCount || 0) + 1;
+        const updates = {
+            paidReferralCount: admin.firestore.FieldValue.increment(1),
+            _trackedReferrals: admin.firestore.FieldValue.arrayUnion(subscriberUid),
+        };
 
-            // Increment paidReferralCount
-            await db.collection("users").doc(referrerUid).update({
-                paidReferralCount: admin.firestore.FieldValue.increment(1),
-            });
+        // At 10 paid referrals, reward the referrer with a free year
+        if (newCount >= 10 && !referrerData.referralRewardApplied) {
+            try {
+                const referrerStripeId = referrerData.stripeCustomerId;
+                const referrerSubId = referrerData.stripeSubscriptionId;
 
-            const newCount = (referrerData.paidReferralCount || 0) + 1;
-            console.log(`Referrer ${referrerUid} now has ${newCount} paid referrals.`);
-
-            // If referrer just hit 10 paid referrals and hasn't already earned the reward
-            if (newCount >= 10 && !referrerData.referralRewardEarned) {
-                console.log(`Referrer ${referrerUid} earned free year reward!`);
-
-                const referrerStripeCustomerId = referrerData.stripeCustomerId;
-                if (!referrerStripeCustomerId || !stripe) {
-                    console.log('No Stripe customer ID or Stripe client — skipping coupon.');
-                    // Still mark the reward as earned
-                    await db.collection("users").doc(referrerUid).update({
-                        referralRewardEarned: true,
-                    });
-                    return;
-                }
-
-                try {
-                    // Create a 100% off coupon valid for 1 year
+                if (referrerStripeId && referrerSubId) {
+                    // Create a 100% off coupon valid for 12 months
                     const coupon = await stripe.coupons.create({
                         percent_off: 100,
-                        duration: 'repeating',
+                        duration: "repeating",
                         duration_in_months: 12,
-                        name: `Referral Reward - ${referrerData.email || referrerUid}`,
-                        metadata: { referrerUid, reason: 'referral_reward_10' },
+                        name: `Referral reward — ${referrerData.email || referrerDoc.id}`,
                     });
 
                     // Apply to the referrer's subscription
-                    const referrerSubId = referrerData.stripeSubscriptionId;
-                    if (referrerSubId) {
-                        await stripe.subscriptions.update(referrerSubId, {
-                            coupon: coupon.id,
-                        });
-                        console.log(`Applied coupon ${coupon.id} to subscription ${referrerSubId}`);
-                    }
+                    await stripe.subscriptions.update(referrerSubId, {
+                        coupon: coupon.id,
+                    });
 
-                    await db.collection("users").doc(referrerUid).update({
-                        referralRewardEarned: true,
-                    });
-                } catch (stripeErr) {
-                    console.error('Error applying referral reward coupon:', stripeErr);
-                    // Mark earned anyway so we don't retry infinitely
-                    await db.collection("users").doc(referrerUid).update({
-                        referralRewardEarned: true,
-                    });
+                    updates.referralRewardApplied = true;
+                    updates.referralRewardDate = admin.firestore.FieldValue.serverTimestamp();
+                    console.log(`Applied free-year reward to referrer ${referrerDoc.id} (coupon ${coupon.id})`);
+                } else {
+                    console.warn(`Referrer ${referrerDoc.id} has no Stripe subscription — reward deferred`);
                 }
+            } catch (err) {
+                console.error(`Failed to apply referral reward to ${referrerDoc.id}:`, err);
             }
-        } catch (err) {
-            console.error("trackPaidReferral error:", err);
-            // Don't throw — this is best-effort and should not break the webhook
         }
-    };
 
-    // getReferralStatus
-    //   Returns the calling user's referral code, link, progress, and reward status.
-    exports.getReferralStatus = onCall(
-        async (request) => {
-            if (!request.auth) {
-                throw new HttpsError("unauthenticated", "Must be signed in.");
-            }
+        await referrerDoc.ref.update(updates);
+        console.log(`Referral tracked: subscriber ${subscriberUid} → referrer ${referrerDoc.id} (count now ${newCount})`);
+    }
 
-            const uid = request.auth.uid;
-            const userDoc = await db.collection("users").doc(uid).get();
+    // Expose as a plain function (not a Cloud Function) for stripe.js to call
+    exports.trackPaidReferral = trackPaidReferral;
 
-            if (!userDoc.exists) {
-                throw new HttpsError("not-found", "User not found.");
-            }
+    // ─────────────────────────────────────────────
+    // REFERRAL STATUS (client-facing)
+    // ─────────────────────────────────────────────
 
-            const data = userDoc.data();
-
-            // Backfill referralCode if missing
-            let referralCode = data.referralCode;
-            if (!referralCode) {
-                referralCode = "REF-" + generateCode();
-                await db.collection("users").doc(uid).update({ referralCode });
-            }
-
-            return {
-                referralCode: referralCode,
-                referralLink: `https://pennyhelm.com/login?ref=${referralCode}`,
-                paidReferralCount: data.paidReferralCount || 0,
-                targetCount: 10,
-                rewardEarned: data.referralRewardEarned === true,
-            };
+    exports.getReferralStatus = onCall(async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Must be signed in.");
         }
-    );
+
+        const uid = request.auth.uid;
+        const userDoc = await db.collection("users").doc(uid).get();
+        if (!userDoc.exists) {
+            throw new HttpsError("not-found", "User not found.");
+        }
+
+        const data = userDoc.data();
+        return {
+            referralCode: data.referralCode || null,
+            referralLink: data.referralCode
+                ? `https://pennyhelm.com/login?ref=${data.referralCode}`
+                : null,
+            paidReferralCount: data.paidReferralCount || 0,
+            targetCount: 10,
+            rewardEarned: !!data.referralRewardApplied,
+        };
+    });
 
     return exports;
 };

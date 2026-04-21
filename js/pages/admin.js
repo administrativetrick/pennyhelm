@@ -11,6 +11,40 @@ function debounce(fn, delay) {
     };
 }
 
+// Render the acquisition source block for the admin user detail view. Returns
+// empty string if the user has no tracking data (old accounts, or landed with
+// no UTM/ref params).
+function renderAcquisitionSource(src) {
+    if (!src || typeof src !== 'object') return '';
+    const keys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','ref','gclid','fbclid','referrer','landingPath','capturedAt'];
+    const present = keys.filter(k => src[k]);
+    if (present.length === 0) return '';
+    const labels = {
+        utm_source: 'source',
+        utm_medium: 'medium',
+        utm_campaign: 'campaign',
+        utm_content: 'content',
+        utm_term: 'term',
+        ref: 'ref',
+        gclid: 'gclid',
+        fbclid: 'fbclid',
+        referrer: 'referrer',
+        landingPath: 'landing',
+        capturedAt: 'captured',
+    };
+    const chips = present.map(k => {
+        const v = String(src[k]);
+        const shown = v.length > 60 ? v.slice(0, 57) + '...' : v;
+        return `<span title="${escapeHtml(v)}" style="display:inline-block;background:var(--bg-input);padding:2px 8px;border-radius:3px;font-size:11px;margin-right:6px;margin-top:4px;"><strong>${labels[k]}:</strong> ${escapeHtml(shown)}</span>`;
+    }).join('');
+    return `
+        <div style="margin-top:10px;font-size:12px;color:var(--text-secondary);">
+            <div style="margin-bottom:2px;">Acquisition:</div>
+            ${chips}
+        </div>
+    `;
+}
+
 export async function renderAdmin(container, store) {
     const db = firebase.firestore();
 
@@ -70,6 +104,42 @@ export async function renderAdmin(container, store) {
             </div>
         </div>
 
+        <!-- Active Users (DAU / MAU) -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3>Active Users</h3>
+                    <select id="active-users-range" class="form-select" style="max-width:140px;font-size:12px;">
+                        <option value="7">Last 7 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                <div id="active-users-summary" style="color:var(--text-secondary);font-size:12px;margin-bottom:12px;">
+                    Loading...
+                </div>
+                <div id="active-users-content"></div>
+            </div>
+        </div>
+
+        <!-- Ad Attribution -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3>Ad Attribution</h3>
+                    <select id="ad-attr-range" class="form-select" style="max-width:140px;font-size:12px;">
+                        <option value="7">Last 7 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                <div id="ad-attr-summary" style="color:var(--text-secondary);font-size:12px;margin-bottom:12px;">
+                    Loading...
+                </div>
+                <div id="ad-attr-content"></div>
+            </div>
+        </div>
+
         <!-- Test Users -->
         <div class="card mb-24">
             <div class="settings-section">
@@ -91,7 +161,7 @@ export async function renderAdmin(container, store) {
                     <input type="text" class="form-input" id="user-lookup-email" placeholder="Search by email, display name, or UID..." style="flex:1;" autocomplete="off">
                     <button class="btn btn-primary btn-sm" id="user-lookup-btn">Search</button>
                 </div>
-                <div id="user-lookup-result" style="margin-top:16px;"></div>
+                <div id="user-lookup-result" class="mt-16"></div>
             </div>
         </div>
     `;
@@ -203,7 +273,7 @@ export async function renderAdmin(container, store) {
                             `).join('')}
                         </div>`
                     }
-                    <div class="modal-actions" style="margin-top:16px;">
+                    <div class="modal-actions mt-16">
                         <button class="btn btn-secondary" id="modal-cancel">Close</button>
                     </div>
                 `);
@@ -257,15 +327,15 @@ export async function renderAdmin(container, store) {
                 const result = await createTestUserFn({
                     displayName: name,
                     email: email || undefined,
-                    subscriptionStatus: status
+                    subscriptionStatus: status,
                 });
 
                 closeModal();
 
-                // Show the generated credentials
+                // Show the generated credentials — only chance to see the password
                 openModal('Test User Created', `
                     <div style="text-align:center;">
-                        <p style="margin-bottom:8px;">User <strong>${escapeHtml(name)}</strong> created successfully.</p>
+                        <p class="mb-8">User <strong>${escapeHtml(name)}</strong> created successfully.</p>
                         <div style="background:var(--bg-secondary);border-radius:8px;padding:16px;margin:16px 0;text-align:left;">
                             <p style="margin:0 0 8px 0;"><strong>UID:</strong> <code>${escapeHtml(result.data.uid)}</code></p>
                             <p style="margin:0 0 8px 0;"><strong>Email:</strong> <code>${escapeHtml(result.data.email)}</code></p>
@@ -293,6 +363,26 @@ export async function renderAdmin(container, store) {
     // Load and render test users
     loadTestUsers(container, db, store);
 
+    // === Active Users Handlers ===
+
+    const activeRangeSel = document.getElementById('active-users-range');
+    if (activeRangeSel) {
+        loadActiveUsers(parseInt(activeRangeSel.value, 10) || 30);
+        activeRangeSel.addEventListener('change', () => {
+            loadActiveUsers(parseInt(activeRangeSel.value, 10) || 30);
+        });
+    }
+
+    // === Ad Attribution Handlers ===
+
+    const rangeSel = document.getElementById('ad-attr-range');
+    if (rangeSel) {
+        loadAdAttribution(parseInt(rangeSel.value, 10) || 30);
+        rangeSel.addEventListener('change', () => {
+            loadAdAttribution(parseInt(rangeSel.value, 10) || 30);
+        });
+    }
+
     // === User Lookup Handlers ===
 
     document.getElementById('user-lookup-btn').addEventListener('click', () => {
@@ -307,6 +397,197 @@ export async function renderAdmin(container, store) {
     // Real-time search as user types (debounced)
     const debouncedSearch = debounce(() => searchUsers(db), 300);
     document.getElementById('user-lookup-email').addEventListener('input', debouncedSearch);
+}
+
+// ─── Active Users (DAU / MAU) ───────────────────────────────
+
+async function loadActiveUsers(daysBack) {
+    const summaryEl = document.getElementById('active-users-summary');
+    const contentEl = document.getElementById('active-users-content');
+    if (!summaryEl || !contentEl) return;
+
+    summaryEl.textContent = 'Loading...';
+    contentEl.innerHTML = '';
+
+    try {
+        const fn = firebase.app().functions().httpsCallable('getActiveUserStats');
+        const result = await fn({ daysBack });
+        const data = result.data;
+
+        const dauToday = Number(data.dauToday) || 0;
+        const wau = Number(data.wau) || 0;
+        const mau = Number(data.mau) || 0;
+
+        // Stickiness = DAU / MAU — standard industry engagement metric.
+        // Higher = users come back daily. 20%+ is healthy for a utility app.
+        const stickiness = mau > 0 ? (dauToday / mau) * 100 : 0;
+
+        summaryEl.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:4px;">
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">DAU (today)</div>
+                    <div style="font-size:22px;font-weight:700;color:#22c55e;margin-top:4px;">${dauToday.toLocaleString()}</div>
+                </div>
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">WAU (7d)</div>
+                    <div style="font-size:22px;font-weight:700;color:var(--text-primary);margin-top:4px;">${wau.toLocaleString()}</div>
+                </div>
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">MAU (30d)</div>
+                    <div style="font-size:22px;font-weight:700;color:var(--text-primary);margin-top:4px;">${mau.toLocaleString()}</div>
+                </div>
+                <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);" title="DAU ÷ MAU — higher means users return more frequently">
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Stickiness</div>
+                    <div style="font-size:22px;font-weight:700;color:var(--text-primary);margin-top:4px;">${stickiness.toFixed(1)}%</div>
+                </div>
+            </div>
+        `;
+
+        contentEl.innerHTML = `
+            ${renderDauSparkline(data.dau || [])}
+            <p style="color:var(--text-secondary);font-size:11px;margin-top:12px;">
+                One Firestore doc per (user, UTC day). Bars show daily active users over the window.
+                MAU is the distinct user count in the trailing 30-day window. No financial data recorded —
+                see privacy.html §1.8.
+            </p>
+        `;
+    } catch (err) {
+        console.error('getActiveUserStats failed:', err);
+        summaryEl.textContent = '';
+        contentEl.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px;">Failed to load active-user data: ${escapeHtml(err.message || 'unknown error')}</p>`;
+    }
+}
+
+/**
+ * Lightweight inline bar-chart of DAU over the window. No chart library —
+ * one CSS-styled bar per day scaled against the max value in the series.
+ */
+function renderDauSparkline(series) {
+    if (!Array.isArray(series) || series.length === 0) {
+        return `<p style="color:var(--text-secondary);font-size:12px;">No activity recorded in this window.</p>`;
+    }
+
+    const max = series.reduce((m, d) => Math.max(m, d.activeUsers || 0), 0);
+    // If max is 0, show flat bars so the layout doesn't collapse.
+    const scale = max > 0 ? max : 1;
+
+    const bars = series.map((d) => {
+        const n = d.activeUsers || 0;
+        const pct = (n / scale) * 100;
+        const heightPct = max > 0 ? pct : 0;
+        // Show the date on hover; day-of-month label below the bar for dense series.
+        const dayOfMonth = d.date.slice(8, 10);
+        return `
+            <div style="flex:1 1 0;display:flex;flex-direction:column;align-items:center;min-width:0;" title="${escapeHtml(d.date)}: ${n.toLocaleString()} DAU">
+                <div style="width:100%;height:80px;display:flex;align-items:flex-end;">
+                    <div style="width:100%;height:${heightPct}%;background:#22c55e;border-radius:2px 2px 0 0;min-height:${n > 0 ? '2px' : '0'};"></div>
+                </div>
+                <div style="font-size:9px;color:var(--text-secondary);margin-top:4px;">${dayOfMonth}</div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="mt-16">
+            <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">Daily Active Users</h4>
+            <div style="background:var(--bg-input,#1a2431);padding:12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);">
+                <div style="display:flex;gap:2px;align-items:flex-end;">${bars}</div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-secondary);margin-top:6px;">
+                    <span>${escapeHtml(series[0].date)}</span>
+                    <span>Peak: ${max.toLocaleString()}</span>
+                    <span>${escapeHtml(series[series.length - 1].date)}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ─── Ad Attribution ──────────────────────────────────────────
+
+async function loadAdAttribution(daysBack) {
+    const summaryEl = document.getElementById('ad-attr-summary');
+    const contentEl = document.getElementById('ad-attr-content');
+    if (!summaryEl || !contentEl) return;
+
+    summaryEl.textContent = 'Loading...';
+    contentEl.innerHTML = '';
+
+    try {
+        const fn = firebase.app().functions().httpsCallable('getAdAttributionStats');
+        const result = await fn({ daysBack });
+        const data = result.data;
+
+        const v = Number(data.totalUniqueVisitors) || 0;
+        const s = Number(data.totalSignupsInWindow) || 0;
+        summaryEl.textContent = `${v.toLocaleString()} unique visitor${v === 1 ? '' : 's'} · ${s.toLocaleString()} signup${s === 1 ? '' : 's'} in the last ${data.daysBack} day${data.daysBack === 1 ? '' : 's'}.`;
+
+        contentEl.innerHTML = `
+            ${renderAttributionTable('By Source', data.sources, 'source', 'utm_source')}
+            ${renderAttributionTable('By Campaign', data.campaigns, 'campaign', 'utm_campaign')}
+            ${renderAttributionTable('By Creative', data.creatives, 'creative', 'utm_content')}
+            <p style="color:var(--text-secondary);font-size:11px;margin-top:12px;">
+                <strong>Views</strong> = landings on /switch · <strong>Clicks</strong> = CTA presses ·
+                <strong>Signups</strong> = users whose acquisitionSource matches ·
+                <strong>Abandoned</strong> = clicked CTA but never completed signup in-window.
+            </p>
+        `;
+    } catch (err) {
+        console.error('getAdAttributionStats failed:', err);
+        summaryEl.textContent = '';
+        contentEl.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px;">Failed to load attribution data: ${escapeHtml(err.message || 'unknown error')}</p>`;
+    }
+}
+
+function renderAttributionTable(title, rows, keyLabel, keyField) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return `
+            <div class="mt-16">
+                <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">${escapeHtml(title)}</h4>
+                <p style="color:var(--text-secondary);font-size:12px;">No data yet.</p>
+            </div>
+        `;
+    }
+
+    const pct = (n) => {
+        if (!isFinite(n)) return '—';
+        return (n * 100).toFixed(1) + '%';
+    };
+
+    const bodyRows = rows.map((r) => `
+        <tr>
+            <td style="padding:6px 8px;font-family:monospace;font-size:12px;">${escapeHtml(r.key || '(unknown)')}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.uniqueVisitors.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.views.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.clicks.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--text-secondary);">${pct(r.clickThroughRate)}</td>
+            <td style="padding:6px 8px;text-align:right;color:#22c55e;font-weight:600;">${r.signups.toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--text-secondary);">${pct(r.conversionRate)}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--text-secondary);">${r.abandoned.toLocaleString()}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <div class="mt-16">
+            <h4 style="font-size:13px;margin-bottom:8px;color:var(--text-primary);">${escapeHtml(title)}</h4>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid var(--border,#2a2f3a);border-radius:6px;overflow:hidden;">
+                    <thead>
+                        <tr style="background:var(--bg-input,#1a2431);">
+                            <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">${escapeHtml(keyLabel)}</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Unique</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Views</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Clicks</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);" title="Click-through rate: clicks / views">CTR</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Signups</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);" title="Conversion rate: signups / clicks">Conv</th>
+                            <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);" title="Clicked CTA but didn't sign up in-window">Abandoned</th>
+                        </tr>
+                    </thead>
+                    <tbody>${bodyRows}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
 }
 
 async function loadTestUsers(container, db, store) {
@@ -374,7 +655,7 @@ async function loadTestUsers(container, db, store) {
 
                     openModal('Password Reset', `
                         <div style="text-align:center;">
-                            <p style="margin-bottom:8px;">Password reset for <strong>${escapeHtml(name)}</strong>.</p>
+                            <p class="mb-8">Password reset for <strong>${escapeHtml(name)}</strong>.</p>
                             <div style="background:var(--bg-secondary);border-radius:8px;padding:16px;margin:16px 0;">
                                 <p style="margin:0;"><strong>New Temporary Password:</strong><br>
                                 <code style="color:var(--accent);font-weight:600;font-size:16px;">${escapeHtml(result.data.tempPassword)}</code></p>
@@ -624,9 +905,10 @@ async function lookupUser(db) {
                 </div>
                 <div style="margin-top:6px;font-size:13px;color:var(--text-secondary);">
                     Referred by: ${userData.referredBy ? '<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.referredBy) + '</code>' : 'N/A'}
-                    &middot; Referral code: ${userData.referralCode ? '<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.referralCode) + '</code>' : 'None'}
-                    &middot; Paid referrals: ${userData.paidReferralCount || 0}/10${userData.referralRewardEarned ? ' (reward earned)' : ''}
+                    &middot; Referral code: ${userData.referralCode ? '<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeHtml(userData.referralCode) + '</code>' : 'Not generated'}
+                    &middot; Paid referrals: ${userData.paidReferralCount || 0}/10${userData.referralRewardApplied ? ' &middot; <span style="color:var(--green);">Free year earned</span>' : ''}
                 </div>
+                ${renderAcquisitionSource(userData.acquisitionSource)}
                 <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-secondary btn-sm" id="extend-trial-btn">Extend Trial</button>
                     <button class="btn btn-secondary btn-sm" id="reset-trial-btn">Reset Trial</button>

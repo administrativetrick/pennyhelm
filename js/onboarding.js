@@ -94,7 +94,7 @@ var BASE_STEPS = [
     {
         id: 'settings',
         title: 'Settings',
-        body: 'Configure your profile, pay schedule, credit scores, payment sources, business names, and more. You can also manage a dependent partner and set your preferred theme.',
+        body: 'Configure your profile, pay schedule, credit scores, payment sources, business names, and more. You can also manage a partner or household member and set your preferred theme.',
         icon: '\u2699\uFE0F',
         highlight: '[data-page="settings"]',
         position: 'right',

@@ -149,6 +149,24 @@ app.use(express.json({ limit: '5mb' }));
 
 // ===== Public API Routes =====
 
+// Health check — used by Docker HEALTHCHECK, load balancers, and uptime monitors.
+// Returns 200 only if the Express process is up AND SQLite responds to a ping.
+// Intentionally unauthenticated and cheap — do not add auth, DB writes, or
+// anything that could make a legitimate health check fail under load.
+app.get('/health', (req, res) => {
+    try {
+        // Lightweight SQLite round-trip. SELECT 1 is cached and effectively free.
+        db.prepare('SELECT 1').get();
+        res.status(200).json({
+            status: 'ok',
+            mode: MODE,
+            uptime: process.uptime(),
+        });
+    } catch (e) {
+        res.status(503).json({ status: 'degraded', error: 'database unreachable' });
+    }
+});
+
 // Config endpoint (public — tells the client what mode we're in)
 app.get('/api/config', (req, res) => {
     res.json({ mode: MODE, appName: 'PennyHelm' });

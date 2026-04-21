@@ -1,5 +1,6 @@
 import { formatCurrency, escapeHtml, getScoreRating, estimateScoreImpact } from '../utils.js';
 import { openModal, closeModal, refreshPage, updateDependentNav } from '../app.js';
+import { openFormModal } from '../services/modal-manager.js';
 import { auth } from '../auth.js';
 import { CATEGORY_COLORS } from '../categories.js';
 import { hasPlaidConnections } from '../plaid.js';
@@ -20,112 +21,119 @@ export function renderSettings(container, store) {
     const creditScores = store.getCreditScores();
     const totalCreditLimit = accounts.filter(a => a.type === 'credit').reduce((s, a) => s + a.balance, 0);
     const pref = getThemePreference();
+    const healthSettings = store.getHealthScoreSettings();
+    const currentRiskTolerance = healthSettings.riskTolerance || 'balanced';
+    const hasTaxableInvestments = accounts.some(a => a.type === 'investment');
+
+    // Theme toggle in page header — cycles system → light → dark → system.
+    // Tiny icon button replaces the old full-width Appearance card. Click
+    // handler lives below with the rest of the settings wiring.
+    const themeIcon = pref === 'light'
+        ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
+        : pref === 'dark'
+            ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+            : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
+    const themeLabel = pref === 'light' ? 'Light' : pref === 'dark' ? 'Dark' : 'System';
 
     container.innerHTML = `
         <div class="page-header">
             <h2>Settings</h2>
-        </div>
-
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Profile</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Your Name</div>
-                        <div class="setting-desc">Used in the app title and labels. Currently: <strong>${escapeHtml(userName)}</strong></div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" id="edit-user-name">Edit</button>
-                </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" id="replay-onboarding-btn"
+                    class="btn btn-secondary btn-sm"
+                    title="Replay the app tour"
+                    aria-label="Replay onboarding tour"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span style="font-size:12px;">Tour</span>
+                </button>
+                <button type="button" id="theme-cycle-btn"
+                    class="btn btn-secondary btn-sm"
+                    title="Theme: ${themeLabel} (click to cycle)"
+                    aria-label="Cycle theme — currently ${themeLabel}"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;">
+                    ${themeIcon}
+                    <span style="font-size:12px;">${themeLabel}</span>
+                </button>
             </div>
         </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Appearance</h3>
-                <div class="settings-row" style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <div class="setting-label">Theme</div>
-                        <div class="setting-desc">Choose light, dark, or match your system</div>
-                    </div>
-                    <div style="display:flex;gap:4px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:3px;">
-                        <button class="theme-option${pref === 'system' ? ' active' : ''}" data-theme="system" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'system' ? 'var(--accent)' : 'none'};color:${pref === 'system' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">System</button>
-                        <button class="theme-option${pref === 'light' ? ' active' : ''}" data-theme="light" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'light' ? 'var(--accent)' : 'none'};color:${pref === 'light' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">Light</button>
-                        <button class="theme-option${pref === 'dark' ? ' active' : ''}" data-theme="dark" style="padding:6px 14px;border-radius:4px;border:none;background:${pref === 'dark' ? 'var(--accent)' : 'none'};color:${pref === 'dark' ? '#fff' : 'var(--text-secondary)'};font-size:13px;font-weight:600;cursor:pointer;">Dark</button>
+        <!-- ───── Account ───── -->
+        <div class="settings-section-header">Account</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Profile</h3>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Your Name</div>
+                            <div class="setting-desc">Used in the app title and labels. Currently: <strong>${escapeHtml(userName)}</strong></div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="edit-user-name">Edit</button>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Help</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">App Tour</div>
-                        <div class="setting-desc">Replay the onboarding guide to learn about PennyHelm's features</div>
+            ${auth.isCloud() ? `
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>💳 Subscription</h3>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Plan Status</div>
+                            <div class="setting-desc" id="subscription-status-text">Loading...</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="manage-subscription-btn" style="display:none;">Manage</button>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="replay-onboarding-btn">Replay Tour</button>
                 </div>
             </div>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>📱 Mobile App</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Sign in to the PennyHelm mobile app with your email and mobile password.
+                    </p>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Mobile App Login</div>
+                            <div class="setting-desc" id="mobile-credentials-status">Loading...</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="resend-mobile-password">Resend Password</button>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
         </div>
 
+        <!-- ───── Accounts & Connections (full-width, data-heavy) ───── -->
+        <div class="settings-section-header">Accounts & Connections</div>
         ${renderAccountsSection(store)}
-
         ${!auth.isCloud() ? renderPlaidConfigCard() : ''}
 
         ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>💳 Subscription</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Plan Status</div>
-                        <div class="setting-desc" id="subscription-status-text">Loading...</div>
+        <!-- ───── Security ───── -->
+        <div class="settings-section-header">Security</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>🔐 Two-Factor Authentication</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Protect your account with two-factor authentication using an authenticator app.
+                    </p>
+                    <div class="settings-row" id="mfa-status-row">
+                        <div>
+                            <div class="setting-label">Two-Factor Authentication</div>
+                            <div class="setting-desc" id="mfa-status-text">Loading...</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="mfa-toggle-btn" style="display:none;">Enable</button>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="manage-subscription-btn" style="display:none;">Manage</button>
+                    <div id="mfa-setup-container" style="display:none;"></div>
                 </div>
             </div>
-        </div>
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>📱 Mobile App</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Sign in to the PennyHelm mobile app with your email and mobile password.
-                </p>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Mobile App Login</div>
-                        <div class="setting-desc" id="mobile-credentials-status">Loading...</div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" id="resend-mobile-password">Resend Password</button>
-                </div>
-            </div>
-        </div>
-        ` : ''}
 
-        ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>🔐 Security</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Protect your account with two-factor authentication using an authenticator app.
-                </p>
-                <div class="settings-row" id="mfa-status-row">
-                    <div>
-                        <div class="setting-label">Two-Factor Authentication</div>
-                        <div class="setting-desc" id="mfa-status-text">Loading...</div>
-                    </div>
-                    <button class="btn btn-secondary btn-sm" id="mfa-toggle-btn" style="display:none;">Enable</button>
-                </div>
-                <div id="mfa-setup-container" style="display:none;"></div>
-            </div>
-        </div>
-        ` : ''}
-
-        ${auth.isCloud() ? `
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>API Access</h3>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>API Access</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
                     Generate API keys to access your PennyHelm data programmatically via REST API.
                 </p>
@@ -140,12 +148,12 @@ export function renderSettings(container, store) {
                 <div id="api-key-created-banner" style="display:none;margin-top:12px;padding:14px;background:var(--bg-secondary);border:1px solid var(--green);border-radius:var(--radius-sm);">
                     <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px;">NEW API KEY CREATED</div>
                     <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Copy this key now. It will not be shown again.</p>
-                    <div style="display:flex;align-items:center;gap:8px;">
+                    <div class="flex-align-center gap-8">
                         <code id="api-key-value" style="flex:1;padding:8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;font-size:13px;word-break:break-all;user-select:all;"></code>
                         <button class="btn btn-secondary btn-sm" id="copy-api-key-btn">Copy</button>
                     </div>
                 </div>
-                <details style="margin-top:16px;">
+                <details class="mt-16">
                     <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer;user-select:none;">API Documentation</summary>
                     <div style="margin-top:8px;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);">
                         <p style="margin:0 0 8px;font-weight:600;">Base URL</p>
@@ -164,9 +172,13 @@ export function renderSettings(container, store) {
                 </details>
             </div>
         </div>
+        </div>
         ` : ''}
 
-        <div class="card mb-24">
+        <!-- ───── Finance Tools ───── -->
+        <div class="settings-section-header">Finance Tools</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
             <div class="settings-section">
                 <h3>Credit Scores</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
@@ -238,15 +250,56 @@ export function renderSettings(container, store) {
             </div>
         </div>
 
-        <div class="card mb-24">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Financial Health Score</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Pick how much of your taxable brokerage balance should count toward your
+                        <strong>Savings Cushion</strong> and <strong>Liquid Reserves</strong>. Retirement
+                        accounts (401k / IRA) are never counted — the early-withdrawal penalty makes them
+                        unsuitable as emergency reserves.
+                    </p>
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;">
+                        ${[
+                            { value: 'conservative', label: 'Conservative', pct: '50%', desc: 'Assumes market drawdowns and taxes eat half your brokerage in an emergency.' },
+                            { value: 'balanced', label: 'Balanced', pct: '75%', desc: 'Default. Reflects typical drawdown, capital gains, and settlement drag.' },
+                            { value: 'aggressive', label: 'Aggressive', pct: '100%', desc: 'Full dollar-for-dollar credit. Best for diversified long-horizon investors.' },
+                        ].map(opt => {
+                            const active = currentRiskTolerance === opt.value;
+                            return `
+                            <button type="button" class="risk-option" data-risk-option="${opt.value}"
+                                style="display:block;text-align:left;cursor:pointer;padding:12px;border-radius:var(--radius-sm);border:2px solid ${active ? 'var(--accent)' : 'var(--border)'};background:var(--bg-secondary);${active ? 'box-shadow:inset 0 0 0 9999px rgba(99,102,241,0.08);' : ''}transition:border-color 0.15s, background 0.15s;width:100%;font-family:inherit;">
+                                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
+                                    <span style="font-size:13px;font-weight:700;color:var(--text-primary);">${opt.label}${active ? ' ✓' : ''}</span>
+                                    <span style="font-size:13px;font-weight:700;color:${active ? 'var(--accent)' : 'var(--text-muted)'};">${opt.pct}</span>
+                                </div>
+                                <div style="font-size:11px;color:var(--text-secondary);line-height:1.4;">${opt.desc}</div>
+                            </button>`;
+                        }).join('')}
+                    </div>
+
+                    ${hasTaxableInvestments ? '' : `
+                        <div style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px dashed var(--border);font-size:11px;color:var(--text-muted);">
+                            <span style="font-weight:600;">Tip:</span> this setting only matters once you have accounts marked as type "Investment". Retirement accounts aren't affected.
+                        </div>
+                    `}
+                </div>
+            </div>
+        </div>
+
+        <!-- ───── People & Sharing ───── -->
+        <div class="settings-section-header">People & Sharing</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
             <div class="settings-section">
-                <h3>Dependent Coverage</h3>
+                <h3>Partner</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Track another person's bills and toggle whether you're covering them.
+                    Track a partner, spouse, or another household member's bills and toggle whether you're covering them.
                 </p>
                 <div class="settings-row">
                     <div>
-                        <div class="setting-label">Enable Dependent Tracking</div>
+                        <div class="setting-label">Enable partner tracking</div>
                         <div class="setting-desc">${depEnabled ? `Tracking <strong>${escapeHtml(depName)}</strong>'s bills` : 'Disabled'}</div>
                     </div>
                     <label class="toggle">
@@ -257,16 +310,60 @@ export function renderSettings(container, store) {
                 ${depEnabled ? `
                 <div class="settings-row">
                     <div>
-                        <div class="setting-label">Dependent Name</div>
+                        <div class="setting-label">Partner's name</div>
                         <div class="setting-desc">Currently: <strong>${escapeHtml(depName)}</strong></div>
                     </div>
                     <button class="btn btn-secondary btn-sm" id="edit-dep-name">Edit</button>
                 </div>
                 ` : ''}
             </div>
+            </div>
+
+            ${auth.isCloud() ? `
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>🤝 Sharing & Invites</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Invite others to view or collaborate on your finances. Perfect for partners, spouses, or financial professionals.
+                    </p>
+
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Invite Someone</div>
+                            <div class="setting-desc">Share access with a partner, spouse, or financial professional</div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="invite-person-btn">+ Invite</button>
+                    </div>
+
+                    <div id="pending-invites-section" style="margin-top:16px;display:none;">
+                        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PENDING INVITES</div>
+                        <div id="pending-invites-list"></div>
+                    </div>
+
+                    <div id="shared-with-section" style="margin-top:16px;display:none;">
+                        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PEOPLE WITH ACCESS</div>
+                        <div id="shared-with-list"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>🎁 Referral Program</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Invite friends to PennyHelm. When 10 friends sign up for a paid plan, you earn a <strong>free year</strong>.
+                    </p>
+                    <div id="referral-status">
+                        <p style="color:var(--text-secondary);font-size:13px;">Loading...</p>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
         </div>
 
-        <div class="card mb-24">
+        <!-- ───── Categorization ───── -->
+        <div class="settings-section-header">Categorization</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
             <div class="settings-section">
                 <h3>Payment Sources</h3>
                 <div id="sources-list">
@@ -340,56 +437,91 @@ export function renderSettings(container, store) {
             </div>
         </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Custom Categories</h3>
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                    Create custom categories for organizing your bills. These appear alongside the default categories.
-                </p>
-                <div id="custom-categories-list">
-                    ${renderCustomCategoriesList(store.getCustomCategories(), bills)}
-                </div>
-                <div style="margin-top:12px;">
-                    <button class="btn btn-primary btn-sm" id="add-custom-category-btn">+ Add Category</button>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Custom Categories</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Create custom categories for organizing your bills. These appear alongside the default categories.
+                    </p>
+                    <div id="custom-categories-list">
+                        ${renderCustomCategoriesList(store.getCustomCategories(), bills)}
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button class="btn btn-primary btn-sm" id="add-custom-category-btn">+ Add Category</button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="card mb-24">
-            <div class="settings-section">
-                <h3>Data Management</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Export Data</div>
-                        <div class="setting-desc">Download all your data as a JSON file</div>
+        <!-- ───── Data & Tools ───── -->
+        <div class="settings-section-header">Data & Tools</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Data Management</h3>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Export Data</div>
+                            <div class="setting-desc">Download all your data as a JSON file</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="export-btn">Export JSON</button>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="export-btn">Export JSON</button>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Import Data</div>
+                            <div class="setting-desc">Restore from a previously exported JSON file</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="import-btn">Import JSON</button>
+                    </div>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Clear All Data</div>
+                            <div class="setting-desc">Remove all bills, debts, accounts, and deductions (keeps settings)</div>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="clear-data-btn" style="color:var(--orange);">Clear Data</button>
+                    </div>
+                    <div class="settings-row">
+                        <div>
+                            <div class="setting-label">Reset All Data</div>
+                            <div class="setting-desc">Clear everything and re-seed with default sample data</div>
+                        </div>
+                        <button class="btn btn-danger btn-sm" id="reset-btn">Reset</button>
+                    </div>
                 </div>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Import Data</div>
-                        <div class="setting-desc">Restore from a previously exported JSON file</div>
+            </div>
+
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Summary</h3>
+                    <div class="settings-row">
+                        <span class="text-muted">Total ${escapeHtml(userName)} Bills</span>
+                        <span class="font-bold">${bills.length} (${formatCurrency(bills.reduce((s, b) => s + b.amount, 0))})</span>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="import-btn">Import JSON</button>
-                </div>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Clear All Data</div>
-                        <div class="setting-desc">Remove all bills, debts, accounts, and deductions (keeps settings)</div>
+                    <div class="settings-row">
+                        <span class="text-muted">Active (non-frozen)</span>
+                        <span class="font-bold">${bills.filter(b => !b.frozen).length} (${formatCurrency(bills.filter(b => !b.frozen).reduce((s, b) => s + b.amount, 0))})</span>
                     </div>
-                    <button class="btn btn-secondary btn-sm" id="clear-data-btn" style="color:var(--orange);">Clear Data</button>
-                </div>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label">Reset All Data</div>
-                        <div class="setting-desc">Clear everything and re-seed with default sample data</div>
+                    <div class="settings-row">
+                        <span class="text-muted">Frozen Bills</span>
+                        <span class="font-bold">${bills.filter(b => b.frozen).length}</span>
                     </div>
-                    <button class="btn btn-danger btn-sm" id="reset-btn">Reset</button>
+                    ${depEnabled ? `
+                    <div class="settings-row">
+                        <span class="text-muted">${escapeHtml(depName)}'s Bills</span>
+                        <span class="font-bold">${dependentBills.length} (${formatCurrency(dependentBills.reduce((s, b) => s + b.amount, 0))})</span>
+                    </div>
+                    ` : ''}
+                    <div class="settings-row">
+                        <span class="text-muted">Payment Sources</span>
+                        <span class="font-bold">${sources.length}</span>
+                    </div>
                 </div>
             </div>
         </div>
 
         ${auth.isCloud() ? `
+        <!-- ───── Danger Zone (cloud only) ───── -->
+        <div class="settings-section-header" style="color:var(--red);">Danger Zone</div>
         <div class="card mb-24" style="border:2px solid var(--red);">
             <div class="settings-section">
                 <h3 style="color:var(--red);">⚠️ Delete Account</h3>
@@ -484,22 +616,31 @@ export function renderSettings(container, store) {
         startOnboarding();
     });
 
+    // Risk tolerance selector — clicking a card selects that preset and
+    // re-renders the settings page so the active styling updates.
+    // Mirrors the theme-toggle pattern which also uses buttons + data attrs.
+    container.querySelectorAll('.risk-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const value = btn.dataset.riskOption;
+            if (!value) return;
+            const current = store.getHealthScoreSettings().riskTolerance;
+            if (value === current) return;
+            store.updateHealthScoreSettings({ riskTolerance: value });
+            renderSettings(container, store);
+        });
+    });
+
     // Edit user name
     container.querySelector('#edit-user-name').addEventListener('click', () => {
-        openModal('Edit Your Name', `
-            <div class="form-group">
-                <label>Your Name</label>
-                <input type="text" class="form-input" id="user-name-input" value="${escapeHtml(userName)}">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = document.getElementById('user-name-input').value.trim();
-            if (val) {
+        openFormModal({
+            title: 'Edit Your Name',
+            refreshPage,
+            fields: [{
+                id: 'user-name-input', label: 'Your Name', type: 'text',
+                value: userName, required: true, autofocus: true,
+            }],
+            onSave: (values) => {
+                const val = values['user-name-input'];
                 store.setUserName(val);
                 // Update sidebar and page title dynamically
                 const logoText = document.querySelector('.logo-text');
@@ -507,20 +648,20 @@ export function renderSettings(container, store) {
                 const logo = document.querySelector('.logo');
                 if (logo) logo.textContent = val.charAt(0).toUpperCase() + 'F';
                 document.title = val + ' Finances';
-                closeModal();
-                refreshPage();
-            }
+            },
         });
     });
 
-    // Theme toggle
-    container.querySelectorAll('.theme-option').forEach(btn => {
-        btn.addEventListener('click', () => {
-            setThemePreference(btn.dataset.theme);
-            // Re-render to update active state
+    // Theme cycle button in page header — system → light → dark → system
+    const themeCycleBtn = container.querySelector('#theme-cycle-btn');
+    if (themeCycleBtn) {
+        themeCycleBtn.addEventListener('click', () => {
+            const current = getThemePreference();
+            const next = current === 'system' ? 'light' : current === 'light' ? 'dark' : 'system';
+            setThemePreference(next);
             renderSettings(container, store);
         });
-    });
+    }
 
     // Accounts summary link
     const acctLink = container.querySelector('#settings-go-to-accounts');
@@ -722,7 +863,7 @@ export function renderSettings(container, store) {
                     openModal('Disable Two-Factor Authentication', `
                         <div style="padding:8px 0 16px;font-size:14px;">
                             <p>Enter your current authenticator code to disable 2FA.</p>
-                            <div class="form-group" style="margin-top:16px;">
+                            <div class="form-group mt-16">
                                 <input type="text" class="form-input" id="mfa-disable-code"
                                     placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]*"
                                     style="text-align:center;font-size:20px;letter-spacing:6px;font-family:monospace;">
@@ -1292,26 +1433,18 @@ export function renderSettings(container, store) {
 
     // Credit score - user
     container.querySelector('#update-user-score').addEventListener('click', () => {
-        openModal(`Update ${escapeHtml(userName)}'s Credit Score`, `
-            <div class="form-group">
-                <label>FICO Score (300–850)</label>
-                <input type="number" class="form-input" id="credit-score-input" min="300" max="850" value="${creditScores.user.score || ''}">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = parseInt(document.getElementById('credit-score-input').value);
-            if (val >= 300 && val <= 850) {
-                store.updateCreditScore('user', val);
-                closeModal();
-                refreshPage();
-            } else {
-                alert('Please enter a score between 300 and 850');
-            }
+        openFormModal({
+            title: `Update ${userName}'s Credit Score`,
+            refreshPage,
+            fields: [{
+                id: 'credit-score-input', label: 'FICO Score (300–850)',
+                type: 'number', min: 300, max: 850,
+                value: creditScores.user.score || '',
+                required: true, autofocus: true,
+            }],
+            onSave: (values) => {
+                store.updateCreditScore('user', Math.round(values['credit-score-input']));
+            },
         });
     });
 
@@ -1340,26 +1473,18 @@ export function renderSettings(container, store) {
     const updateDependentScoreBtn = container.querySelector('#update-dependent-score');
     if (updateDependentScoreBtn) {
         updateDependentScoreBtn.addEventListener('click', () => {
-            openModal(`Update ${escapeHtml(depName)}'s Credit Score`, `
-                <div class="form-group">
-                    <label>FICO Score (300–850)</label>
-                    <input type="number" class="form-input" id="credit-score-input" min="300" max="850" value="${creditScores.dependent && creditScores.dependent.score ? creditScores.dependent.score : ''}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const val = parseInt(document.getElementById('credit-score-input').value);
-                if (val >= 300 && val <= 850) {
-                    store.updateCreditScore('dependent', val);
-                    closeModal();
-                    refreshPage();
-                } else {
-                    alert('Please enter a score between 300 and 850');
-                }
+            openFormModal({
+                title: `Update ${depName}'s Credit Score`,
+                refreshPage,
+                fields: [{
+                    id: 'credit-score-input', label: 'FICO Score (300–850)',
+                    type: 'number', min: 300, max: 850,
+                    value: (creditScores.dependent && creditScores.dependent.score) || '',
+                    required: true, autofocus: true,
+                }],
+                onSave: (values) => {
+                    store.updateCreditScore('dependent', Math.round(values['credit-score-input']));
+                },
             });
         });
     }
@@ -1400,29 +1525,21 @@ export function renderSettings(container, store) {
         refreshPage();
     });
 
-    // Edit dependent name
+    // Edit dependent (partner) name
     const editDepNameBtn = container.querySelector('#edit-dep-name');
     if (editDepNameBtn) {
         editDepNameBtn.addEventListener('click', () => {
-            openModal('Edit Dependent Name', `
-                <div class="form-group">
-                    <label>Dependent Name</label>
-                    <input type="text" class="form-input" id="dep-name-input" value="${escapeHtml(depName)}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const val = document.getElementById('dep-name-input').value.trim();
-                if (val) {
-                    store.setDependentName(val);
+            openFormModal({
+                title: "Edit Partner's Name",
+                refreshPage,
+                fields: [{
+                    id: 'dep-name-input', label: "Partner's name", type: 'text',
+                    value: depName, required: true, autofocus: true,
+                }],
+                onSave: (values) => {
+                    store.setDependentName(values['dep-name-input']);
                     updateDependentNav();
-                    closeModal();
-                    refreshPage();
-                }
+                },
             });
         });
     }
@@ -1445,34 +1562,19 @@ export function renderSettings(container, store) {
     container.querySelectorAll('.edit-source').forEach(btn => {
         btn.addEventListener('click', () => {
             const oldName = btn.dataset.source;
-            openModal('Rename Payment Source', `
-                <div class="form-group">
-                    <label>Source Name</label>
-                    <input type="text" class="form-input" id="rename-source-input" value="${escapeHtml(oldName)}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            const input = document.getElementById('rename-source-input');
-            input.focus();
-            input.select();
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const newName = input.value.trim();
-                if (newName && newName !== oldName) {
-                    store.renamePaymentSource(oldName, newName);
-                    closeModal();
-                    refreshPage();
-                } else if (!newName) {
-                    alert('Please enter a name');
-                } else {
-                    closeModal();
-                }
-            });
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') document.getElementById('modal-save').click();
+            openFormModal({
+                title: 'Rename Payment Source',
+                refreshPage,
+                fields: [{
+                    id: 'rename-source-input', label: 'Source Name', type: 'text',
+                    value: oldName, required: true, autofocus: true,
+                }],
+                onSave: (values) => {
+                    const newName = values['rename-source-input'];
+                    if (newName && newName !== oldName) {
+                        store.renamePaymentSource(oldName, newName);
+                    }
+                },
             });
         });
     });
@@ -1703,7 +1805,7 @@ export function renderSettings(container, store) {
             <div style="padding:8px 0 16px;font-size:14px;">
                 <p style="margin-bottom:12px;">This will remove all:</p>
                 <ul style="margin-left:20px;margin-bottom:16px;color:var(--text-secondary);font-size:13px;">
-                    <li>Bills (yours and dependent's)</li>
+                    <li>Bills (yours and partner's)</li>
                     <li>Bank accounts</li>
                     <li>Debts</li>
                     <li>Tax documents and deductions</li>
@@ -1881,7 +1983,7 @@ function renderAccountsSection(store) {
                             ${hasPlaid ? ' &middot; <span style="color:var(--green);">Bank connected</span>' : ''}
                         </div>
                     </div>
-                    <a href="#accounts" id="settings-go-to-accounts" class="btn btn-secondary btn-sm" style="display:flex;align-items:center;gap:6px;">
+                    <a href="#accounts" id="settings-go-to-accounts" class="btn btn-secondary btn-sm icon-label gap-6">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg>
                         Manage Accounts
                     </a>

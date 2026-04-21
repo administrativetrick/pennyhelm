@@ -1,6 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 
-module.exports = function({ admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets }) {
+module.exports = function({ admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets, enforceRateLimit }) {
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV, STRIPE_SECRET_KEY } = secrets;
 
     const exports = {};
@@ -17,6 +17,12 @@ module.exports = function({ admin, db, getPlaidClient, getEmailTransporter, gene
                 console.error("No auth context");
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Sends a password email — guard against repeat-send spam.
+            await enforceRateLimit({
+                db, request, name: 'setupMobileCredentials', limit: 3, windowSec: 300,
+                message: 'Please wait a few minutes before requesting another password email.',
+            });
 
             const uid = request.auth.uid;
             const email = request.auth.token.email;
@@ -156,6 +162,12 @@ If you did not request this, please ignore this email or contact support.
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Email-sending endpoint — same budget as setupMobileCredentials.
+            await enforceRateLimit({
+                db, request, name: 'resendMobilePassword', limit: 3, windowSec: 300,
+                message: 'Please wait a few minutes before requesting another password email.',
+            });
 
             const uid = request.auth.uid;
             const email = request.auth.token.email;
@@ -380,6 +392,13 @@ If you did not request this, please ignore this email or contact support.
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Destructive endpoint — tight cap. A confused user re-clicking is fine;
+            // a compromised session spamming delete is not.
+            await enforceRateLimit({
+                db, request, name: 'deleteAccount', limit: 3, windowSec: 3600,
+                message: 'Too many delete attempts. Contact support if this is unexpected.',
+            });
 
             const uid = request.auth.uid;
             console.log("deleteAccount called for user:", uid);
