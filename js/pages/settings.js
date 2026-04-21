@@ -87,21 +87,6 @@ export function renderSettings(container, store) {
                     </div>
                 </div>
             </div>
-            <div class="card mb-24">
-                <div class="settings-section">
-                    <h3>📱 Mobile App</h3>
-                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                        Sign in to the PennyHelm mobile app with your email and mobile password.
-                    </p>
-                    <div class="settings-row">
-                        <div>
-                            <div class="setting-label">Mobile App Login</div>
-                            <div class="setting-desc" id="mobile-credentials-status">Loading...</div>
-                        </div>
-                        <button class="btn btn-secondary btn-sm" id="resend-mobile-password">Resend Password</button>
-                    </div>
-                </div>
-            </div>
             ` : ''}
         </div>
 
@@ -705,103 +690,6 @@ export function renderSettings(container, store) {
         }
     }
 
-    // Mobile app credentials (cloud mode only)
-    if (auth.isCloud()) {
-        const resendMobilePasswordBtn = container.querySelector('#resend-mobile-password');
-        const credentialsStatus = container.querySelector('#mobile-credentials-status');
-
-        // Load mobile credentials status from Firestore
-        const loadMobileCredentials = async () => {
-            try {
-                const user = auth.getUser();
-                if (!user) return;
-
-                const db = firebase.firestore();
-                const userDoc = await db.collection('users').doc(user.uid).get();
-
-                if (userDoc.exists && userDoc.data().mobilePasswordSet) {
-                    credentialsStatus.innerHTML = `Email: <strong>${escapeHtml(user.email)}</strong>`;
-                    if (userDoc.data().requirePasswordChange) {
-                        credentialsStatus.innerHTML += '<br><span style="color:var(--orange);font-size:11px;">Password change required on next mobile login</span>';
-                    }
-                } else {
-                    credentialsStatus.innerHTML = 'Not set up yet. Sign in with Google to set up mobile access.';
-                    resendMobilePasswordBtn.style.display = 'none';
-                }
-            } catch (e) {
-                console.error('Error loading mobile credentials:', e);
-                credentialsStatus.textContent = 'Error loading credentials';
-            }
-        };
-
-        loadMobileCredentials();
-
-        if (resendMobilePasswordBtn) {
-            resendMobilePasswordBtn.addEventListener('click', async () => {
-                const user = auth.getUser();
-                if (!user) return;
-
-                openModal('Resend Mobile Password', `
-                    <div style="padding:8px 0 16px;font-size:14px;">
-                        <p>A new temporary password will be sent to:</p>
-                        <p style="margin:12px 0;font-family:monospace;color:var(--accent);">${escapeHtml(user.email)}</p>
-                        <p style="color:var(--text-secondary);font-size:13px;">You will be required to change this password on your next mobile login.</p>
-                    </div>
-                    <div class="modal-actions">
-                        <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                        <button class="btn btn-primary" id="modal-confirm">Send New Password</button>
-                    </div>
-                `);
-
-                document.getElementById('modal-cancel').addEventListener('click', closeModal);
-                document.getElementById('modal-confirm').addEventListener('click', async () => {
-                    const confirmBtn = document.getElementById('modal-confirm');
-                    confirmBtn.disabled = true;
-                    confirmBtn.textContent = 'Sending...';
-
-                    try {
-                        const functions = firebase.functions();
-                        const resendFn = functions.httpsCallable('resendMobilePassword');
-                        const result = await resendFn({});
-
-                        if (result.data.success) {
-                            // Update the credential with new password
-                            if (result.data.tempPassword) {
-                                const emailCredential = firebase.auth.EmailAuthProvider.credential(
-                                    user.email,
-                                    result.data.tempPassword
-                                );
-                                try {
-                                    // Re-authenticate and update password
-                                    await user.reauthenticateWithCredential(emailCredential);
-                                } catch (e) {
-                                    // May fail if credential isn't linked, that's ok
-                                    console.log('Credential update note:', e.code);
-                                }
-                            }
-
-                            closeModal();
-                            openModal('Password Sent', `
-                                <div style="padding:8px 0 16px;font-size:14px;">
-                                    <p style="color:var(--green);">✓ A new temporary password has been sent to your email.</p>
-                                    <p style="margin-top:12px;color:var(--text-secondary);font-size:13px;">Check your inbox for the new password. You will need to change it on your next mobile login.</p>
-                                </div>
-                                <div class="modal-actions">
-                                    <button class="btn btn-primary" id="modal-close">Got it</button>
-                                </div>
-                            `);
-                            document.getElementById('modal-close').addEventListener('click', closeModal);
-                            loadMobileCredentials(); // Refresh status
-                        }
-                    } catch (e) {
-                        console.error('Error resending password:', e);
-                        closeModal();
-                        alert('Failed to send new password. Please try again.');
-                    }
-                });
-            });
-        }
-
     // MFA / Two-Factor Authentication (cloud mode only)
     if (auth.isCloud()) {
         const mfaStatusText = container.querySelector('#mfa-status-text');
@@ -1361,7 +1249,6 @@ export function renderSettings(container, store) {
                 });
             });
         }
-    }
 
     // Referral program status (cloud only). Backend contract:
     //   { referralCode, referralLink, paidReferralCount, targetCount,
