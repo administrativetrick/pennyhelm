@@ -10,6 +10,7 @@ import { renderDebts } from './pages/debts.js';
 import { renderIncome } from './pages/income.js';
 import { renderAdmin } from './pages/admin.js';
 import { renderAccounts } from './pages/accounts.js';
+import { renderInvestments } from './pages/investments.js';
 import { renderRules } from './pages/rules.js';
 import { renderBudgets } from './pages/budgets.js';
 import { renderSavingsGoalsPage } from './pages/savings.js';
@@ -24,6 +25,7 @@ const pages = {
     income: renderIncome,
     debts: renderDebts,
     accounts: renderAccounts,
+    investments: renderInvestments,
     budgets: renderBudgets,
     savings: renderSavingsGoalsPage,
     rules: renderRules,
@@ -155,6 +157,10 @@ function createMobileNav() {
         <a href="#accounts" data-page="accounts">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg>
             Accounts
+        </a>
+        <a href="#investments" data-page="investments">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 18 9 13l3.5 3.5L20 9"/><path d="M14 9h6v6"/></svg>
+            Investments
         </a>
         <a href="#budgets" data-page="budgets">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6 4"/></svg>
