@@ -245,6 +245,68 @@
       .final-cta { padding: 40px 0 56px; }
       .cta { width: 100%; padding: 18px 20px; font-size: 1rem; }
     }
+
+    /* ─── EEA consent banner ──────────────────────────────────────
+       Fixed-to-viewport-bottom so it floats above content without
+       pushing layout. Hidden by default; JS unhides for EEA visitors
+       who haven't made a choice. */
+    #consent-banner {
+      display: none;
+      position: fixed;
+      left: 12px; right: 12px; bottom: 12px;
+      z-index: 9999;
+      max-width: 720px;
+      margin: 0 auto;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      font-size: 0.9rem;
+      color: var(--text);
+      line-height: 1.5;
+    }
+    #consent-banner.is-visible { display: block; }
+    #consent-banner .consent-text {
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+    #consent-banner .consent-text a {
+      color: var(--green);
+      text-decoration: underline;
+    }
+    #consent-banner .consent-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    #consent-banner button {
+      font-family: inherit;
+      font-size: 0.92rem;
+      font-weight: 600;
+      padding: 9px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+    #consent-banner button:hover { color: var(--text); }
+    #consent-banner button.accept {
+      background: var(--green);
+      border-color: var(--green);
+      color: #051109;
+    }
+    #consent-banner button.accept:hover {
+      background: var(--green-hover);
+      border-color: var(--green-hover);
+      color: #051109;
+    }
+    @media (max-width: 480px) {
+      #consent-banner .consent-actions button { flex: 1; }
+    }
   </style>
 </head>
 <body>
@@ -361,6 +423,20 @@
     </div>
   </div>
 
+  <!-- EEA/UK cookie consent banner. Hidden by default; revealed by JS only
+       for visitors in European timezones who haven't yet made a choice.
+       Choice persists in localStorage under 'pennyhelm-consent' and is
+       consumed by /login's Consent Mode v2 gtag init. -->
+  <div id="consent-banner" role="dialog" aria-live="polite" aria-label="Cookie consent">
+    <div class="consent-text">
+      We use cookies to measure Google Ads signup conversions so we can keep PennyHelm affordable. No ads or third-party tracking inside the app — just a single conversion ping on sign-up. See our <a href="/privacy">Privacy Policy</a> for details.
+    </div>
+    <div class="consent-actions">
+      <button type="button" id="consent-decline">Decline</button>
+      <button type="button" class="accept" id="consent-accept">Accept</button>
+    </div>
+  </div>
+
   <script>
     // Ad-attribution: fires landing_view on load, cta_click on CTA press,
     // and forwards the UTM query string to /login so acquisition.js can
@@ -446,6 +522,73 @@
       document.querySelectorAll('a.cta').forEach(function (a) {
         a.addEventListener('click', function () { log('cta_click'); });
       });
+    })();
+
+    // ─── EEA consent banner ──────────────────────────────────────
+    // Shows only for visitors whose browser reports a European timezone
+    // AND who haven't already chosen. Writes choice to localStorage so
+    // /login's gtag init (Consent Mode v2) can honor it.
+    (function () {
+      var STORAGE_KEY = 'pennyhelm-consent';
+
+      function isEea() {
+        try {
+          var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+          return (
+            tz.indexOf('Europe/') === 0 ||
+            tz === 'Atlantic/Reykjavik' ||
+            tz === 'Atlantic/Faroe' ||
+            tz === 'Atlantic/Azores' ||
+            tz === 'Atlantic/Madeira'
+          );
+        } catch (_) {
+          // Fail closed — show the banner if we can't tell.
+          return true;
+        }
+      }
+
+      function readChoice() {
+        try {
+          var v = localStorage.getItem(STORAGE_KEY);
+          return v === 'granted' || v === 'denied' ? v : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function saveChoice(choice) {
+        try { localStorage.setItem(STORAGE_KEY, choice); } catch (_) {}
+      }
+
+      var banner = document.getElementById('consent-banner');
+      if (!banner) return;
+
+      // Only show for EEA + first-time visitors.
+      if (!isEea() || readChoice()) return;
+
+      banner.classList.add('is-visible');
+
+      var acceptBtn = document.getElementById('consent-accept');
+      var declineBtn = document.getElementById('consent-decline');
+
+      function finish(choice) {
+        saveChoice(choice);
+        banner.classList.remove('is-visible');
+        // If gtag ever loads on this page in the future, update consent too.
+        // Safe no-op today since /switch doesn't load gtag.
+        if (typeof window.gtag === 'function') {
+          var state = choice === 'granted' ? 'granted' : 'denied';
+          window.gtag('consent', 'update', {
+            ad_storage: state,
+            ad_user_data: state,
+            ad_personalization: state,
+            analytics_storage: state,
+          });
+        }
+      }
+
+      acceptBtn.addEventListener('click', function () { finish('granted'); });
+      declineBtn.addEventListener('click', function () { finish('denied'); });
     })();
   </script>
 </body>

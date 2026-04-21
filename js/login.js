@@ -21,6 +21,124 @@ const functions = firebase.functions();
 
 const isCloudMode = APP_MODE === 'cloud';
 
+// ─── Google Ads + Consent Mode v2 ────────────────────────────────
+// Cloud-only. Loads gtag.js asynchronously and fires the signup conversion
+// after a successful registration. Skipped entirely in selfhost so no third
+// parties are contacted from local installs.
+//
+// Consent Mode v2 (advanced):
+//   https://developers.google.com/tag-platform/security/guides/consent
+// We set `consent default` BEFORE loading gtag.js with `*_storage` and
+// `ad_user_data` / `ad_personalization` denied for EEA visitors. gtag then
+// runs in "cookieless ping" mode — conversions are still modeled in aggregate
+// without setting any cookies or sharing identifiers. The /switch banner
+// calls `gtag('consent', 'update', { ... })` with granted values when an EEA
+// user clicks Accept, and persists that choice in localStorage so we can
+// restore it on subsequent visits.
+//
+// Non-EEA traffic defaults to granted (no banner required by law).
+//
+// TO ENABLE CONVERSION ATTRIBUTION: create a Conversion Action in Google
+// Ads → Tools → Conversions (Website → Sign-up). Google gives you a snippet
+// like `gtag('event', 'conversion', { send_to: 'AW-1061347212/AbCdEfGh' })`.
+// Replace CONVERSION_LABEL below with the real label after the slash. Until
+// then, the conversion fires with a placeholder Google Ads ignores (no user
+// impact, just no conversions counted).
+const GOOGLE_ADS_ID = 'AW-1061347212';
+const SIGNUP_CONVERSION_SEND_TO = 'AW-1061347212/CONVERSION_LABEL';
+const CONSENT_STORAGE_KEY = 'pennyhelm-consent';
+
+function isEeaVisitor() {
+    try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+        // Europe/* covers every EEA country + UK (UK-GDPR). A few Atlantic
+        // zones are EU dependencies (Iceland, Azores, Madeira, Faroe).
+        return (
+            tz.indexOf('Europe/') === 0 ||
+            tz === 'Atlantic/Reykjavik' ||
+            tz === 'Atlantic/Faroe' ||
+            tz === 'Atlantic/Azores' ||
+            tz === 'Atlantic/Madeira'
+        );
+    } catch (_) {
+        // Fail closed — if we can't tell, assume EEA so we require consent.
+        return true;
+    }
+}
+
+function readStoredConsent() {
+    try {
+        const v = localStorage.getItem(CONSENT_STORAGE_KEY);
+        return v === 'granted' || v === 'denied' ? v : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function loadGtag() {
+    if (!isCloudMode) return;
+
+    // Initialize dataLayer + gtag shim BEFORE the script tag so `consent
+    // default` queues up before gtag.js reads it.
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { window.dataLayer.push(arguments); }
+    window.gtag = gtag;
+
+    // Consent Mode v2 defaults. EEA users start denied; non-EEA granted.
+    // If an EEA user previously accepted the banner on /switch, honor it.
+    const stored = readStoredConsent();
+    let adsState = 'granted';
+    let analyticsState = 'granted';
+    if (isEeaVisitor()) {
+        adsState = stored === 'granted' ? 'granted' : 'denied';
+        analyticsState = stored === 'granted' ? 'granted' : 'denied';
+    }
+    gtag('consent', 'default', {
+        ad_storage: adsState,
+        ad_user_data: adsState,
+        ad_personalization: adsState,
+        analytics_storage: analyticsState,
+        // EU region scoping — Google restricts automatic region inference to
+        // best-effort; being explicit with EEA+UK+CH is safer.
+        wait_for_update: 500,
+    });
+
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = `https://www.googletagmanager.com/gtag/js?id=${GOOGLE_ADS_ID}`;
+    document.head.appendChild(s);
+    gtag('js', new Date());
+    gtag('config', GOOGLE_ADS_ID);
+}
+
+// Fire the Google Ads signup conversion, then invoke `onDone` (usually the
+// post-signup redirect). Uses the event_callback pattern so the redirect
+// doesn't race the beacon, with a hard-timeout fallback in case gtag.js is
+// blocked or never calls the callback (ad blockers, offline, etc.).
+// With Consent Mode v2, conversions still fire when consent is denied —
+// Google Ads receives a cookieless ping and models them in aggregate.
+function fireSignupConversion(onDone) {
+    if (!isCloudMode || typeof window.gtag !== 'function') {
+        onDone();
+        return;
+    }
+    let called = false;
+    const done = () => { if (called) return; called = true; onDone(); };
+    try {
+        window.gtag('event', 'conversion', {
+            send_to: SIGNUP_CONVERSION_SEND_TO,
+            event_callback: done,
+        });
+    } catch (_) {
+        // If gtag throws for any reason, still redirect.
+        done();
+        return;
+    }
+    setTimeout(done, 1500);
+}
+
+loadGtag();
+
 // State
 let isSignUp = false;
 let isLoggingIn = false; // Prevent onAuthStateChanged redirect during login flow
@@ -89,7 +207,8 @@ form.addEventListener('submit', async (e) => {
             const userCredential = await auth.createUserWithEmailAndPassword(email, password);
             await registerUser(userCredential.user, referralCode || null);
 
-            window.location.href = '/app';
+            // Fire Google Ads signup conversion, then redirect. No-op in selfhost.
+            fireSignupConversion(() => { window.location.href = '/app'; });
         } else {
             isLoggingIn = true; // Prevent onAuthStateChanged redirect
             const userCredential = await auth.signInWithEmailAndPassword(email, password);
@@ -157,7 +276,13 @@ googleBtn.addEventListener('click', async () => {
             }
         }
 
-        window.location.href = '/app';
+        // Only fire signup conversion for first-time Google registrations.
+        // Re-logins of existing users must not double-count.
+        if (isFirstTime) {
+            fireSignupConversion(() => { window.location.href = '/app'; });
+        } else {
+            window.location.href = '/app';
+        }
     } catch (error) {
         if (error.code !== 'auth/popup-closed-by-user') {
             errorDiv.textContent = getErrorMessage(error.code);
