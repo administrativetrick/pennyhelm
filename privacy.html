@@ -116,7 +116,7 @@
         <a href="/" class="back-link">&larr; Back to Home</a>
 
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective Date: April 20, 2026</p>
+        <p class="policy-date">Effective Date: April 21, 2026</p>
 
         <p>
             PennyHelm ("we," "us," or "our") is a personal finance management application. We take your privacy seriously and are committed to protecting the personal and financial information you entrust to us. This Privacy Policy explains what data we collect, how we use it, how we store and protect it, and your rights regarding your information.
@@ -201,9 +201,11 @@
             <li><strong>Your IP address</strong>, used <em>only</em> for rate limiting the endpoint &mdash; not persisted in the attribution record itself and discarded within two minutes</li>
         </ul>
         <p>
-            We do <strong>not</strong> use third-party ad pixels, Meta Pixel, Google Tag Manager, or any off-platform
-            tracker. The data above is sent to PennyHelm servers only and never shared with the ad platform itself beyond
-            the conversion events the platform requires (e.g. a signup count).
+            We do <strong>not</strong> use Meta Pixel, Google Tag Manager, or any off-platform behavioral-tracking script
+            on landing pages or inside the app. The one exception is a single Google Ads conversion tag that fires
+            <em>only</em> on the sign-up event itself (see &sect;1.9 below) &mdash; we use it to count completed signups,
+            not to profile visitors. The attribution data listed above is sent to PennyHelm servers only and never shared
+            with the ad platform beyond the conversion count the platform requires.
         </p>
         <p>
             Records are stored in a protected Firestore collection readable only by PennyHelm administrators and
@@ -226,6 +228,45 @@
             the app today." Markers are stored in a protected Firestore collection readable only by administrators and
             <strong>automatically deleted after 90 days</strong>. They are used solely to compute aggregate active-user
             counts and are never shared externally.
+        </p>
+
+        <h3>1.9 Google Ads Sign-Up Conversion Tracking</h3>
+        <p>
+            When you successfully create a PennyHelm account via <strong>pennyhelm.com/login</strong>, we fire a single
+            Google Ads conversion event so that when we run paid ads on Google, we can measure how many of those ad
+            clicks resulted in a completed signup. This is used <strong>only to count signups</strong>, never to show
+            you ads or build a profile about you.
+        </p>
+        <p>What gets sent on a single conversion ping:</p>
+        <ul>
+            <li>That a signup occurred on <code>pennyhelm.com</code></li>
+            <li>The Google Click Identifier (<code>gclid</code>), <em>if</em> you arrived from a Google Ads click</li>
+            <li>Cookies that Google sets on its own domains when the tag loads &mdash; subject to the consent rules below</li>
+        </ul>
+        <p>
+            We do <strong>not</strong> send your email address, name, user ID, or any financial data to Google. The tag
+            loads only on the login page, never inside the app, and never on any page where you are viewing bills,
+            balances, or transactions.
+        </p>
+        <p>
+            <strong>EEA / UK / Switzerland visitors (Consent Mode v2):</strong> we implement
+            <a href="https://developers.google.com/tag-platform/security/guides/consent?consentmode=advanced" target="_blank" rel="noopener">Google Consent Mode v2 in advanced mode</a>.
+            All consent categories (<code>ad_storage</code>, <code>ad_user_data</code>, <code>ad_personalization</code>,
+            <code>analytics_storage</code>) default to <strong>denied</strong> until you click "Accept" on the cookie
+            banner shown on <code>/switch</code>. If you decline or never choose, the conversion ping still fires but is
+            sent in cookieless mode &mdash; no identifiers are stored in your browser and Google can only use the
+            aggregate signal for statistical modeling. Your choice is remembered in your browser's
+            <code>localStorage</code> under the key <code>pennyhelm-consent</code>; you can change it any time by
+            clearing site data for pennyhelm.com.
+        </p>
+        <p>
+            <strong>Non-EEA visitors:</strong> the conversion tag runs with consent granted by default, consistent with
+            US/other jurisdictions where prior opt-in is not legally required. You can still block the tag by installing
+            any standard ad blocker.
+        </p>
+        <p>
+            <strong>Self-hosted installations:</strong> the Google Ads tag is <em>not</em> loaded in self-hosted builds.
+            If you run PennyHelm on your own server, nothing about your signup is ever sent to Google.
         </p>
 
         <h2>2. How We Use Your Information</h2>
@@ -275,6 +316,11 @@
                     <td><strong>SMTP Email Provider</strong></td>
                     <td>Sending invite and account setup emails</td>
                     <td>Recipient email address, email content</td>
+                </tr>
+                <tr>
+                    <td><strong>Google Ads</strong> (cloud hosting only)</td>
+                    <td>Counting completed signups from paid ad clicks &mdash; see &sect;1.9</td>
+                    <td>A single conversion ping at signup time (no email, name, or user ID). Cookieless in EEA/UK/CH unless consent is granted.</td>
                 </tr>
             </tbody>
         </table>
