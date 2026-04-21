@@ -1,5 +1,5 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
-import { openModal, closeModal, refreshPage } from '../app.js';
+import { openModal, closeModal, refreshPage, navigate } from '../app.js';
 import { showVehicleDetail } from './vehicle-detail.js';
 import { auth } from '../auth.js';
 import { capabilities } from '../mode/mode.js';
@@ -205,11 +205,18 @@ function getIndividualDebtFreeDate(months) {
     };
 }
 
-export function renderDebts(container, store) {
-    // Check URL hash for sub-tab
-    const hash = window.location.hash;
-    if (hash === '#debts/expenses') activeDebtsTab = 'expenses';
-    else if (hash === '#debts' || hash === '#debts/debts') activeDebtsTab = 'debts';
+export function renderDebts(container, store, subTab = null) {
+    // Prefer the explicit sub-tab passed by the router; fall back to hash
+    // for direct page loads / bookmarks.
+    if (subTab === 'expenses') {
+        activeDebtsTab = 'expenses';
+    } else if (subTab === 'debts') {
+        activeDebtsTab = 'debts';
+    } else {
+        const hash = window.location.hash;
+        if (hash === '#debts/expenses') activeDebtsTab = 'expenses';
+        else if (hash === '#debts' || hash === '#debts/debts') activeDebtsTab = 'debts';
+    }
 
     if (activeDebtsTab === 'expenses') {
         renderExpensesTab(container, store);
@@ -517,12 +524,13 @@ export function renderDebts(container, store) {
         ` : ''}
     `;
 
-    // Tab switching
+    // Tab switching — route through navigate() so currentSubTab tracks
+    // properly in app.js; otherwise refreshPage() after an inline edit
+    // drops the sub-tab and kicks the user back to Debts.
     container.querySelectorAll('.filter-chip[data-tab]').forEach(chip => {
         chip.addEventListener('click', () => {
-            activeDebtsTab = chip.dataset.tab;
-            window.location.hash = chip.dataset.tab === 'debts' ? '#debts' : '#debts/expenses';
-            refreshPage();
+            if (chip.classList.contains('active')) return;
+            navigate(chip.dataset.tab === 'debts' ? 'debts' : 'debts/expenses');
         });
     });
 
@@ -785,12 +793,11 @@ function renderExpensesTab(container, store) {
         `}
     `;
 
-    // Tab switching
+    // Tab switching — see note on the Debts-tab handler above.
     container.querySelectorAll('.filter-chip[data-tab]').forEach(chip => {
         chip.addEventListener('click', () => {
-            activeDebtsTab = chip.dataset.tab;
-            window.location.hash = chip.dataset.tab === 'debts' ? '#debts' : '#debts/expenses';
-            refreshPage();
+            if (chip.classList.contains('active')) return;
+            navigate(chip.dataset.tab === 'debts' ? 'debts' : 'debts/expenses');
         });
     });
 
