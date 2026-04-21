@@ -519,23 +519,6 @@ export function renderSettings(container, store) {
         </div>
 
         ${auth.isCloud() ? `
-        <!-- ───── Danger Zone (cloud only) ───── -->
-        <div class="settings-section-header" style="color:var(--red);">Danger Zone</div>
-        <div class="card mb-24" style="border:2px solid var(--red);">
-            <div class="settings-section">
-                <h3 style="color:var(--red);">⚠️ Delete Account</h3>
-                <div class="settings-row">
-                    <div>
-                        <div class="setting-label" style="color:var(--red);">Permanently Delete Your Account</div>
-                        <div class="setting-desc">This will permanently delete your account, all financial data, linked bank connections, and subscription. This action cannot be undone.</div>
-                    </div>
-                    <button class="btn btn-danger btn-sm" id="delete-account-btn">Delete Account</button>
-                </div>
-            </div>
-        </div>
-        ` : ''}
-
-        ${auth.isCloud() ? `
         <div class="card mb-24">
             <div class="settings-section">
                 <h3>Referral Program</h3>
@@ -578,6 +561,27 @@ export function renderSettings(container, store) {
                 </div>
             </div>
         </div>
+
+        ${auth.isCloud() ? `
+        <!-- ───── Danger Zone (cloud only) ─────
+             Kept at the very bottom of the page, below Summary, so it's
+             hard to land on accidentally while scanning settings. Deleting
+             the account is irreversible, so it should be the furthest thing
+             from an accidental tap. -->
+        <div class="settings-section-header" style="color:var(--red);margin-top:32px;">Danger Zone</div>
+        <div class="card mb-24" style="border:2px solid var(--red);">
+            <div class="settings-section">
+                <h3 style="color:var(--red);">⚠️ Delete Account</h3>
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label" style="color:var(--red);">Permanently Delete Your Account</div>
+                        <div class="setting-desc">This will permanently delete your account, all financial data, linked bank connections, and subscription. This action cannot be undone.</div>
+                    </div>
+                    <button class="btn btn-danger btn-sm" id="delete-account-btn">Delete Account</button>
+                </div>
+            </div>
+        </div>
+        ` : ''}
 
         <input type="file" id="import-file-input" accept=".json" style="display:none;">
     `;
@@ -1369,8 +1373,8 @@ export function renderSettings(container, store) {
                 // Different copy if they've fully maxed out (hit tier 10).
                 const maxed = tiers.length > 0 && tiers.every(t => t.rewarded);
                 const banner = totalMonthsEarned > 0 ? `
-                    <div style="padding:12px;background:var(--green-bg, #e8f5e9);border:1px solid var(--green, #2e7d32);border-radius:8px;margin-bottom:14px;">
-                        <div style="font-weight:600;color:var(--green, #2e7d32);font-size:14px;">
+                    <div style="padding:12px;background:var(--green-bg);border:1px solid var(--green);border-radius:8px;margin-bottom:14px;">
+                        <div style="font-weight:600;color:var(--green);font-size:14px;">
                             ${maxed ? 'Maxed out &mdash; you earned a free year!' : `You've earned ${totalMonthsEarned} free month${totalMonthsEarned === 1 ? '' : 's'}!`}
                         </div>
                         <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
@@ -1387,29 +1391,32 @@ export function renderSettings(container, store) {
                 // Tier ladder: ✓ earned, ● next-up, ○ future. Using inline SVG
                 // would be heavier — Unicode bullets are fine for a settings row.
                 const tierRows = tiers.map(t => {
+                    const isNext = nextTier && nextTier.threshold === t.threshold;
                     const icon = t.rewarded ? '✓'
-                        : t.reached ? '●'  // reached but not yet credited (e.g. no sub on file)
-                        : (nextTier && nextTier.threshold === t.threshold) ? '●'
+                        : (t.reached || isNext) ? '●'  // reached but not credited, or up next
                         : '○';
-                    const color = t.rewarded ? 'var(--green, #2e7d32)'
-                        : (nextTier && nextTier.threshold === t.threshold) ? 'var(--accent, #4f8cff)'
-                        : 'var(--text-muted, #999)';
+                    const iconColor = t.rewarded ? 'var(--green)'
+                        : isNext ? 'var(--accent)'
+                        : 'var(--text-muted)';
+                    // Text stays primary (high contrast) for rows that are
+                    // rewarded or up next, and secondary (not muted) for
+                    // future rows so they're still legible in both themes.
                     const textStyle = t.rewarded
                         ? 'color:var(--text-primary);'
-                        : (nextTier && nextTier.threshold === t.threshold)
+                        : isNext
                             ? 'color:var(--text-primary);font-weight:500;'
-                            : 'color:var(--text-muted);';
+                            : 'color:var(--text-secondary);';
                     return `
                         <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12px;${textStyle}">
-                            <span style="display:inline-block;width:16px;text-align:center;color:${color};font-weight:700;">${icon}</span>
+                            <span style="display:inline-block;width:16px;text-align:center;color:${iconColor};font-weight:700;">${icon}</span>
                             <span style="flex:1;">${t.threshold} paid referral${t.threshold === 1 ? '' : 's'} &rarr; ${t.totalMonths} month${t.totalMonths === 1 ? '' : 's'} free</span>
-                            ${t.rewarded ? '<span style="font-size:11px;color:var(--green, #2e7d32);">Earned</span>' : (nextTier && nextTier.threshold === t.threshold) ? '<span style="font-size:11px;color:var(--accent, #4f8cff);">Next</span>' : ''}
+                            ${t.rewarded ? '<span style="font-size:11px;color:var(--green);">Earned</span>' : isNext ? '<span style="font-size:11px;color:var(--accent);">Next</span>' : ''}
                         </div>
                     `;
                 }).join('');
 
                 const tierLadderHtml = tiers.length > 0 ? `
-                    <div style="margin:10px 0 14px;padding:10px 12px;background:var(--bg-tertiary, #f5f5f5);border-radius:6px;">
+                    <div style="margin:10px 0 14px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;">
                         ${tierRows}
                     </div>
                 ` : '';
@@ -1451,8 +1458,8 @@ export function renderSettings(container, store) {
                     <div style="font-size:13px;color:var(--text-primary);margin-bottom:8px;">
                         ${progressLine}
                     </div>
-                    <div style="height:8px;background:var(--bg-tertiary, #e0e0e0);border-radius:4px;overflow:hidden;margin-bottom:6px;">
-                        <div style="height:100%;width:${pct}%;background:var(--accent, #4f8cff);border-radius:4px;transition:width 0.3s;"></div>
+                    <div style="height:8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:6px;">
+                        <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:4px;transition:width 0.3s;"></div>
                     </div>
                     ${tierLadderHtml}
                     ${shareButtons}
