@@ -4,32 +4,9 @@ import { showVehicleDetail } from './vehicle-detail.js';
 import { auth } from '../auth.js';
 import { capabilities } from '../mode/mode.js';
 import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
+import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 
 let activeDebtsTab = 'debts';
-
-const EXPENSE_CATEGORIES = {
-    'groceries': { label: 'Groceries', color: '#22c55e' },
-    'dining': { label: 'Dining', color: '#f97316' },
-    'gas': { label: 'Gas', color: '#6366f1' },
-    'transportation': { label: 'Transport', color: '#0ea5e9' },
-    'shopping': { label: 'Shopping', color: '#ec4899' },
-    'entertainment': { label: 'Entertainment', color: '#a855f7' },
-    'healthcare': { label: 'Healthcare', color: '#ef4444' },
-    'personal-care': { label: 'Personal Care', color: '#14b8a6' },
-    'home': { label: 'Home', color: '#8b5cf6' },
-    'utilities': { label: 'Utilities', color: '#eab308' },
-    'education': { label: 'Education', color: '#3b82f6' },
-    'travel': { label: 'Travel', color: '#06b6d4' },
-    'gifts': { label: 'Gifts', color: '#f43f5e' },
-    'subscriptions': { label: 'Subscriptions', color: '#64748b' },
-    'pets': { label: 'Pets', color: '#d97706' },
-    'other': { label: 'Other', color: '#94a3b8' }
-};
-
-function getExpenseCategoryBadge(category) {
-    const cat = EXPENSE_CATEGORIES[category] || EXPENSE_CATEGORIES['other'];
-    return `<span class="badge" style="background:${cat.color}20;color:${cat.color};border:1px solid ${cat.color}40;">${cat.label}</span>`;
-}
 
 const DEBT_TYPES = {
     'credit-card': { label: 'Credit Card', color: 'var(--red)' },
@@ -298,21 +275,27 @@ export function renderDebts(container, store) {
         </div>
 
         ${debts.length > 0 && budget.totalMonthlyBudget > 0 ? `
-            <div class="card" style="margin-top:24px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                    <h3 style="margin:0;">Strategy Comparison</h3>
-                    ${debts.length >= 2 ? `
-                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="When ON: freed payments roll to next debt. When OFF: budget shrinks as debts are paid.">
-                            <span style="font-size:12px;color:var(--text-muted);">Cascade Payments</span>
-                            <div style="position:relative;width:44px;height:24px;">
-                                <input type="checkbox" id="cascade-toggle" ${cascadeEnabled ? 'checked' : ''} style="opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:1;">
-                                <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${cascadeEnabled ? 'var(--green)' : 'var(--bg-secondary)'};border-radius:12px;transition:background 0.2s;border:1px solid ${cascadeEnabled ? 'var(--green)' : 'var(--border)'};"></div>
-                                <div style="position:absolute;top:2px;left:${cascadeEnabled ? '22px' : '2px'};width:18px;height:18px;background:white;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>
-                            </div>
-                        </label>
-                    ` : ''}
-                </div>
-                <div class="subtitle" style="margin-bottom:16px;">Monthly Budget: ${formatCurrency(budget.totalMonthlyBudget)}${budget.totalMonthlyBudget < totalMinimum ? ` <span class="text-red" style="font-size:12px;">(below ${formatCurrency(totalMinimum)} minimum — increase budget to see payoff timeline)</span>` : ''}</div>
+            <details class="card strategy-drawer" style="margin-top:24px;">
+                <summary class="strategy-drawer-summary">
+                    <div class="strategy-drawer-title-row">
+                        <h3 style="margin:0;">Strategy Comparison</h3>
+                        <span class="strategy-drawer-meta">
+                            Active: <strong>${budget.strategy === 'avalanche' ? 'Avalanche' : 'Snowball'}</strong>${activeAvalanche.totalInterestPaid < activeSnowball.totalInterestPaid && activeAvalanche.totalInterestPaid !== Infinity && activeSnowball.totalInterestPaid !== Infinity ? ` &middot; <span style="color:var(--green);">Avalanche saves ${formatCurrency(activeSnowball.totalInterestPaid - activeAvalanche.totalInterestPaid)}</span>` : ''}
+                        </span>
+                    </div>
+                    <span class="strategy-drawer-chevron" aria-hidden="true">▾</span>
+                </summary>
+                ${debts.length >= 2 ? `
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:16px;" title="When ON: freed payments roll to next debt. When OFF: budget shrinks as debts are paid.">
+                        <span class="text-muted-sm">Cascade Payments</span>
+                        <div style="position:relative;width:44px;height:24px;">
+                            <input type="checkbox" id="cascade-toggle" ${cascadeEnabled ? 'checked' : ''} style="opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:1;">
+                            <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${cascadeEnabled ? 'var(--green)' : 'var(--bg-secondary)'};border-radius:12px;transition:background 0.2s;border:1px solid ${cascadeEnabled ? 'var(--green)' : 'var(--border)'};"></div>
+                            <div style="position:absolute;top:2px;left:${cascadeEnabled ? '22px' : '2px'};width:18px;height:18px;background:white;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>
+                        </div>
+                    </label>
+                ` : ''}
+                <div class="subtitle mb-16">Monthly Budget: ${formatCurrency(budget.totalMonthlyBudget)}${budget.totalMonthlyBudget < totalMinimum ? ` <span class="text-red" style="font-size:12px;">(below ${formatCurrency(totalMinimum)} minimum — increase budget to see payoff timeline)</span>` : ''}</div>
 
                 ${debts.length >= 2 && cascadeEnabled ? `
                     <div style="margin-bottom:16px;padding:12px;background:var(--accent)10;border-radius:8px;font-size:13px;border-left:3px solid var(--accent);">
@@ -382,19 +365,19 @@ export function renderDebts(container, store) {
                         Avalanche saves <strong>${formatCurrency(activeSnowball.totalInterestPaid - activeAvalanche.totalInterestPaid)}</strong> in interest
                     </div>
                 ` : ''}
-            </div>
+            </details>
         ` : ''}
 
         ${debts.length === 0 ? `
             <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
                 <div style="font-size:48px;margin-bottom:16px;">&#128176;</div>
-                <h3 style="margin-bottom:8px;">No debts tracked</h3>
+                <h3 class="mb-8">No debts tracked</h3>
                 <p style="color:var(--text-muted);margin-bottom:24px;">Add your debts to start tracking your payoff progress</p>
                 <button class="btn btn-primary" id="empty-add-debt">+ Add Your First Debt</button>
             </div>
         ` : `
             <div class="card" style="margin-top:24px;">
-                <h3 style="margin-bottom:16px;">Your Debts</h3>
+                <h3 class="mb-16">Your Debts</h3>
                 <div class="table-wrapper debts-table">
                     <table>
                         <thead>
@@ -447,7 +430,7 @@ export function renderDebts(container, store) {
                                             ${payoffMonths > 0 && payoffMonths < Infinity ? `<div style="font-size:10px;color:var(--text-muted);font-weight:normal;">${formatMonths(payoffMonths)}</div>` : ''}
                                         </td>
                                         <td style="min-width:120px;">
-                                            <div style="display:flex;align-items:center;gap:8px;">
+                                            <div class="flex-align-center gap-8">
                                                 <div style="flex:1;height:8px;background:var(--bg-secondary);border-radius:4px;overflow:hidden;">
                                                     <div style="width:${progress}%;height:100%;background:var(--green);transition:width 0.3s;"></div>
                                                 </div>
@@ -497,18 +480,18 @@ export function renderDebts(container, store) {
                 const scaleRange = scaleMax - scaleMin;
                 return `
             <div class="card" style="margin-top:24px;">
-                <h3 style="margin-bottom:16px;">12-Month Projection</h3>
+                <h3 class="mb-16">12-Month Projection</h3>
                 <div style="position:relative;height:180px;">
                     <div style="position:absolute;top:0;left:0;right:0;bottom:24px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;">
-                        <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="flex-align-center gap-8">
                             <span style="font-size:10px;color:var(--text-muted);min-width:70px;text-align:right;">${formatCurrency(scaleMax)}</span>
                             <div style="flex:1;border-bottom:1px dashed var(--border);"></div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="flex-align-center gap-8">
                             <span style="font-size:10px;color:var(--text-muted);min-width:70px;text-align:right;">${formatCurrency(scaleMin + scaleRange / 2)}</span>
                             <div style="flex:1;border-bottom:1px dashed var(--border);"></div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="flex-align-center gap-8">
                             <span style="font-size:10px;color:var(--text-muted);min-width:70px;text-align:right;">${formatCurrency(scaleMin)}</span>
                             <div style="flex:1;border-bottom:1px dashed var(--border);"></div>
                         </div>
@@ -545,7 +528,7 @@ export function renderDebts(container, store) {
 
     // Event handlers
     container.querySelector('#add-debt-btn').addEventListener('click', () => showDebtForm(store));
-    container.querySelector('#set-budget-btn').addEventListener('click', () => showBudgetForm(store, budget));
+    container.querySelector('#set-budget-btn').addEventListener('click', () => showDebtBudgetForm(store, budget));
 
     const cascadeToggle = container.querySelector('#cascade-toggle');
     if (cascadeToggle) {
@@ -650,20 +633,28 @@ function renderExpensesTab(container, store) {
     const showTypeColumn = usageType === 'business' || usageType === 'both';
     const showPlaidSync = capabilities().plaid && hasPlaidConnections(store);
 
+    // For totals, exclude:
+    //   - ignored expenses (rule-flagged exclude-from-reports)
+    //   - split parents (their children are the actual counted amounts; counting
+    //     both would double-count the total)
+    const countableExpenses = expenses.filter(e =>
+        !e.ignored && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0)
+    );
+
     // Summary calculations
     const now = new Date();
     const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const thisMonthExpenses = expenses.filter(e => (e.date || '').startsWith(thisMonth));
+    const thisMonthExpenses = countableExpenses.filter(e => (e.date || '').startsWith(thisMonth));
     const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const avgExpense = expenses.length > 0 ? expenses.reduce((sum, e) => sum + (e.amount || 0), 0) / expenses.length : 0;
+    const avgExpense = countableExpenses.length > 0 ? countableExpenses.reduce((sum, e) => sum + (e.amount || 0), 0) / countableExpenses.length : 0;
 
     // Business vs Personal totals
     const personalTotal = thisMonthExpenses.filter(e => e.expenseType !== 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
     const businessTotal = thisMonthExpenses.filter(e => e.expenseType === 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
 
-    // Top category
+    // Top category (based on countable expenses)
     const catCounts = {};
-    expenses.forEach(e => {
+    countableExpenses.forEach(e => {
         const cat = e.category || 'other';
         catCounts[cat] = (catCounts[cat] || 0) + (e.amount || 0);
     });
@@ -725,7 +716,7 @@ function renderExpensesTab(container, store) {
         ${sorted.length === 0 ? `
             <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
                 <div style="font-size:48px;margin-bottom:16px;">&#128206;</div>
-                <h3 style="margin-bottom:8px;">No expenses tracked</h3>
+                <h3 class="mb-8">No expenses tracked</h3>
                 <p style="color:var(--text-muted);margin-bottom:24px;">Start tracking your spending to see where your money goes${showPlaidSync ? ' or sync from your bank' : ''}</p>
                 <div style="display:flex;gap:8px;justify-content:center;">
                     <button class="btn btn-primary" id="empty-add-expense">+ Add Your First Expense</button>
@@ -734,7 +725,7 @@ function renderExpensesTab(container, store) {
             </div>
         ` : `
             <div class="card" style="margin-top:24px;">
-                <h3 style="margin-bottom:16px;">Your Expenses</h3>
+                <h3 class="mb-16">Your Expenses</h3>
                 <div class="table-wrapper expenses-table">
                     <table>
                         <thead>
@@ -749,12 +740,22 @@ function renderExpensesTab(container, store) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${sorted.map(exp => `
-                                <tr>
+                            ${sorted.map(exp => {
+                                const hasSplits = Array.isArray(exp.splitChildren) && exp.splitChildren.length > 0;
+                                const isSplitChild = !!exp.splitOf;
+                                const isIgnored = !!exp.ignored;
+                                const rowStyle = isIgnored ? 'opacity:0.4;' : (hasSplits ? 'background:var(--bg-input);' : '');
+                                const tagsHtml = Array.isArray(exp.tags) && exp.tags.length > 0
+                                    ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">${exp.tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>`
+                                    : '';
+                                const badges = `${getSourceBadge(exp)}${hasSplits ? ' <span class="tag-pill" style="background:var(--bg-card);">split</span>' : ''}${isSplitChild ? ' <span class="tag-pill" style="background:var(--bg-card);">part of split</span>' : ''}${isIgnored ? ' <span class="tag-pill" style="background:var(--bg-card);color:var(--text-muted);">ignored</span>' : ''}`;
+                                return `
+                                <tr style="${rowStyle}">
                                     <td style="white-space:nowrap;">${exp.date ? new Date(exp.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</td>
                                     <td>
-                                        <div style="font-weight:600;">${escapeHtml(exp.name || '')} ${getSourceBadge(exp)}</div>
+                                        <div style="font-weight:600;">${escapeHtml(exp.name || '')} ${badges}</div>
                                         ${exp.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(exp.notes)}</div>` : ''}
+                                        ${tagsHtml}
                                     </td>
                                     <td>${getExpenseCategoryBadge(exp.category)}</td>
                                     ${showTypeColumn ? `<td>${getExpenseTypeBadge(exp)}</td>` : ''}
@@ -765,13 +766,18 @@ function renderExpensesTab(container, store) {
                                             <button class="btn-icon edit-expense" data-expense-id="${exp.id}" title="Edit">
                                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                             </button>
+                                            ${isSplitChild ? '' : (hasSplits
+                                                ? `<button class="btn-icon unsplit-expense" data-expense-id="${exp.id}" title="Undo split"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg></button>`
+                                                : `<button class="btn-icon split-expense" data-expense-id="${exp.id}" title="Split"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M5 7l7-4 7 4"/><path d="M5 17l7 4 7-4"/></svg></button>`
+                                            )}
                                             <button class="btn-icon delete-expense" data-expense-id="${exp.id}" title="Delete" style="color:var(--red);">
                                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                             </button>
                                         </div>
                                     </td>
                                 </tr>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -852,6 +858,21 @@ function renderExpensesTab(container, store) {
             }
         });
     });
+
+    container.querySelectorAll('.split-expense').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const expense = expenses.find(e => e.id === btn.dataset.expenseId);
+            if (expense) showSplitForm(store, expense);
+        });
+    });
+
+    container.querySelectorAll('.unsplit-expense').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!confirm('Undo this split and restore the original expense? All split children will be deleted.')) return;
+            store.unsplitExpense(btn.dataset.expenseId);
+            refreshPage();
+        });
+    });
 }
 
 function showExpenseForm(store, existingExpense = null) {
@@ -889,9 +910,7 @@ function showExpenseForm(store, existingExpense = null) {
         <div class="form-group">
             <label>Category</label>
             <select class="form-select" id="expense-category">
-                ${Object.entries(EXPENSE_CATEGORIES).map(([key, val]) =>
-                    `<option value="${key}" ${expense.category === key ? 'selected' : ''}>${val.label}</option>`
-                ).join('')}
+                ${renderCategoryOptions(expense.category, store)}
             </select>
         </div>
         ${showTypeField ? `
@@ -919,6 +938,10 @@ function showExpenseForm(store, existingExpense = null) {
             <input type="text" class="form-input" id="expense-vendor" value="${escapeHtml(expense.vendor || '')}" placeholder="e.g., Costco">
         </div>
         <div class="form-group">
+            <label>Tags (comma-separated, optional)</label>
+            <input type="text" class="form-input" id="expense-tags" value="${escapeHtml((expense.tags || []).join(', '))}" placeholder="e.g., reimbursable, kids, vacation">
+        </div>
+        <div class="form-group">
             <label>Notes (optional)</label>
             <input type="text" class="form-input" id="expense-notes" value="${escapeHtml(expense.notes || '')}">
         </div>
@@ -929,6 +952,9 @@ function showExpenseForm(store, existingExpense = null) {
     `;
 
     openModal(isEdit ? 'Edit Expense' : 'Add Expense', formHtml);
+
+    // Searchable category picker
+    mountSearchableCategoryPicker(document.getElementById('expense-category'), store);
 
     // Show/hide business name based on expense type
     const typeSelect = document.getElementById('expense-type');
@@ -943,13 +969,15 @@ function showExpenseForm(store, existingExpense = null) {
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
     document.getElementById('modal-save').addEventListener('click', () => {
+        const rawTags = document.getElementById('expense-tags').value;
         const data = {
             name: document.getElementById('expense-name').value.trim(),
             amount: parseFloat(document.getElementById('expense-amount').value) || 0,
             date: document.getElementById('expense-date').value,
             category: document.getElementById('expense-category').value,
             vendor: document.getElementById('expense-vendor').value.trim(),
-            notes: document.getElementById('expense-notes').value.trim()
+            notes: document.getElementById('expense-notes').value.trim(),
+            tags: rawTags.split(',').map(t => t.trim()).filter(Boolean)
         };
 
         // Expense type fields
@@ -1256,7 +1284,7 @@ function showDebtForm(store, existingDebt = null) {
     });
 }
 
-function showBudgetForm(store, budget) {
+function showDebtBudgetForm(store, budget) {
     const formHtml = `
         <div class="form-group">
             <label>Total Monthly Payment Budget</label>
@@ -1318,7 +1346,7 @@ function showRefinanceCalculator(debt) {
     const formHtml = `
         <div style="margin-bottom:20px;">
             <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(debt.name)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">Current Balance: ${formatCurrency(currentBalance)}</div>
+            <div class="text-muted-sm">Current Balance: ${formatCurrency(currentBalance)}</div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
@@ -1495,7 +1523,7 @@ function showMortgageRefinanceCalculator(debt) {
     const formHtml = `
         <div style="margin-bottom:20px;">
             <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(debt.name)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">Current Balance: ${formatCurrency(currentBalance)}</div>
+            <div class="text-muted-sm">Current Balance: ${formatCurrency(currentBalance)}</div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
@@ -1697,3 +1725,117 @@ function showMortgageRefinanceCalculator(debt) {
 }
 
 // Cascade is now an inline toggle in the Strategy Comparison section
+
+// ─── Split expense modal ────────────────────────────────────────
+
+function showSplitForm(store, expense) {
+    const totalAmount = Number(expense.amount || 0);
+    // Start with a 50/50 split — two equal parts.
+    let parts = [
+        { amount: +(totalAmount / 2).toFixed(2), category: expense.category || 'other', tags: [], notes: '' },
+        { amount: +(totalAmount - +(totalAmount / 2).toFixed(2)).toFixed(2), category: expense.category || 'other', tags: [], notes: '' },
+    ];
+
+    function render() {
+        const sumSoFar = parts.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const delta = +(totalAmount - sumSoFar).toFixed(2);
+
+        const html = `
+            <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+                Splitting <strong>${escapeHtml(expense.name || '')}</strong> of
+                <strong>${formatCurrency(totalAmount)}</strong> into parts. The parts must sum to the original total.
+            </div>
+            <div id="split-parts" style="display:flex;flex-direction:column;gap:12px;">
+                ${parts.map((p, i) => `
+                    <div class="settings-row" style="align-items:flex-start;gap:10px;padding:10px;border:1px solid var(--border);border-radius:6px;">
+                        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                            <div class="form-row" style="gap:8px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:11px;">Amount</label>
+                                    <input type="number" step="0.01" class="form-input split-amount" data-idx="${i}" value="${p.amount}">
+                                </div>
+                                <div class="form-group" style="flex:2;">
+                                    <label style="font-size:11px;">Category</label>
+                                    <select class="form-select split-category" data-idx="${i}">
+                                        ${renderCategoryOptions(p.category, store)}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row" style="gap:8px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:11px;">Tags (comma-separated)</label>
+                                    <input type="text" class="form-input split-tags" data-idx="${i}" value="${escapeHtml(p.tags.join(', '))}">
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:11px;">Notes</label>
+                                    <input type="text" class="form-input split-notes" data-idx="${i}" value="${escapeHtml(p.notes || '')}">
+                                </div>
+                            </div>
+                        </div>
+                        ${parts.length > 2 ? `<button type="button" class="btn-icon split-remove" data-idx="${i}" title="Remove" style="color:var(--red);align-self:center;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+            <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;">
+                <button type="button" class="btn btn-secondary btn-sm" id="split-add">+ Add part</button>
+                <div style="font-size:13px;">
+                    Sum: <strong>${formatCurrency(sumSoFar)}</strong> of ${formatCurrency(totalAmount)}
+                    ${Math.abs(delta) > 0.005
+                        ? ` &middot; <span style="color:var(--red);">${delta > 0 ? 'short by' : 'over by'} ${formatCurrency(Math.abs(delta))}</span>`
+                        : ' &middot; <span style="color:var(--green);">balanced ✓</span>'}
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="modal-save" ${Math.abs(delta) > 0.005 ? 'disabled' : ''}>Save Split</button>
+            </div>
+        `;
+
+        openModal(`Split Expense`, html);
+
+        function readInputs() {
+            document.querySelectorAll('.split-amount').forEach(el => {
+                parts[+el.dataset.idx].amount = Number(el.value) || 0;
+            });
+            document.querySelectorAll('.split-category').forEach(el => {
+                parts[+el.dataset.idx].category = el.value;
+            });
+            document.querySelectorAll('.split-tags').forEach(el => {
+                parts[+el.dataset.idx].tags = el.value.split(',').map(t => t.trim()).filter(Boolean);
+            });
+            document.querySelectorAll('.split-notes').forEach(el => {
+                parts[+el.dataset.idx].notes = el.value;
+            });
+        }
+
+        document.querySelectorAll('.split-amount').forEach(el => {
+            el.addEventListener('input', () => { readInputs(); render(); });
+        });
+        document.querySelectorAll('.split-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                readInputs();
+                parts.splice(+btn.dataset.idx, 1);
+                render();
+            });
+        });
+        document.getElementById('split-add').addEventListener('click', () => {
+            readInputs();
+            parts.push({ amount: 0, category: expense.category || 'other', tags: [], notes: '' });
+            render();
+        });
+
+        document.getElementById('modal-cancel').addEventListener('click', closeModal);
+        document.getElementById('modal-save').addEventListener('click', () => {
+            readInputs();
+            try {
+                store.splitExpense(expense.id, parts);
+                closeModal();
+                refreshPage();
+            } catch (ex) {
+                alert(ex.message);
+            }
+        });
+    }
+
+    render();
+}

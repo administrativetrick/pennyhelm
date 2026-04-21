@@ -1,5 +1,7 @@
-import { formatCurrency, escapeHtml } from '../utils.js';
+import { formatCurrency, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
+import { getMonthlyMultiplier, frequencyToMonthly } from '../services/financial-service.js';
+import { openFormModal } from '../services/modal-manager.js';
 import {
     renderTaxes,
     getSelectedYear, setSelectedYear,
@@ -62,31 +64,7 @@ const OTHER_INCOME_FREQ = {
     biweekly: 'Biweekly'
 };
 
-function getMonthlyMultiplier(freq) {
-    if (freq === 'biweekly') return 26 / 12;
-    if (freq === 'weekly') return 52 / 12;
-    if (freq === 'semimonthly') return 2;
-    return 1;
-}
-
-function getOtherIncomeMonthly(source) {
-    const amt = source.amount || 0;
-    switch (source.frequency) {
-        case 'weekly': return amt * 52 / 12;
-        case 'biweekly': return amt * 26 / 12;
-        case 'monthly': return amt;
-        case 'quarterly': return amt / 3;
-        case 'yearly': return amt / 12;
-        case 'one-time': return 0; // doesn't count toward monthly
-        default: return amt;
-    }
-}
-
-function getOrdinal(n) {
-    const s = ['th', 'st', 'nd', 'rd'];
-    const v = n % 100;
-    return s[(v - 20) % 10] || s[v] || s[0];
-}
+const getOtherIncomeMonthly = (source) => frequencyToMonthly(source?.amount, source?.frequency);
 
 let balanceHistoryView = 'monthly'; // 'daily' | 'monthly' | 'yearly'
 
@@ -135,7 +113,7 @@ function buildBalanceHistoryHtml(store) {
     const allHistory = store.getBalanceHistory();
     if (allHistory.length === 0) {
         return '<div class="card mb-24" style="margin-top:24px;">' +
-            '<h3 style="margin-bottom:8px;">Balance History</h3>' +
+            '<h3 class="mb-8">Balance History</h3>' +
             '<p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Monthly snapshots of your account balances over time</p>' +
             '<div style="text-align:center;padding:24px 16px;color:var(--text-muted);">' +
             '<div style="font-size:32px;margin-bottom:8px;">&#128200;</div>' +
@@ -186,9 +164,9 @@ function buildBalanceHistoryHtml(store) {
 
     // Build legend — only show types that have values
     let legendHtml = '';
-    if (latest.checking) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Checking</span>';
-    if (latest.savings) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--accent);border-radius:2px;display:inline-block;"></span> Savings</span>';
-    if (latest.investment) legendHtml += '<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:var(--purple);border-radius:2px;display:inline-block;"></span> Investments</span>';
+    if (latest.checking) legendHtml += '<span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block;"></span> Checking</span>';
+    if (latest.savings) legendHtml += '<span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--accent);border-radius:2px;display:inline-block;"></span> Savings</span>';
+    if (latest.investment) legendHtml += '<span class="icon-label gap-4"><span style="width:10px;height:10px;background:var(--purple);border-radius:2px;display:inline-block;"></span> Investments</span>';
 
     const nwColor = latest.netWorth >= 0 ? 'var(--green)' : 'var(--red)';
 
@@ -299,20 +277,32 @@ export function renderIncome(container, store, subTab = null) {
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card">
+            <div class="stat-card" style="position:relative;">
+                <button class="btn-icon stat-card-edit" data-edit-target="user-pay" title="Edit pay amount"
+                    style="position:absolute;top:10px;right:10px;padding:4px 8px;font-size:11px;color:var(--text-muted);background:transparent;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+                    Edit
+                </button>
                 <div class="stat-label">${escapeHtml(userName)}'s Pay</div>
                 <div class="stat-value">${formatCurrency(userMonthlyPay)}</div>
                 <div class="stat-sub">/month (${formatCurrency(income.user.payAmount)}/${paySchedule.frequency === 'biweekly' ? 'check' : paySchedule.frequency === 'weekly' ? 'week' : 'mo'})</div>
             </div>
             ${depEnabled ? `
-            <div class="stat-card${!combineDepIncome ? ' muted' : ''}">
+            <div class="stat-card${!combineDepIncome ? ' muted' : ''}" style="position:relative;">
+                <button class="btn-icon stat-card-edit" data-edit-target="dependent-pay" title="Edit partner's pay"
+                    style="position:absolute;top:10px;right:10px;padding:4px 8px;font-size:11px;color:var(--text-muted);background:transparent;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+                    Edit
+                </button>
                 <div class="stat-label">${escapeHtml(depName)}'s Pay${!combineDepIncome ? ' <span style="font-size:10px;color:var(--text-muted);">(separate)</span>' : ''}</div>
                 <div class="stat-value">${formatCurrency(depMonthlyPay)}</div>
                 <div class="stat-sub">/month ${income.dependent.employed ? '' : '<span style="color:var(--orange);">(Unemployed)</span>'}</div>
             </div>
             ` : ''}
             ${otherIncome.length > 0 ? `
-            <div class="stat-card">
+            <div class="stat-card" style="position:relative;">
+                <button class="btn-icon stat-card-edit" data-edit-target="other-income" title="Manage other income sources"
+                    style="position:absolute;top:10px;right:10px;padding:4px 8px;font-size:11px;color:var(--text-muted);background:transparent;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+                    Manage
+                </button>
                 <div class="stat-label">Other Income</div>
                 <div class="stat-value">${formatCurrency(otherMonthlyTotal)}</div>
                 <div class="stat-sub">/month from ${otherIncome.length} source${otherIncome.length !== 1 ? 's' : ''}</div>
@@ -562,78 +552,93 @@ export function renderIncome(container, store, subTab = null) {
         });
     }
 
+    // Quick-edit buttons on summary cards — click routes to the existing
+    // in-page editor for that income type. Keeps users off the Settings
+    // page for basic pay/partner/other-income tweaks.
+    container.querySelectorAll('.stat-card-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.editTarget;
+            if (target === 'user-pay') {
+                const el = container.querySelector('#edit-user-pay');
+                if (el) el.click();
+            } else if (target === 'dependent-pay') {
+                const el = container.querySelector('#edit-dependent-pay');
+                if (el) el.click();
+                else {
+                    // Partner tracking isn't enabled or the partner card is
+                    // rendering in a degraded state — fall back to scrolling
+                    // to the partner income section if it exists.
+                    const section = container.querySelector('.settings-section h3')
+                        && Array.from(container.querySelectorAll('.settings-section'))
+                            .find(s => /Income$/.test(s.querySelector('h3')?.textContent || ''));
+                    section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } else if (target === 'other-income') {
+                const list = container.querySelector('#add-other-income');
+                if (list) {
+                    list.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Subtle flash so the user sees where they landed.
+                    const card = list.closest('.card');
+                    if (card) {
+                        const orig = card.style.boxShadow;
+                        card.style.boxShadow = '0 0 0 2px var(--accent)';
+                        setTimeout(() => { card.style.boxShadow = orig; }, 900);
+                    }
+                }
+            }
+        });
+    });
+
     // Edit user pay
     container.querySelector('#edit-user-pay').addEventListener('click', () => {
-        openModal('Edit Pay Amount', `
-            <div class="form-group">
-                <label>Pay Amount (per check)</label>
-                <input type="number" class="form-input" id="user-pay-input" step="0.01" value="${income.user.payAmount}">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = parseFloat(document.getElementById('user-pay-input').value);
-            if (val > 0) {
-                store.updateIncome('user', { payAmount: val });
-                closeModal();
-                refreshPage();
-            }
+        openFormModal({
+            title: 'Edit Pay Amount',
+            refreshPage,
+            fields: [{
+                id: 'user-pay-input', label: 'Pay Amount (per check)',
+                type: 'number', step: '0.01', value: income.user.payAmount,
+                required: true, min: 0.01, autofocus: true,
+            }],
+            onSave: (values) => {
+                store.updateIncome('user', { payAmount: values['user-pay-input'] });
+            },
         });
     });
 
     // Edit pay frequency
     container.querySelector('#edit-pay-freq').addEventListener('click', () => {
-        openModal('Change Pay Frequency', `
-            <div class="form-group">
-                <label>How often do you get paid?</label>
-                <select class="form-select" id="pay-freq-select">
-                    <option value="weekly" ${paySchedule.frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
-                    <option value="biweekly" ${paySchedule.frequency === 'biweekly' ? 'selected' : ''}>Biweekly (every 2 weeks)</option>
-                    <option value="semimonthly" ${paySchedule.frequency === 'semimonthly' ? 'selected' : ''}>Semi-Monthly (1st & 15th, etc.)</option>
-                    <option value="monthly" ${paySchedule.frequency === 'monthly' ? 'selected' : ''}>Monthly</option>
-                </select>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = document.getElementById('pay-freq-select').value;
-            store.updatePaySchedule({ frequency: val });
-            closeModal();
-            refreshPage();
+        openFormModal({
+            title: 'Change Pay Frequency',
+            refreshPage,
+            fields: [{
+                id: 'pay-freq-select', label: 'How often do you get paid?',
+                type: 'select', value: paySchedule.frequency,
+                options: [
+                    { value: 'weekly', label: 'Weekly' },
+                    { value: 'biweekly', label: 'Biweekly (every 2 weeks)' },
+                    { value: 'semimonthly', label: 'Semi-Monthly (1st & 15th, etc.)' },
+                    { value: 'monthly', label: 'Monthly' },
+                ],
+            }],
+            onSave: (values) => {
+                store.updatePaySchedule({ frequency: values['pay-freq-select'] });
+            },
         });
     });
 
     // Edit pay start date
     container.querySelector('#edit-pay-start').addEventListener('click', () => {
-        openModal('Set Known Pay Date', `
-            <div class="form-group">
-                <label>Enter any date you got (or will get) paid</label>
-                <input type="date" class="form-input" id="pay-start-input" value="${paySchedule.startDate || ''}">
-                <p style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
-                    This anchors the schedule. All other pay dates are calculated from this date using your frequency.
-                </p>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
-        `);
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const val = document.getElementById('pay-start-input').value;
-            if (val) {
-                store.updatePaySchedule({ startDate: val });
-                closeModal();
-                refreshPage();
-            }
+        openFormModal({
+            title: 'Set Known Pay Date',
+            refreshPage,
+            fields: [{
+                id: 'pay-start-input', label: 'Enter any date you got (or will get) paid',
+                type: 'date', value: paySchedule.startDate || '', required: true,
+                hint: 'This anchors the schedule. All other pay dates are calculated from this date using your frequency.',
+            }],
+            onSave: (values) => {
+                store.updatePaySchedule({ startDate: values['pay-start-input'] });
+            },
         });
     });
 
@@ -659,24 +664,17 @@ export function renderIncome(container, store, subTab = null) {
     const editDependentPayBtn = container.querySelector('#edit-dependent-pay');
     if (editDependentPayBtn) {
         editDependentPayBtn.addEventListener('click', () => {
-            openModal(`Edit ${escapeHtml(depName)} Pay`, `
-                <div class="form-group">
-                    <label>Monthly Pay Amount</label>
-                    <input type="number" class="form-input" id="dependent-pay-input" step="0.01" value="${income.dependent.payAmount}">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const val = parseFloat(document.getElementById('dependent-pay-input').value);
-                if (val >= 0) {
-                    store.updateIncome('dependent', { payAmount: val });
-                    closeModal();
-                    refreshPage();
-                }
+            openFormModal({
+                title: `Edit ${depName} Pay`,
+                refreshPage,
+                fields: [{
+                    id: 'dependent-pay-input', label: 'Monthly Pay Amount',
+                    type: 'number', step: '0.01', value: income.dependent.payAmount,
+                    required: true, min: 0, autofocus: true,
+                }],
+                onSave: (values) => {
+                    store.updateIncome('dependent', { payAmount: values['dependent-pay-input'] });
+                },
             });
         });
     }

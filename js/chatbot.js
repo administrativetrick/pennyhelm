@@ -1,5 +1,6 @@
 import { store } from './store.js';
 import { formatCurrency, escapeHtml } from './utils.js';
+import { frequencyToMonthly } from './services/financial-service.js';
 
 const STORAGE_KEY = 'pennyhelm_chat_history';
 const MAX_HISTORY = 50;
@@ -11,17 +12,8 @@ let isLoading = false;
 
 // ─── Financial Summary Builder ───────────────────────────────────
 
-function monthlyAmount(amount, frequency) {
-    switch (frequency) {
-        case 'weekly': return amount * 52 / 12;
-        case 'biweekly': return amount * 26 / 12;
-        case 'semimonthly': return amount * 2;
-        case 'semi-annual': return amount / 6;
-        case 'quarterly': return amount / 3;
-        case 'yearly': return amount / 12;
-        default: return amount; // monthly
-    }
-}
+// Canonical frequency→monthly logic now lives in financial-service.frequencyToMonthly.
+const monthlyAmount = frequencyToMonthly;
 
 function buildFinancialSummary() {
     const data = store.getData();
@@ -87,7 +79,7 @@ function buildFinancialSummary() {
     // Build summary
     let s = `Today is ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.\n`;
     s += `User: ${data.userName || 'User'}\n`;
-    if (data.dependentEnabled) s += `Partner: ${data.dependentName || 'Dependent'}\n`;
+    if (data.dependentEnabled) s += `Partner: ${data.dependentName || 'Partner'}\n`;
 
     s += `\nMONTHLY INCOME: ${formatCurrency(totalMonthlyIncome)}`;
     s += ` (take-home pay: ${formatCurrency(userMonthlyPay)}`;

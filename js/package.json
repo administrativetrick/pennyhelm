@@ -1,0 +1,4 @@
+{
+  "//": "Scopes ES module treatment to the js/ tree when Node imports these files (e.g. from unit tests). The browser ignores this file — it loads modules via <script type=\"module\">. The root package.json stays CommonJS so server.js and scripts/ keep working.",
+  "type": "module"
+}

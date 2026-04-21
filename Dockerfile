@@ -31,6 +31,12 @@ RUN rm -rf .git .github .claude functions scripts auth_export.json \
 # ---------- runtime stage ----------
 FROM node:20-bookworm-slim AS runtime
 
+# wget is used by the HEALTHCHECK below; ca-certificates is good hygiene
+# for any future outbound HTTPS (none today, but cheap to ship).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Drop root privileges
 RUN groupadd --system --gid 1001 pennyhelm \
     && useradd  --system --uid 1001 --gid pennyhelm --shell /sbin/nologin pennyhelm
@@ -50,5 +56,11 @@ ENV NODE_ENV=production \
 
 USER pennyhelm
 EXPOSE 8081
+
+# Docker healthcheck — curl-free check using wget. /health returns 200 only
+# when Express is up AND SQLite responds to a ping. 30s interval is polite;
+# start-period gives the Node process time to spin up SQLite/WAL.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost:8081/health || exit 1
 
 CMD ["node", "server.js"]

@@ -42,8 +42,6 @@ const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 const STRIPE_ANNUAL_PRICE_ID = defineSecret("STRIPE_ANNUAL_PRICE_ID");
 const STRIPE_MONTHLY_PRICE_ID = defineSecret("STRIPE_MONTHLY_PRICE_ID");
-const STRIPE_FIRST_YEAR_COUPON_ID = defineSecret("STRIPE_FIRST_YEAR_COUPON_ID");
-
 const MFA_ENCRYPTION_KEY = defineSecret("MFA_ENCRYPTION_KEY");
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 
@@ -97,14 +95,16 @@ const secrets = {
     PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
-    STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID, STRIPE_FIRST_YEAR_COUPON_ID,
+    STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID,
     MFA_ENCRYPTION_KEY,
     GEMINI_API_KEY,
 };
 
 // ─── Load Domain Modules ─────────────────────────────────────
 
-const shared = { admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets };
+const { enforceRateLimit } = require("./rate-limit");
+
+const shared = { admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets, enforceRateLimit };
 
 const authFns      = require("./auth")(shared);
 const plaidFns     = require("./plaid")(shared);
@@ -115,11 +115,14 @@ const scheduledFns = require("./scheduled")(shared);
 const chatbotFns   = require("./chatbot")(shared);
 const apiKeyFns    = require("./api-keys")(shared);
 const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
+const adEventFns   = require("./ad-events")(shared);
+const activeUserFns = require("./active-users")(shared);
 
 // ─── Re-export All Cloud Functions ───────────────────────────
 
-// Remove internal helpers before exporting
+// Remove internal helpers before exporting (these are plain functions,
+// not onCall/onRequest — they'd crash if Firebase tried to deploy them)
 delete apiKeyFns._validateApiKey;
 delete inviteFns.trackPaidReferral;
 
-Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns);
+Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns);
