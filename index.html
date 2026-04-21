@@ -36,6 +36,55 @@
             } catch(_) { /* sessionStorage disabled — attribution is best-effort */ }
         })();
     </script>
+
+    <!-- Google Ads (gtag.js) + Consent Mode v2.
+         Production-hostname only so selfhost installs never contact Google.
+         EEA visitors default all consent categories to 'denied' until the
+         /switch banner writes 'granted' to pennyhelm-consent localStorage.
+         Non-EEA defaults to granted. See privacy.html §1.9 for details. -->
+    <script>
+        (function () {
+            var host = window.location.hostname || '';
+            if (host.indexOf('pennyhelm.com') === -1) return; // selfhost / localhost: skip
+            var STORAGE_KEY = 'pennyhelm-consent';
+            function isEea() {
+                try {
+                    var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+                    return (
+                        tz.indexOf('Europe/') === 0 ||
+                        tz === 'Atlantic/Reykjavik' ||
+                        tz === 'Atlantic/Faroe' ||
+                        tz === 'Atlantic/Azores' ||
+                        tz === 'Atlantic/Madeira'
+                    );
+                } catch (_) { return true; }
+            }
+            function stored() {
+                try {
+                    var v = localStorage.getItem(STORAGE_KEY);
+                    return v === 'granted' || v === 'denied' ? v : null;
+                } catch (_) { return null; }
+            }
+            window.dataLayer = window.dataLayer || [];
+            function gtag() { dataLayer.push(arguments); }
+            window.gtag = gtag;
+            var state = isEea() ? (stored() === 'granted' ? 'granted' : 'denied') : 'granted';
+            gtag('consent', 'default', {
+                ad_storage: state,
+                ad_user_data: state,
+                ad_personalization: state,
+                analytics_storage: state,
+                wait_for_update: 500
+            });
+            gtag('js', new Date());
+            gtag('config', 'AW-1061347212');
+            var s = document.createElement('script');
+            s.async = true;
+            s.src = 'https://www.googletagmanager.com/gtag/js?id=AW-1061347212';
+            document.head.appendChild(s);
+        })();
+    </script>
+
     <link rel="stylesheet" href="css/landing.css">
 </head>
 <body>
