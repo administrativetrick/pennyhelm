@@ -226,16 +226,6 @@ form.addEventListener('submit', async (e) => {
             const userCredential = await auth.signInWithEmailAndPassword(email, password);
             // Ensure users/{uid} doc exists (safety net for all sign-in methods)
             await ensureUserRegistered(userCredential.user);
-            console.log('Email/password sign-in successful, checking password change requirement...');
-            // Check if password change is required
-            const requiresChange = await checkRequiresPasswordChange(userCredential.user);
-            console.log('Password change required:', requiresChange);
-            if (requiresChange) {
-                console.log('Showing password change modal...');
-                setLoading(false);
-                showPasswordChangeModal(userCredential.user, password);
-                return; // Don't redirect
-            }
             // Check if MFA is enabled
             const mfaRequired = await checkMFAEnabled(userCredential.user);
             if (mfaRequired) {
@@ -278,9 +268,6 @@ googleBtn.addEventListener('click', async () => {
             await ensureUserRegistered(user);
         }
 
-        // Set up mobile credentials if needed (works for both new and existing users)
-        await checkAndSetupMobileCredentials(user);
-
         // Check if MFA is enabled for existing users
         if (!isFirstTime) {
             const mfaRequired = await checkMFAEnabled(user);
@@ -303,66 +290,6 @@ googleBtn.addEventListener('click', async () => {
         }
     }
 });
-
-// Set up mobile credentials via Cloud Function (sends email, sets password server-side)
-// Called for NEW users on first Google sign-in
-async function setupMobileCredentials(user) {
-    try {
-        console.log('Calling setupMobileCredentials Cloud Function...');
-        // Call Cloud Function to generate password, set it in Firebase Auth, and send email
-        const setupMobileCredentialsFn = functions.httpsCallable('setupMobileCredentials');
-        const result = await setupMobileCredentialsFn({ resend: false });
-        console.log('Cloud Function result:', result.data);
-
-        if (result.data.success && !result.data.alreadySet) {
-            // Show confirmation modal (password was sent to email)
-            showMobileCredentialsModal(user.email);
-        }
-    } catch (error) {
-        console.error('Error setting up mobile credentials:', error);
-        // Don't block login if mobile setup fails
-    }
-}
-
-// Check if existing user needs mobile credentials and set them up if not
-async function checkAndSetupMobileCredentials(user) {
-    try {
-        console.log('Checking mobile credentials for user:', user.uid);
-        const db = firebase.firestore();
-        const userDoc = await db.collection('users').doc(user.uid).get();
-        console.log('User doc exists:', userDoc.exists, 'mobilePasswordSet:', userDoc.exists ? userDoc.data().mobilePasswordSet : 'N/A');
-
-        // If user doesn't have mobile credentials set up, create them
-        if (!userDoc.exists || !userDoc.data().mobilePasswordSet) {
-            console.log('Setting up mobile credentials...');
-            await setupMobileCredentials(user);
-        } else {
-            console.log('Mobile credentials already set up');
-        }
-    } catch (error) {
-        console.error('Error checking mobile credentials:', error);
-        // Don't block login if check fails
-    }
-}
-
-// Check if user needs to change their password
-async function checkRequiresPasswordChange(user) {
-    try {
-        const db = firebase.firestore();
-        const userDoc = await db.collection('users').doc(user.uid).get();
-        console.log('Checking password change for user:', user.uid);
-        console.log('User doc exists:', userDoc.exists);
-        if (userDoc.exists) {
-            console.log('requirePasswordChange value:', userDoc.data().requirePasswordChange);
-        }
-        const requiresChange = userDoc.exists && userDoc.data().requirePasswordChange === true;
-        console.log('Will show password change modal:', requiresChange);
-        return requiresChange;
-    } catch (error) {
-        console.error('Error checking password change requirement:', error);
-        return false;
-    }
-}
 
 // Check if user has MFA enabled
 async function checkMFAEnabled(user) {
@@ -488,109 +415,6 @@ function showMFAVerificationModal() {
             codeInput.focus();
         }
     });
-}
-
-// Show password change modal
-function showPasswordChangeModal(user, currentPassword) {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-        <div class="modal-content">
-            <h2>🔐 Password Change Required</h2>
-            <p>For security reasons, you must change your temporary password.</p>
-            <div class="form-group mt-16">
-                <label>New Password</label>
-                <input type="password" class="form-input" id="new-password" placeholder="Enter new password" minlength="6">
-            </div>
-            <div class="form-group">
-                <label>Confirm New Password</label>
-                <input type="password" class="form-input" id="confirm-new-password" placeholder="Confirm new password">
-            </div>
-            <div id="password-change-error" style="color:var(--red);font-size:13px;margin-bottom:12px;"></div>
-            <button class="btn btn-primary" id="change-password-btn" style="width:100%;">Change Password</button>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-
-    const newPasswordInput = document.getElementById('new-password');
-    const confirmInput = document.getElementById('confirm-new-password');
-    const errorDiv = document.getElementById('password-change-error');
-    const changeBtn = document.getElementById('change-password-btn');
-
-    changeBtn.addEventListener('click', async () => {
-        const newPassword = newPasswordInput.value;
-        const confirmPassword = confirmInput.value;
-
-        // Validate
-        if (newPassword.length < 6) {
-            errorDiv.textContent = 'Password must be at least 6 characters.';
-            return;
-        }
-        if (newPassword !== confirmPassword) {
-            errorDiv.textContent = 'Passwords do not match.';
-            return;
-        }
-        if (newPassword === currentPassword) {
-            errorDiv.textContent = 'New password must be different from current password.';
-            return;
-        }
-
-        changeBtn.disabled = true;
-        changeBtn.textContent = 'Changing...';
-        errorDiv.textContent = '';
-
-        try {
-            // Update password in Firebase Auth
-            await user.updatePassword(newPassword);
-
-            // Clear the requirePasswordChange flag via Cloud Function
-            const confirmFn = functions.httpsCallable('confirmPasswordChanged');
-            await confirmFn({});
-
-            // Success - redirect to app
-            overlay.remove();
-            window.location.href = '/app';
-        } catch (error) {
-            console.error('Error changing password:', error);
-            changeBtn.disabled = false;
-            changeBtn.textContent = 'Change Password';
-            if (error.code === 'auth/requires-recent-login') {
-                errorDiv.textContent = 'Session expired. Please sign in again.';
-            } else {
-                errorDiv.textContent = 'Failed to change password. Please try again.';
-            }
-        }
-    });
-}
-
-// Show modal confirming credentials were emailed
-function showMobileCredentialsModal(email) {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-        <div class="modal-content">
-            <h2>📱 Mobile App Access</h2>
-            <p>Your mobile app login credentials have been sent to:</p>
-            <div class="credentials-box">
-                <div class="credential-row">
-                    <span class="credential-value" style="text-align:center;width:100%;" id="mobile-cred-email"></span>
-                </div>
-            </div>
-            <p class="modal-note" style="color: var(--orange);">
-                <strong>Important:</strong> You will be required to change your password on first mobile login.
-            </p>
-            <p class="modal-note">
-                Check your email for the temporary password.
-            </p>
-            <button class="btn-modal-close" onclick="this.closest('.modal-overlay').remove(); window.location.href='/app';">
-                Got it, continue to app
-            </button>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-    // Set email via textContent to prevent XSS
-    const emailEl = document.getElementById('mobile-cred-email');
-    if (emailEl) emailEl.textContent = email;
 }
 
 // Generate a REF-XXXXXXX referral code (client-side, for new user registration)
