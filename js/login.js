@@ -6,6 +6,7 @@ import {
     clearAcquisition,
 } from './acquisition.js';
 import { activateAppCheck } from './app-check-boot.js';
+import { createFirebaseSdkLoader } from './firebase-sdk-loader.js';
 
 // Capture any UTM / ref / gclid / fbclid params that landed the user here.
 // Runs before Firebase init so it's captured even if Firebase fails to load.
@@ -21,57 +22,14 @@ const auth = firebase.auth();
 const isCloudMode = APP_MODE === 'cloud';
 
 // ─── Deferred Firebase SDK loader ────────────────────────────────
-// Each service ready-promise is memoized so repeat awaits are free. Ordering
-// matters: App Check must `activate()` before Firestore / Functions fire their
-// first request, otherwise those requests go un-attested and enforcement (if
-// enabled in Firebase console) rejects them. We chain the promises to enforce
-// that order without the caller having to think about it.
-const SDK_CDN = 'https://www.gstatic.com/firebasejs/10.14.1/';
-const _sdkScriptLoads = {};
-function _loadSdkScript(name) {
-    if (_sdkScriptLoads[name]) return _sdkScriptLoads[name];
-    _sdkScriptLoads[name] = new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = SDK_CDN + name + '.js';
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('Failed to load ' + name));
-        document.head.appendChild(s);
+// The factory lives in ./firebase-sdk-loader.js so tests can stand up fresh
+// instances with stubbed DOM + firebase globals. Production wires it to the
+// real `firebase` compat global and passes our site key.
+const { ensureAppCheckReady, ensureFirestoreReady, ensureFunctionsReady } =
+    createFirebaseSdkLoader({
+        appCheckSiteKey: APP_CHECK_SITE_KEY,
+        activateAppCheck,
     });
-    return _sdkScriptLoads[name];
-}
-
-let _appCheckReady = null;
-function ensureAppCheckReady() {
-    if (_appCheckReady) return _appCheckReady;
-    // Skip the SDK entirely when no site key is configured (selfhost, or
-    // cloud deploys that haven't registered with reCAPTCHA yet). Saves a
-    // network round-trip and, more importantly, keeps login working if
-    // gstatic is unreachable on a site that doesn't need attestation.
-    if (!APP_CHECK_SITE_KEY) {
-        _appCheckReady = Promise.resolve();
-        return _appCheckReady;
-    }
-    _appCheckReady = _loadSdkScript('firebase-app-check-compat').then(() => {
-        // Idempotent — repeat calls are cheap.
-        activateAppCheck(firebase, APP_CHECK_SITE_KEY);
-    });
-    return _appCheckReady;
-}
-
-let _firestoreReady = null;
-function ensureFirestoreReady() {
-    if (_firestoreReady) return _firestoreReady;
-    _firestoreReady = ensureAppCheckReady().then(() => _loadSdkScript('firebase-firestore-compat'));
-    return _firestoreReady;
-}
-
-let _functionsReady = null;
-function ensureFunctionsReady() {
-    if (_functionsReady) return _functionsReady;
-    _functionsReady = ensureAppCheckReady().then(() => _loadSdkScript('firebase-functions-compat'));
-    return _functionsReady;
-}
 
 // Pre-warm all three in parallel right after this module parses. login.js
 // is a `<script type="module">` so it's implicitly deferred — runs after
