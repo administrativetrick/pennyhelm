@@ -203,8 +203,12 @@ tabs.forEach(tab => {
     });
 });
 
-// If URL has ?ref=, auto-switch to Sign Up tab
-if (urlRef && isCloudMode) {
+// If URL has ?ref= or ?signup=1, auto-switch to Sign Up tab.
+// ?signup=1 is used by the /switch ad landing page's "Start Free Trial" CTA
+// so the default-to-Sign-In friction doesn't bury conversions on first click.
+const urlSignupFlag = new URLSearchParams(window.location.search).get('signup');
+const wantsSignUp = urlSignupFlag === '1' || urlSignupFlag === 'true';
+if ((urlRef || wantsSignUp) && isCloudMode) {
     const signupTab = document.querySelector('.auth-tab[data-tab="signup"]');
     if (signupTab) signupTab.click();
 }
