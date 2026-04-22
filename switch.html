@@ -6,310 +6,26 @@
   <meta name="robots" content="noindex, nofollow">
   <title>PennyHelm — $7.99/mo personal finance dashboard</title>
   <meta name="description" content="A personal finance dashboard for $7.99 a month. Half the price of Monarch or YNAB. Free household access. 30-day free trial, no card required.">
+  <!--
+    Honor the user's saved theme before the page paints so /switch ↔ /login
+    handoff doesn't flash dark→light (or vice-versa). Same snippet as
+    login.html so both pages read the same localStorage key.
+  -->
+  <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180x180.png">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    :root {
-      --bg: #0b0f14;
-      --bg-raised: #141c26;
-      --bg-raised-2: #1a2431;
-      --border: #1f2937;
-      --text: #e4e8ec;
-      --text-muted: #8899a6;
-      --green: #22c55e;
-      --green-hover: #16a34a;
-      --green-dim: rgba(34, 197, 94, 0.1);
-      --red: #ef4444;
-    }
-    html { scroll-behavior: smooth; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.55;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-    a { color: inherit; }
-    .container {
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 0 24px;
-    }
-    header {
-      padding: 28px 0 0;
-    }
-    .logo {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 1.05rem;
-      color: var(--text);
-      text-decoration: none;
-    }
-    .logo-mark {
-      width: 32px; height: 32px;
-      background: linear-gradient(135deg, var(--green), var(--green-hover));
-      border-radius: 8px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.8rem;
-      font-weight: 800;
-      color: #051109;
-      letter-spacing: -0.02em;
-    }
-    .hero {
-      padding: 52px 0 40px;
-    }
-    .hero h1 {
-      font-size: clamp(1.85rem, 5.2vw, 2.6rem);
-      line-height: 1.15;
-      font-weight: 800;
-      letter-spacing: -0.025em;
-      margin-bottom: 20px;
-    }
-    .hero .sub {
-      font-size: 1.05rem;
-      color: var(--text-muted);
-      max-width: 580px;
-      margin-bottom: 24px;
-    }
-    .hero .sub strong {
-      color: var(--text);
-      font-weight: 600;
-    }
-    .price-strip {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 0 0 28px;
-    }
-    .price-strip .chip {
-      padding: 8px 14px;
-      font-size: 0.88rem;
-      background: var(--bg-raised);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      color: var(--text-muted);
-    }
-    .price-strip .chip.strike {
-      text-decoration: line-through;
-      text-decoration-color: var(--red);
-      text-decoration-thickness: 2px;
-    }
-    .price-strip .chip.us {
-      background: var(--green-dim);
-      border-color: rgba(34, 197, 94, 0.35);
-      color: var(--green);
-      font-weight: 700;
-      text-decoration: none;
-    }
-    .cta {
-      display: inline-block;
-      background: var(--green);
-      color: #051109;
-      text-decoration: none;
-      font-weight: 700;
-      font-size: 1.02rem;
-      padding: 16px 26px;
-      border-radius: 10px;
-      transition: background 0.15s ease, transform 0.08s ease;
-      border: none;
-      cursor: pointer;
-      text-align: center;
-    }
-    .cta:hover { background: var(--green-hover); }
-    .cta:active { transform: translateY(1px); }
-    .cta.block { display: block; width: 100%; max-width: 420px; }
-    .trust {
-      margin-top: 14px;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      max-width: 560px;
-      line-height: 1.5;
-    }
-    section { padding: 44px 0; border-top: 1px solid var(--border); }
-    h2 {
-      font-size: 1.4rem;
-      margin-bottom: 22px;
-      letter-spacing: -0.015em;
-      font-weight: 700;
-    }
-    .features {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-    }
-    @media (min-width: 720px) {
-      .features { grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-    }
-    .feature {
-      padding: 20px;
-      background: var(--bg-raised);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-    }
-    .feature h3 {
-      font-size: 0.98rem;
-      margin-bottom: 8px;
-      color: var(--green);
-      font-weight: 600;
-    }
-    .feature p {
-      color: var(--text-muted);
-      font-size: 0.92rem;
-      line-height: 1.55;
-    }
-    .table-wrap { overflow-x: auto; }
-    table.compare {
-      width: 100%;
-      min-width: 480px;
-      border-collapse: separate;
-      border-spacing: 0;
-      font-size: 0.92rem;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-    }
-    table.compare th, table.compare td {
-      padding: 12px 14px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-    }
-    table.compare tbody tr:last-child td { border-bottom: none; }
-    table.compare thead th {
-      background: var(--bg-raised);
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-    table.compare thead th.us-head {
-      color: var(--green);
-      background: var(--bg-raised-2);
-    }
-    table.compare td { color: var(--text-muted); }
-    table.compare td:first-child { color: var(--text); font-weight: 500; }
-    table.compare td.us {
-      background: var(--green-dim);
-      color: var(--green);
-      font-weight: 700;
-    }
-    .note {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      margin-top: 12px;
-    }
-    .quote {
-      padding: 22px;
-      background: var(--bg-raised);
-      border-left: 3px solid var(--green);
-      border-radius: 8px;
-      font-size: 0.98rem;
-      color: var(--text);
-      line-height: 1.55;
-    }
-    .quote cite {
-      display: block;
-      margin-top: 12px;
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      font-style: normal;
-    }
-    .final-cta {
-      padding: 52px 0 72px;
-      text-align: center;
-      border-top: 1px solid var(--border);
-    }
-    .final-cta h2 { margin-bottom: 8px; font-size: 1.5rem; }
-    .final-cta p {
-      color: var(--text-muted);
-      margin-bottom: 24px;
-      font-size: 0.98rem;
-    }
-    .final-cta .cta { margin: 0 auto; }
-    .final-cta .trust {
-      margin-left: auto;
-      margin-right: auto;
-      margin-top: 18px;
-      text-align: center;
-    }
-    @media (max-width: 480px) {
-      .hero { padding: 40px 0 32px; }
-      section { padding: 36px 0; }
-      .final-cta { padding: 40px 0 56px; }
-      .cta { width: 100%; padding: 18px 20px; font-size: 1rem; }
-    }
-
-    /* ─── EEA consent banner ──────────────────────────────────────
-       Fixed-to-viewport-bottom so it floats above content without
-       pushing layout. Hidden by default; JS unhides for EEA visitors
-       who haven't made a choice. */
-    #consent-banner {
-      display: none;
-      position: fixed;
-      left: 12px; right: 12px; bottom: 12px;
-      z-index: 9999;
-      max-width: 720px;
-      margin: 0 auto;
-      background: var(--bg-raised);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 18px 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-      font-size: 0.9rem;
-      color: var(--text);
-      line-height: 1.5;
-    }
-    #consent-banner.is-visible { display: block; }
-    #consent-banner .consent-text {
-      color: var(--text);
-      margin-bottom: 12px;
-    }
-    #consent-banner .consent-text a {
-      color: var(--green);
-      text-decoration: underline;
-    }
-    #consent-banner .consent-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    #consent-banner button {
-      font-family: inherit;
-      font-size: 0.92rem;
-      font-weight: 600;
-      padding: 9px 18px;
-      border-radius: 8px;
-      cursor: pointer;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--text-muted);
-      transition: background 0.12s ease, color 0.12s ease;
-    }
-    #consent-banner button:hover { color: var(--text); }
-    #consent-banner button.accept {
-      background: var(--green);
-      border-color: var(--green);
-      color: #051109;
-    }
-    #consent-banner button.accept:hover {
-      background: var(--green-hover);
-      border-color: var(--green-hover);
-      color: #051109;
-    }
-    @media (max-width: 480px) {
-      #consent-banner .consent-actions button { flex: 1; }
-    }
-  </style>
+  <!--
+    Shared palette, reset, typography, and .logo-mark live in landing.css
+    (same file /login uses). /switch-only components — price strip,
+    compare table, features grid, consent banner, CTA button — live in
+    switch.css. This way the palette has a single source of truth and
+    /switch ↔ /login never look like two different sites.
+  -->
+  <link rel="stylesheet" href="css/landing.css">
+  <link rel="stylesheet" href="css/switch.css">
 </head>
-<body>
+<body class="switch-page">
   <div class="container">
     <header>
       <span class="logo">
@@ -318,7 +34,7 @@
       </span>
     </header>
 
-    <div class="hero">
+    <div class="switch-hero">
       <h1>Your budget app shouldn't cost a budget.</h1>
       <p class="sub">PennyHelm is a personal finance dashboard for <strong>$7.99 a month</strong>, or <strong>$6.49 a month billed annually</strong>. Same features as Monarch and YNAB. The price is locked for existing subscribers — it doesn't go up.</p>
 
@@ -336,7 +52,7 @@
 
     <section>
       <h2>What you actually get</h2>
-      <div class="features">
+      <div class="switch-features">
         <div class="feature">
           <h3>One dashboard</h3>
           <p>Bills, accounts, debts, cashflow, and a financial health score on a single page. Calendar view, Sankey diagrams, net-worth trendline — all included.</p>
