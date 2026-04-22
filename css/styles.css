@@ -598,6 +598,35 @@ tbody tr:hover { background: var(--bg-card-hover); }
 .badge-storage, .badge-cyan { background: var(--cyan-bg); color: var(--cyan); }
 .badge-insurance, .badge-pink { background: rgba(236, 72, 153, 0.12); color: #ec4899; }
 
+/* ===== Click-to-edit cells & toggle badges =====
+   Used in Expenses and Bills tables: tapping a category badge or the
+   business/personal toggle opens the inline picker or flips the type.
+   Needs clear hover, focus, and :active states so users know the cell is
+   interactive — and tap targets need to hit ~44px on mobile. */
+.expense-type-toggle,
+.expense-category-cell,
+.bill-category-cell {
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.1s ease, transform 0.1s ease;
+}
+.expense-type-toggle:hover,
+.expense-category-cell:hover,
+.bill-category-cell:hover {
+    opacity: 0.85;
+}
+.expense-type-toggle:active,
+.expense-category-cell:active,
+.bill-category-cell:active {
+    opacity: 0.75;
+    transform: scale(0.97);
+}
+.expense-type-toggle:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
 /* ===== Category Picker ===== */
 .category-picker-wrapper {
     display: flex;
@@ -1825,6 +1854,16 @@ tbody tr:hover { background: var(--bg-card-hover); }
     .badge {
         font-size: 12px;
         padding: 4px 10px;
+    }
+
+    /* Bigger tap targets for interactive badges/cells on touch devices —
+       rows themselves give the ~44px vertical target via td padding, so we
+       just widen horizontally to make them easier to hit without a miss. */
+    .expense-type-toggle,
+    .expense-category-cell .badge,
+    .bill-category-cell .badge {
+        padding: 6px 12px;
+        font-size: 12.5px;
     }
 }
 
