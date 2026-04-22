@@ -1,0 +1,345 @@
+/* ===== /switch — ad landing page =====
+ *
+ * Pair this with landing.css. landing.css provides the palette tokens
+ * (--bg-primary, --accent, --green, etc.), the CSS reset, and the base
+ * typography/body rules. This file owns only the components that are
+ * unique to /switch — price comparison strip, compare table, features
+ * grid, consent banner, and the page-specific CTA button.
+ *
+ * Rationale: /login and /switch are both conversion-critical; any
+ * mismatch in palette between them breaks trust during the handoff.
+ * Sharing landing.css means any palette change propagates automatically.
+ */
+
+/* ----- Page shell ----- */
+.switch-page .container {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+.switch-page header {
+    padding: 28px 0 0;
+}
+
+.switch-page .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+/* .logo-mark is inherited from landing.css (blue→purple gradient, 36×36).
+   /switch's old green gradient is intentionally gone so the logo matches
+   login.html byte-for-byte. */
+
+/* ----- Hero ----- */
+.switch-hero {
+    padding: 52px 0 40px;
+}
+
+.switch-hero h1 {
+    font-size: clamp(1.85rem, 5.2vw, 2.6rem);
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    margin-bottom: 20px;
+}
+
+.switch-hero .sub {
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    max-width: 580px;
+    margin-bottom: 24px;
+}
+
+.switch-hero .sub strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* ----- Price-comparison chips ----- */
+.price-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 28px;
+}
+
+.price-strip .chip {
+    padding: 8px 14px;
+    font-size: 0.88rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+}
+
+.price-strip .chip.strike {
+    text-decoration: line-through;
+    text-decoration-color: var(--red);
+    text-decoration-thickness: 2px;
+}
+
+.price-strip .chip.us {
+    background: var(--green-bg);
+    border-color: var(--green);
+    color: var(--green);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+/* ----- CTA button ----- *
+ * Matches .btn-auth on /login (var(--accent) blue + white text) so the
+ * /switch → /login handoff feels like one continuous flow rather than a
+ * handoff to a different site. */
+.cta {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 1.02rem;
+    padding: 16px 26px;
+    border-radius: 10px;
+    transition: background 0.15s ease, transform 0.08s ease;
+    border: none;
+    cursor: pointer;
+    text-align: center;
+}
+
+.cta:hover { background: var(--accent-hover); }
+.cta:active { transform: translateY(1px); }
+.cta.block { display: block; width: 100%; max-width: 420px; }
+
+.trust {
+    margin-top: 14px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    max-width: 560px;
+    line-height: 1.5;
+}
+
+/* ----- Section dividers + headings ----- */
+.switch-page section {
+    padding: 44px 0;
+    border-top: 1px solid var(--border);
+}
+
+.switch-page h2 {
+    font-size: 1.4rem;
+    margin-bottom: 22px;
+    letter-spacing: -0.015em;
+    font-weight: 700;
+}
+
+/* ----- Features grid -----
+ * Renamed from .features → .switch-features to avoid collision with
+ * landing.css's .features section wrapper. */
+.switch-features {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+}
+
+@media (min-width: 720px) {
+    .switch-features { grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+}
+
+.switch-features .feature {
+    padding: 20px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+.switch-features .feature h3 {
+    font-size: 0.98rem;
+    margin-bottom: 8px;
+    color: var(--green);
+    font-weight: 600;
+}
+
+.switch-features .feature p {
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+
+/* ----- Competitor comparison table ----- */
+.table-wrap { overflow-x: auto; }
+
+table.compare {
+    width: 100%;
+    min-width: 480px;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.92rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+table.compare th,
+table.compare td {
+    padding: 12px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+table.compare tbody tr:last-child td { border-bottom: none; }
+
+table.compare thead th {
+    background: var(--bg-secondary);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+table.compare thead th.us-head {
+    color: var(--green);
+    background: var(--bg-card);
+}
+
+table.compare td { color: var(--text-secondary); }
+table.compare td:first-child { color: var(--text-primary); font-weight: 500; }
+
+table.compare td.us {
+    background: var(--green-bg);
+    color: var(--green);
+    font-weight: 700;
+}
+
+.note {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 12px;
+}
+
+/* ----- Testimonial quote block ----- */
+.quote {
+    padding: 22px;
+    background: var(--bg-secondary);
+    border-left: 3px solid var(--green);
+    border-radius: 8px;
+    font-size: 0.98rem;
+    color: var(--text-primary);
+    line-height: 1.55;
+}
+
+.quote cite {
+    display: block;
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-style: normal;
+}
+
+/* ----- Final CTA band ----- */
+.final-cta {
+    padding: 52px 0 72px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+}
+
+.final-cta h2 { margin-bottom: 8px; font-size: 1.5rem; }
+
+.final-cta p {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    font-size: 0.98rem;
+}
+
+.final-cta .cta { margin: 0 auto; }
+
+.final-cta .trust {
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 18px;
+    text-align: center;
+}
+
+@media (max-width: 480px) {
+    .switch-hero { padding: 40px 0 32px; }
+    .switch-page section { padding: 36px 0; }
+    .final-cta { padding: 40px 0 56px; }
+    .cta { width: 100%; padding: 18px 20px; font-size: 1rem; }
+}
+
+/* ----- EEA consent banner -----
+ * Fixed-to-viewport-bottom so it floats above content without pushing
+ * layout. Hidden by default; JS unhides for EEA visitors who haven't
+ * made a choice yet. */
+#consent-banner {
+    display: none;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 9999;
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+#consent-banner.is-visible { display: block; }
+
+#consent-banner .consent-text {
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+#consent-banner .consent-text a {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+#consent-banner .consent-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+#consent-banner button {
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    padding: 9px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+#consent-banner button:hover { color: var(--text-primary); }
+
+#consent-banner button.accept {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+#consent-banner button.accept:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+    color: #fff;
+}
+
+@media (max-width: 480px) {
+    #consent-banner .consent-actions button { flex: 1; }
+}
