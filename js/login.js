@@ -11,15 +11,76 @@ import { activateAppCheck } from './app-check-boot.js';
 // Runs before Firebase init so it's captured even if Firebase fails to load.
 captureAcquisitionParams();
 
-// Initialize Firebase
+// Initialize Firebase — only app + auth SDKs ship on the critical path. The
+// heavier SDKs (firestore ~344 KB, functions ~8 KB, app-check ~23 KB) are
+// loaded below on demand, then kicked off as a pre-warm right after this
+// module parses so they're ready by the time the user hits submit.
 firebase.initializeApp(firebaseConfig);
-// App Check activation must precede any service getter so tokens are attached
-// to the very first auth / functions call. No-op if site key is empty.
-activateAppCheck(firebase, APP_CHECK_SITE_KEY);
 const auth = firebase.auth();
-const functions = firebase.functions();
 
 const isCloudMode = APP_MODE === 'cloud';
+
+// ─── Deferred Firebase SDK loader ────────────────────────────────
+// Each service ready-promise is memoized so repeat awaits are free. Ordering
+// matters: App Check must `activate()` before Firestore / Functions fire their
+// first request, otherwise those requests go un-attested and enforcement (if
+// enabled in Firebase console) rejects them. We chain the promises to enforce
+// that order without the caller having to think about it.
+const SDK_CDN = 'https://www.gstatic.com/firebasejs/10.14.1/';
+const _sdkScriptLoads = {};
+function _loadSdkScript(name) {
+    if (_sdkScriptLoads[name]) return _sdkScriptLoads[name];
+    _sdkScriptLoads[name] = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = SDK_CDN + name + '.js';
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Failed to load ' + name));
+        document.head.appendChild(s);
+    });
+    return _sdkScriptLoads[name];
+}
+
+let _appCheckReady = null;
+function ensureAppCheckReady() {
+    if (_appCheckReady) return _appCheckReady;
+    // Skip the SDK entirely when no site key is configured (selfhost, or
+    // cloud deploys that haven't registered with reCAPTCHA yet). Saves a
+    // network round-trip and, more importantly, keeps login working if
+    // gstatic is unreachable on a site that doesn't need attestation.
+    if (!APP_CHECK_SITE_KEY) {
+        _appCheckReady = Promise.resolve();
+        return _appCheckReady;
+    }
+    _appCheckReady = _loadSdkScript('firebase-app-check-compat').then(() => {
+        // Idempotent — repeat calls are cheap.
+        activateAppCheck(firebase, APP_CHECK_SITE_KEY);
+    });
+    return _appCheckReady;
+}
+
+let _firestoreReady = null;
+function ensureFirestoreReady() {
+    if (_firestoreReady) return _firestoreReady;
+    _firestoreReady = ensureAppCheckReady().then(() => _loadSdkScript('firebase-firestore-compat'));
+    return _firestoreReady;
+}
+
+let _functionsReady = null;
+function ensureFunctionsReady() {
+    if (_functionsReady) return _functionsReady;
+    _functionsReady = ensureAppCheckReady().then(() => _loadSdkScript('firebase-functions-compat'));
+    return _functionsReady;
+}
+
+// Pre-warm all three in parallel right after this module parses. login.js
+// is a `<script type="module">` so it's implicitly deferred — runs after
+// DOMContentLoaded — so LCP has already fired and these downloads race in
+// the background while the user reads the form and types credentials.
+// By the time submit is clicked, the awaits below are usually no-ops.
+ensureAppCheckReady().catch((e) => console.error('[Login] App Check SDK failed to load:', e));
+ensureFirestoreReady().catch((e) => console.error('[Login] Firestore SDK failed to load:', e));
+ensureFunctionsReady().catch((e) => console.error('[Login] Functions SDK failed to load:', e));
 
 // ─── Google Ads + Consent Mode v2 ────────────────────────────────
 // Cloud-only. Loads gtag.js asynchronously and fires the signup conversion
@@ -213,6 +274,11 @@ form.addEventListener('submit', async (e) => {
     setLoading(true);
 
     try {
+        // Firestore + App Check pre-warmed on module load; this await is a
+        // no-op if the user took >~500ms to type their password (always).
+        // On the rare fast-submit it adds at most the remaining download.
+        await ensureFirestoreReady();
+
         if (isSignUp) {
             const referralCode = referralCodeInput ? referralCodeInput.value.trim().toUpperCase() : '';
 
@@ -252,6 +318,10 @@ googleBtn.addEventListener('click', async () => {
     const provider = new firebase.auth.GoogleAuthProvider();
 
     try {
+        // Ensure Firestore SDK is loaded before we need it — pre-warmed on
+        // module init, so this usually resolves instantly.
+        await ensureFirestoreReady();
+
         const result = await auth.signInWithPopup(provider);
         const user = result.user;
 
@@ -397,6 +467,10 @@ function showMFAVerificationModal() {
         mfaError.textContent = '';
 
         try {
+            // Functions SDK is pre-warmed on module init. By the time a user
+            // has typed their 6-digit TOTP code it's always loaded.
+            await ensureFunctionsReady();
+            const functions = firebase.functions();
             const verifyMFALogin = functions.httpsCallable('verifyMFALogin');
             await verifyMFALogin({
                 code: code,

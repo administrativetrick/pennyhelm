@@ -80,12 +80,23 @@
         </div>
     </div>
 
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check-compat.js"></script>
+    <!--
+      Firebase SDK — split load for faster signup conversion on mobile.
+
+      Critical path (needed to render the form and honor an existing session):
+        • firebase-app-compat  (~32 KB)
+        • firebase-auth-compat (~139 KB)
+      Deferred until first user action (loaded dynamically from js/login.js):
+        • firebase-firestore-compat   (~344 KB — user doc lookup/write)
+        • firebase-functions-compat   (~8 KB  — MFA verify callable)
+        • firebase-app-check-compat   (~23 KB — attestation for above)
+
+      `defer` lets the HTML parser finish before these execute, removing
+      head-of-line blocking on mobile while preserving execution order
+      (app before auth before login.js).
+    -->
+    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script type="module" src="js/login.js"></script>
 </body>
 </html>

@@ -22,3 +22,10 @@ functions/.env
 # Temp files
 nul
 C*scratchpad*
+
+# Local audit artifacts (Lighthouse reports, Playwright screenshots, etc.)
+lh-*.json
+repro-*.png
+switch-*-full.png
+switch-*-hero.png
+.playwright-mcp/
