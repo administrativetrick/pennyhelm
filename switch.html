@@ -15,6 +15,57 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180x180.png">
+
+  <!-- Google Ads (gtag.js) + Consent Mode v2.
+       /switch is our Reddit/Google ad landing page — without gtag here,
+       Google can't see the visit, so remarketing audiences and auto-bid
+       signals are blind to /switch traffic. Mirrors the inline install on
+       index.html: production-hostname-only (selfhost/localhost skip it),
+       EEA defaults to denied until the banner below writes 'granted' to
+       pennyhelm-consent localStorage. See privacy.html §1.9. -->
+  <script>
+      (function () {
+          var host = window.location.hostname || '';
+          if (host.indexOf('pennyhelm.com') === -1) return; // selfhost / localhost: skip
+          var STORAGE_KEY = 'pennyhelm-consent';
+          function isEea() {
+              try {
+                  var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+                  return (
+                      tz.indexOf('Europe/') === 0 ||
+                      tz === 'Atlantic/Reykjavik' ||
+                      tz === 'Atlantic/Faroe' ||
+                      tz === 'Atlantic/Azores' ||
+                      tz === 'Atlantic/Madeira'
+                  );
+              } catch (_) { return true; }
+          }
+          function stored() {
+              try {
+                  var v = localStorage.getItem(STORAGE_KEY);
+                  return v === 'granted' || v === 'denied' ? v : null;
+              } catch (_) { return null; }
+          }
+          window.dataLayer = window.dataLayer || [];
+          function gtag() { dataLayer.push(arguments); }
+          window.gtag = gtag;
+          var state = isEea() ? (stored() === 'granted' ? 'granted' : 'denied') : 'granted';
+          gtag('consent', 'default', {
+              ad_storage: state,
+              ad_user_data: state,
+              ad_personalization: state,
+              analytics_storage: state,
+              wait_for_update: 500
+          });
+          gtag('js', new Date());
+          gtag('config', 'AW-1061347212');
+          var s = document.createElement('script');
+          s.async = true;
+          s.src = 'https://www.googletagmanager.com/gtag/js?id=AW-1061347212';
+          document.head.appendChild(s);
+      })();
+  </script>
+
   <!--
     Shared palette, reset, typography, and .logo-mark live in landing.css
     (same file /login uses). /switch-only components — price strip,
@@ -290,8 +341,9 @@
       function finish(choice) {
         saveChoice(choice);
         banner.classList.remove('is-visible');
-        // If gtag ever loads on this page in the future, update consent too.
-        // Safe no-op today since /switch doesn't load gtag.
+        // Propagate the choice to gtag.js loaded at the top of <head>.
+        // This is what upgrades the EEA visitor from cookieless-ping
+        // mode to full conversion attribution when they click Accept.
         if (typeof window.gtag === 'function') {
           var state = choice === 'granted' ? 'granted' : 'denied';
           window.gtag('consent', 'update', {
