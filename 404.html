@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Page not found — PennyHelm</title>
+    <!--
+      Firebase Hosting auto-serves /404.html for any unmatched route — no
+      firebase.json config needed. Keeping this page small and static so it
+      loads fast even when the user has already hit a frustrating dead end.
+      Same theme-init + palette as /login and /switch so the brand stays
+      consistent and the wrong-turn feels like it's still on pennyhelm.com.
+    -->
+    <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180x180.png">
+    <link rel="stylesheet" href="css/landing.css">
+    <style>
+        /* 404-only layout. Centered single column. Everything else — colors,
+           typography, .logo-mark — comes from landing.css. */
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .nf-header {
+            padding: 24px 32px;
+        }
+
+        .nf-header .landing-logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .nf-header .logo-text {
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .nf-main {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 24px 80px;
+        }
+
+        .nf-card {
+            max-width: 520px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .nf-code {
+            font-size: clamp(4rem, 14vw, 7rem);
+            font-weight: 800;
+            line-height: 1;
+            letter-spacing: -0.04em;
+            margin: 0 0 16px;
+            background: linear-gradient(135deg, var(--accent), #7c3aed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nf-heading {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0 0 12px;
+            color: var(--text-primary);
+        }
+
+        .nf-body {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            line-height: 1.55;
+            margin: 0 0 28px;
+        }
+
+        .nf-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .nf-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 22px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            text-decoration: none;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+            border: 1px solid transparent;
+            cursor: pointer;
+        }
+
+        .nf-btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+        .nf-btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .nf-btn-secondary {
+            background: transparent;
+            color: var(--text-primary);
+            border-color: var(--border);
+        }
+        .nf-btn-secondary:hover {
+            background: var(--bg-card);
+            border-color: var(--text-muted);
+        }
+
+        @media (max-width: 480px) {
+            .nf-actions { flex-direction: column; }
+            .nf-btn { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <header class="nf-header">
+        <a href="/" class="landing-logo">
+            <div class="logo-mark">PH</div>
+            <span class="logo-text">PennyHelm</span>
+        </a>
+    </header>
+
+    <main class="nf-main">
+        <div class="nf-card">
+            <p class="nf-code">404</p>
+            <h1 class="nf-heading">This page wandered off.</h1>
+            <p class="nf-body">
+                The link you followed may be broken, or the page may have moved.
+                No harm done — let's get you back on track.
+            </p>
+            <div class="nf-actions">
+                <a href="/" class="nf-btn nf-btn-primary">Go to home</a>
+                <a href="/login" class="nf-btn nf-btn-secondary">Sign in</a>
+            </div>
+        </div>
+    </main>
+</body>
+</html>
