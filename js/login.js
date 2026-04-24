@@ -57,14 +57,13 @@ ensureFunctionsReady().catch((e) => console.error('[Login] Functions SDK failed 
 //
 // Non-EEA traffic defaults to granted (no banner required by law).
 //
-// TO ENABLE CONVERSION ATTRIBUTION: create a Conversion Action in Google
-// Ads → Tools → Conversions (Website → Sign-up). Google gives you a snippet
-// like `gtag('event', 'conversion', { send_to: 'AW-1061347212/AbCdEfGh' })`.
-// Replace CONVERSION_LABEL below with the real label after the slash. Until
-// then, the conversion fires with a placeholder Google Ads ignores (no user
-// impact, just no conversions counted).
+// Conversion Action: "Trial Signup" in Google Ads → Tools → Conversions.
+// Label aZzQCL3W56AcEIy_i_oD was issued by Google Ads on 2026-04-22. Fired
+// by fireSignupConversion() below on SUCCESSFUL signup completion (not on
+// raw button click) so the count reflects real sign-ups — failed auths,
+// duplicate-email rejections, and abandoned forms don't inflate it.
 const GOOGLE_ADS_ID = 'AW-1061347212';
-const SIGNUP_CONVERSION_SEND_TO = 'AW-1061347212/CONVERSION_LABEL';
+const SIGNUP_CONVERSION_SEND_TO = 'AW-1061347212/aZzQCL3W56AcEIy_i_oD';
 const CONSENT_STORAGE_KEY = 'pennyhelm-consent';
 
 function isEeaVisitor() {
