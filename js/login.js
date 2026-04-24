@@ -234,6 +234,15 @@ form.addEventListener('submit', async (e) => {
 
     setLoading(true);
 
+    // Prevent onAuthStateChanged from racing our explicit navigation.
+    // Firebase Auth fires state change the moment createUser/signIn succeeds,
+    // which happens BEFORE registerUser() finishes writing users/{uid}. Without
+    // this flag, onAuthStateChanged navigates to /app mid-write, killing the
+    // Firestore set() in flight and stranding the user with Auth-but-no-doc.
+    // Set at the top so it covers both signup and signin; reset only on error
+    // (success paths navigate away, so the flag state no longer matters).
+    isLoggingIn = true;
+
     try {
         // Firestore + App Check pre-warmed on module load; this await is a
         // no-op if the user took >~500ms to type their password (always).
@@ -249,7 +258,6 @@ form.addEventListener('submit', async (e) => {
             // Fire Google Ads signup conversion, then redirect. No-op in selfhost.
             fireSignupConversion(() => { window.location.href = '/app'; });
         } else {
-            isLoggingIn = true; // Prevent onAuthStateChanged redirect
             const userCredential = await auth.signInWithEmailAndPassword(email, password);
             // Ensure users/{uid} doc exists (safety net for all sign-in methods)
             await ensureUserRegistered(userCredential.user);
@@ -263,6 +271,8 @@ form.addEventListener('submit', async (e) => {
             window.location.href = '/app';
         }
     } catch (error) {
+        // Release the lock so the user can retry without reloading the page.
+        isLoggingIn = false;
         errorDiv.textContent = getErrorMessage(error.code);
         setLoading(false);
     }
@@ -277,6 +287,15 @@ googleBtn.addEventListener('click', async () => {
         : '';
 
     const provider = new firebase.auth.GoogleAuthProvider();
+
+    // Prevent onAuthStateChanged from racing our post-popup Firestore writes.
+    // signInWithPopup triggers the Auth state change as soon as the popup
+    // closes, which fires BEFORE we finish the users/{uid} lookup +
+    // registerUser write below. Without this lock, the browser could
+    // navigate to /app mid-write and strand the user with Auth but no
+    // Firestore doc (see scripts/backfill-auth-users-without-firestore.js
+    // for the incident that motivated this).
+    isLoggingIn = true;
 
     try {
         // Ensure Firestore SDK is loaded before we need it — pre-warmed on
@@ -316,6 +335,9 @@ googleBtn.addEventListener('click', async () => {
             window.location.href = '/app';
         }
     } catch (error) {
+        // Release the lock so the user can retry (including the no-op case
+        // where they simply closed the popup without completing sign-in).
+        isLoggingIn = false;
         if (error.code !== 'auth/popup-closed-by-user') {
             errorDiv.textContent = getErrorMessage(error.code);
         }
@@ -487,6 +509,14 @@ async function registerUser(firebaseUser, referralCode) {
         await db.collection('users').doc(firebaseUser.uid).set(userData);
         clearAcquisition();
     } catch (e) {
+        // Swallowed intentionally — Firebase Auth has already created the
+        // user at this point, so re-throwing would lock them out of retry
+        // (the email is taken). Recovery path: the onAuthStateChanged
+        // backstop below calls ensureUserRegistered on next page load,
+        // which self-heals the missing doc. This happened to three users
+        // (Tom Walker + 2 others, backfilled 2026-04-24 via
+        // scripts/backfill-auth-users-without-firestore.js) before the
+        // isLoggingIn lock was added to the signup paths.
         console.error('Failed to register user in Firestore:', e);
     }
 }
@@ -533,9 +563,25 @@ async function ensureUserRegistered(firebaseUser) {
     }
 }
 
-// If already signed in, redirect to app (but not during login flow)
-auth.onAuthStateChanged((user) => {
+// If already signed in, redirect to app (but not during login flow).
+//
+// Defensive backstop: even though isLoggingIn prevents the race during the
+// active signup flow, there are corner cases where an Auth session exists
+// but the Firestore users/{uid} doc is missing — e.g. tab killed mid-signup
+// before the doc wrote, previously stranded accounts from before the fix
+// shipped, or a transient Firestore error swallowed by registerUser's
+// try/catch. In all of those, calling ensureUserRegistered before the
+// redirect self-heals the user doc instead of sending them to /app with
+// nothing in Firestore.
+auth.onAuthStateChanged(async (user) => {
     if (user && !isLoggingIn) {
+        try {
+            await ensureUserRegistered(user);
+        } catch (e) {
+            // ensureUserRegistered already logs; we swallow here so a
+            // Firestore hiccup never blocks the redirect.
+            console.error('[onAuthStateChanged] ensureUserRegistered threw:', e);
+        }
         window.location.href = '/app';
     }
 });
