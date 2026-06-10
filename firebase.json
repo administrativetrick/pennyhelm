@@ -8,12 +8,19 @@
       "node scripts/verify-cloud-mode.js"
     ],
     "ignore": [
+      "firebase.json",
+      "**/.*",
       "node_modules/**",
       "data/**",
       "server.js",
+      "plaid-service.js",
       "package.json",
       "package-lock.json",
       "firebase-service-account.json",
+      "auth_export.json",
+      "app.json",
+      "Dockerfile",
+      "docker-compose.yml",
       "firestore.rules",
       "firestore.indexes.json",
       ".firebaserc",
@@ -21,7 +28,11 @@
       "*.md",
       "*.db*",
       "functions/**",
-      "scripts/**"
+      "scripts/**",
+      "tests/**",
+      "tmp-*",
+      "nul",
+      "Penny_Helm_*.png"
     ],
     "rewrites": [
       {
