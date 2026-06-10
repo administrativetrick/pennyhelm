@@ -270,6 +270,30 @@ body {
     flex-wrap: wrap;
 }
 
+.hero-oss-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 18px 0 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.hero-oss-note svg {
+    opacity: 0.7;
+}
+
+.hero-oss-note a {
+    color: var(--text-secondary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.hero-oss-note a:hover {
+    color: var(--text-primary);
+}
+
 /* ===== Hero screenshot ===== */
 .hero-screenshot {
     margin: 56px auto 0;
