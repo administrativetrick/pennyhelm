@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **robots.txt and sitemap.xml.** The site now tells crawlers what to index (marketing pages) and what to skip (app shell, OAuth handler, invite/delete flows). Sitemap lists `/`, `/switch`, and `/privacy.html` against the `www.pennyhelm.com` host.
+- **Open-source indicator on the landing page.** A small "Open source (AGPLv3) · View on GitHub" note under the hero CTAs and a "100% open source" bullet on the Self Host pricing card, so self-hosters can see the license and repo without it crowding the cloud pitch.
+
+### Fixed
+- **"Start Free Trial" buttons now open the Sign Up tab.** Both landing-page trial CTAs pointed at `/login`, which defaults to the Sign In tab, so new visitors landed on a form for existing users. The CTAs now use `/login?signup=1`, the same auto-switch param the `/switch` ad page already relies on.
+
+### Security
+- **Firebase Hosting no longer serves internal files.** The hosting `ignore` list previously replaced Firebase's defaults without covering everything, so `auth_export.json` (real account records), a stray local data file, `firebase.json`, dotfiles, `Dockerfile`, `app.json`, `plaid-service.js`, and temp screenshots were publicly reachable on pennyhelm.com. The ignore list now blocks all of them; deployed and verified 404 on 2026-06-10.
+
+### Changed
+- **Google sign-in now runs on the pennyhelm.com auth handler.** Firebase `authDomain` was pointed at `pennyhelm.com` (in `js/firebase-config.js` and `oauth.html`) so the OAuth sign-in popup shows `pennyhelm.com` instead of briefly flashing the internal Firebase project domain (`cashpilot-c58d5.firebaseapp.com`). This also makes the OAuth handshake same-origin, which is more resilient to third-party-cookie blocking in Safari/Brave. Requires `pennyhelm.com` to be a Firebase Auth authorized domain and an authorized redirect URI (`https://pennyhelm.com/__/auth/handler`) on the OAuth web client. No change to the mobile app.
+
 ## [0.3.0] — 2026-04-20
 
 ### Added
