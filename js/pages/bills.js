@@ -11,6 +11,21 @@ import { EXPENSE_CATEGORIES, renderCategoryOptions, mountSearchableCategoryPicke
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
+// Determine the paidHistory month bucket [year, month] for a bill row based on its
+// OWN due date rather than the calendar month being viewed. Recurring occurrences
+// carry _occurrenceDate; monthly bills in paycheck view carry _paidYear/_paidMonth
+// (the month they're actually due). Everything else falls back to the viewed month.
+// This keeps paid status correct when a pay period straddles a month boundary.
+function getBillPaidBucket(bill, fallbackYear, fallbackMonth) {
+    if (bill._occurrenceDate) {
+        return [bill._occurrenceDate.getFullYear(), bill._occurrenceDate.getMonth()];
+    }
+    if (bill._paidYear != null && bill._paidMonth != null) {
+        return [bill._paidYear, bill._paidMonth];
+    }
+    return [fallbackYear, fallbackMonth];
+}
+
 let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
 let cfPeriodOffset = 0; // For cashflow view pay period navigation
 let billsSortCol = 'dueDay';
@@ -99,11 +114,17 @@ export function renderBills(container, store) {
             if (expanded !== null) {
                 expandedBills.push(...expanded);
             } else {
+                // Tag monthly bills with the month they're actually due (_paidYear/_paidMonth)
+                // so paid status buckets by the due month, not the month being viewed. This
+                // stops a pay period that straddles a month boundary from recording/reading the
+                // paid flag under the wrong month (e.g. paying a late end-of-month bill on the
+                // 1st would otherwise make next month's instance look already paid).
                 const dueThisMonth = new Date(periodStart.getFullYear(), periodStart.getMonth(), b.dueDay);
                 const dueNextMonth = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, b.dueDay);
-                if ((dueThisMonth >= periodStart && dueThisMonth <= periodEnd) ||
-                    (dueNextMonth >= periodStart && dueNextMonth <= periodEnd)) {
-                    expandedBills.push(b);
+                if (dueThisMonth >= periodStart && dueThisMonth <= periodEnd) {
+                    expandedBills.push({ ...b, _paidYear: dueThisMonth.getFullYear(), _paidMonth: dueThisMonth.getMonth() });
+                } else if (dueNextMonth >= periodStart && dueNextMonth <= periodEnd) {
+                    expandedBills.push({ ...b, _paidYear: dueNextMonth.getFullYear(), _paidMonth: dueNextMonth.getMonth() });
                 }
             }
         });
@@ -510,7 +531,10 @@ function filterBills(bills, filter, store = null, year = null, month = null) {
     if (filter === 'frozen') return bills.filter(b => b.frozen);
     if (filter === 'unpaid') {
         if (!store || year === null || month === null) return bills;
-        return bills.filter(b => !b.frozen && !store.isBillPaid(b.id, year, month, b._occurrenceKey));
+        return bills.filter(b => {
+            const [py, pm] = getBillPaidBucket(b, year, month);
+            return !b.frozen && !store.isBillPaid(b.id, py, pm, b._occurrenceKey);
+        });
     }
     return bills.filter(b => b.category === filter);
 }
@@ -541,7 +565,8 @@ function sortBills(bills, store, year, month) {
             case 'status': {
                 const statusOrder = (bill) => {
                     if (bill.frozen) return 2;
-                    if (store.isBillPaid(bill.id, year, month, bill._occurrenceKey)) return 1;
+                    const [py, pm] = getBillPaidBucket(bill, year, month);
+                    if (store.isBillPaid(bill.id, py, pm, bill._occurrenceKey)) return 1;
                     return 0; // unpaid first
                 };
                 cmp = statusOrder(a) - statusOrder(b);
@@ -557,7 +582,8 @@ function sortBills(bills, store, year, month) {
 function renderBillRows(bills, store, year, month, depEnabled = false, userName = 'User', depName = 'Dependent') {
     const customCategories = store.getCustomCategories();
     return bills.map(bill => {
-        const isPaid = store.isBillPaid(bill.id, year, month, bill._occurrenceKey);
+        const [paidYear, paidMonth] = getBillPaidBucket(bill, year, month);
+        const isPaid = store.isBillPaid(bill.id, paidYear, paidMonth, bill._occurrenceKey);
         const statusClass = bill.frozen ? 'status-frozen' : isPaid ? 'status-paid' : 'status-unpaid';
         const statusText = bill.frozen ? 'FROZEN' : isPaid ? 'Paid' : 'Unpaid';
         const isLinked = !!bill.linkedDebtId;
@@ -569,7 +595,7 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
             <tr data-bill-id="${bill.id}" data-occurrence-key="${bill._occurrenceKey || ''}" style="${isPaid ? 'opacity:0.6;' : ''}${bill.frozen ? 'opacity:0.5;' : ''}" class="${selectedBillIds.has(bill.id) ? 'bill-selected' : ''}">
                 <td>
                     <label class="toggle">
-                        <input type="checkbox" ${isPaid ? 'checked' : ''} ${bill.frozen ? 'disabled' : ''} data-bill-id="${bill.id}" data-occurrence-key="${bill._occurrenceKey || ''}" class="paid-toggle">
+                        <input type="checkbox" ${isPaid ? 'checked' : ''} ${bill.frozen ? 'disabled' : ''} data-bill-id="${bill.id}" data-occurrence-key="${bill._occurrenceKey || ''}" data-paid-year="${paidYear}" data-paid-month="${paidMonth}" class="paid-toggle">
                         <span class="toggle-slider"></span>
                     </label>
                 </td>
@@ -611,7 +637,11 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month, 
     tbody.querySelectorAll('.paid-toggle').forEach(toggle => {
         toggle.addEventListener('change', () => {
             const occKey = toggle.dataset.occurrenceKey || undefined;
-            store.toggleBillPaid(toggle.dataset.billId, year, month, occKey);
+            // Bucket by the bill's own due month (set at render time) so a pay period
+            // crossing a month boundary records the paid flag under the correct month.
+            const py = toggle.dataset.paidYear != null ? parseInt(toggle.dataset.paidYear, 10) : year;
+            const pm = toggle.dataset.paidMonth != null ? parseInt(toggle.dataset.paidMonth, 10) : month;
+            store.toggleBillPaid(toggle.dataset.billId, py, pm, occKey);
             refreshPage();
         });
     });
