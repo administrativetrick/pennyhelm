@@ -1008,6 +1008,12 @@ body {
 .footer-links {
     display: flex;
     gap: 24px;
+    align-items: center;
+}
+
+.footer-social {
+    display: inline-flex;
+    align-items: center;
 }
 
 .footer-links a {
