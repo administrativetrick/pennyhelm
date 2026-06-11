@@ -154,13 +154,21 @@ export function getUpcomingBills(bills, store, daysAhead = 7) {
         .map(bill => {
             const dueDay = bill.dueDay;
             let daysUntil = dueDay - currentDay;
-            if (daysUntil < -5) daysUntil += getDaysInMonth(year, month);
+            // When the due day already passed this month, the next occurrence rolls
+            // into next month — bucket the paid check by that due month so it agrees
+            // with the bills page (which records next-month bills under next month).
+            let dueYear = year, dueMonth = month;
+            if (daysUntil < -5) {
+                daysUntil += getDaysInMonth(year, month);
+                dueMonth = month + 1;
+                if (dueMonth > 11) { dueMonth = 0; dueYear = year + 1; }
+            }
 
             return {
                 ...bill,
                 daysUntil,
-                isPaid: store.isBillPaid(bill.id, year, month),
-                isOverdue: daysUntil < 0 && !store.isBillPaid(bill.id, year, month),
+                isPaid: store.isBillPaid(bill.id, dueYear, dueMonth),
+                isOverdue: daysUntil < 0 && !store.isBillPaid(bill.id, dueYear, dueMonth),
                 isDueSoon: daysUntil >= 0 && daysUntil <= 3
             };
         })
