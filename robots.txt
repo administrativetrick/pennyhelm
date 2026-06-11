@@ -6,4 +6,4 @@ Disallow: /oauth
 Disallow: /accept-invite
 Disallow: /delete-account
 
-Sitemap: https://www.pennyhelm.com/sitemap.xml
+Sitemap: https://pennyhelm.com/sitemap.xml
