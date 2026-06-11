@@ -2,6 +2,19 @@
 
 A personal finance tracker built with vanilla HTML, CSS, and JavaScript. Self-host for total privacy or use PennyHelm Cloud for seamless access anywhere.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="screenshots/dashboard.webp" alt="Dashboard with income, bills, net worth, and pay-period breakdown"></td>
+    <td><img src="screenshots/cashflow.webp" alt="Cashflow Sankey tracing income into spending and savings"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/bills.webp" alt="Bills with due dates, categories, and paid status"></td>
+    <td><img src="screenshots/calendar.webp" alt="Calendar of bill due dates and paydays"></td>
+  </tr>
+</table>
+
 ## Features
 
 - **Dashboard** — Monthly income, bills, remaining balance, net worth, credit scores, pay-period breakdowns, and a Financial Health Score with conditional weighting, mortgage-aware DTI, and a Liquid Reserves calculation that counts taxable brokerage balances at a user-configurable risk tier
@@ -21,6 +34,28 @@ A personal finance tracker built with vanilla HTML, CSS, and JavaScript. Self-ho
 - **Admin** *(cloud only)* — User management, ad-attribution funnel (UTM breakdowns, CTR, signups), DAU / WAU / MAU dashboard, and trial-code administration
 
 ## Self-Host (Quick Start)
+
+### Docker (recommended)
+
+The image is multi-arch (amd64 + arm64), so it runs on a Raspberry Pi or any homelab box:
+
+```bash
+docker run -d --name pennyhelm -p 8081:8081 \
+  -v pennyhelm-data:/app/data \
+  ghcr.io/administrativetrick/pennyhelm:latest
+```
+
+Or with Docker Compose:
+
+```bash
+git clone https://github.com/administrativetrick/pennyhelm.git
+cd pennyhelm
+docker compose up -d
+```
+
+Open [http://localhost:8081](http://localhost:8081). Your data persists in the `pennyhelm-data` volume, so it survives restarts and upgrades.
+
+### From source (Node.js)
 
 ```bash
 # Clone the repository

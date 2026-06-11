@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Prebuilt multi-arch Docker image on GHCR.** A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and publishes `ghcr.io/administrativetrick/pennyhelm` for linux/amd64 and linux/arm64 (Raspberry Pi / homelab friendly) on version tags and manual dispatch. README now documents a one-line `docker run`, and `docker-compose.yml` pulls the prebuilt image by default instead of building from source.
+- **Screenshots in the README.** Added a dashboard, cashflow, bills, and calendar gallery near the top of the README.
 - **Privacy-friendly web analytics on the marketing pages.** Added a cookieless analytics loader (Umami) that runs only on the public pennyhelm.com pages, never on self-host or localhost, and never inside the app. It sets no cookies and collects no personal data, so no consent banner is needed. Ships inert until a website ID is set in `js/analytics.js`. Disclosed in privacy policy section 1.10, effective date bumped to June 11, 2026.
 - **robots.txt and sitemap.xml.** The site now tells crawlers what to index (marketing pages) and what to skip (app shell, OAuth handler, invite/delete flows). Sitemap lists `/`, `/switch`, `/privacy.html`, and `/terms.html` against the `pennyhelm.com` host.
 - **Open-source indicator on the landing page.** A small "Open source (AGPLv3) · View on GitHub" note under the hero CTAs and a "100% open source" bullet on the Self Host pricing card, so self-hosters can see the license and repo without it crowding the cloud pitch.
