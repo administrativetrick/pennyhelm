@@ -118,6 +118,19 @@ const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
 const adEventFns   = require("./ad-events")(shared);
 const activeUserFns = require("./active-users")(shared);
 
+// Marketing auto-poster — kept out of the public/self-host repo (.gitignore).
+// Load it only if present so open-source checkouts deploy fine without it.
+let socialFns = {};
+try {
+    socialFns = require("./social")(shared);
+} catch (err) {
+    if (err && err.code === "MODULE_NOT_FOUND" && /social/.test(err.message)) {
+        console.log("[index] Optional ./social module not present — skipping marketing poster.");
+    } else {
+        throw err; // a real error inside social.js should not be swallowed
+    }
+}
+
 // ─── Re-export All Cloud Functions ───────────────────────────
 
 // Remove internal helpers before exporting (these are plain functions,
@@ -125,4 +138,4 @@ const activeUserFns = require("./active-users")(shared);
 delete apiKeyFns._validateApiKey;
 delete inviteFns.trackPaidReferral;
 
-Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns);
+Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, socialFns);
