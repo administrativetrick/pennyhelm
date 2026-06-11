@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **robots.txt and sitemap.xml.** The site now tells crawlers what to index (marketing pages) and what to skip (app shell, OAuth handler, invite/delete flows). Sitemap lists `/`, `/switch`, `/privacy.html`, and `/terms.html` against the `www.pennyhelm.com` host.
 - **Open-source indicator on the landing page.** A small "Open source (AGPLv3) · View on GitHub" note under the hero CTAs and a "100% open source" bullet on the Self Host pricing card, so self-hosters can see the license and repo without it crowding the cloud pitch.
-- **Terms of Service page (`/terms.html`).** Covers the hosted Cloud subscription (pricing, 30-day trial, Stripe billing, auto-renewal, cancellation), a prominent "not financial advice" disclaimer, bank-connection accuracy caveats for Plaid, the AGPLv3 license and brand-use boundary, warranty disclaimer, and liability limits. Linked from every footer (was a dead `#` link).
+- **Terms of Service page (`/terms.html`).** Covers the hosted Cloud subscription (pricing, 30-day trial, Stripe billing, auto-renewal, cancellation), a prominent "not financial advice" disclaimer, bank-connection accuracy caveats for Plaid, the AGPLv3 license and brand-use boundary, warranty disclaimer, and liability limits. Linked from every footer (was a dead `#` link). Governed by California law.
+- **Facebook link in the footer.** A Facebook icon in every footer links to the PennyHelm page, inheriting the muted footer-link styling.
 
 ### Changed
 - **Landing page now uses WebP screenshots.** The four product screenshots were converted from PNG to WebP, cutting their combined weight ~59% (436 KB to 180 KB) for a faster hero load.
