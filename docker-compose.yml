@@ -19,10 +19,10 @@
 
 services:
   pennyhelm:
-    build: .
-    # Or pin to a published image once you push one:
-    # image: ghcr.io/administrativetrick/pennyhelm:latest
-    image: pennyhelm:latest
+    image: ghcr.io/administrativetrick/pennyhelm:latest
+    # To build from source instead of pulling the prebuilt multi-arch image,
+    # comment out the image line above and uncomment the next line:
+    # build: .
     container_name: pennyhelm
     restart: unless-stopped
     ports:
