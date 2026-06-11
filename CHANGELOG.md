@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Google sign-in now runs on the pennyhelm.com auth handler.** Firebase `authDomain` was pointed at `pennyhelm.com` (in `js/firebase-config.js` and `oauth.html`) so the OAuth sign-in popup shows `pennyhelm.com` instead of briefly flashing the internal Firebase project domain (`cashpilot-c58d5.firebaseapp.com`). This also makes the OAuth handshake same-origin, which is more resilient to third-party-cookie blocking in Safari/Brave. Requires `pennyhelm.com` to be a Firebase Auth authorized domain and an authorized redirect URI (`https://pennyhelm.com/__/auth/handler`) on the OAuth web client. No change to the mobile app.
 
 ### Fixed
+- **Assets tab no longer disappears on the Income page.** Opening the Documents or Deductions sub-tab redrew a tab strip that was missing the Assets tab, so it vanished until you navigated away. The Documents/Deductions view now shows all four tabs (Income, Documents, Deductions, Assets), matching the other sub-views.
 - **"Start Free Trial" buttons now open the Sign Up tab.** Both landing-page trial CTAs pointed at `/login`, which defaults to the Sign In tab, so new visitors landed on a form for existing users. The CTAs now use `/login?signup=1`, the same auto-switch param the `/switch` ad page already relies on.
 
 ### Security
