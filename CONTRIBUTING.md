@@ -2,6 +2,10 @@
 
 Thanks for your interest in contributing! PRs, issues, and feedback are all welcome.
 
+## Questions & discussion
+
+For usage questions, setup help, and general discussion, the official community is the subreddit [r/PennyHelm](https://www.reddit.com/r/PennyHelm/). It is also the best place to float a feature idea before opening a PR. Keep GitHub issues for reproducible bugs.
+
 ## TL;DR
 
 1. Fork the repo, create a feature branch.
