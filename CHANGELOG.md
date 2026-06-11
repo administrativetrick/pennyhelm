@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Privacy-friendly web analytics on the marketing pages.** Added a cookieless analytics loader (Umami) that runs only on the public pennyhelm.com pages, never on self-host or localhost, and never inside the app. It sets no cookies and collects no personal data, so no consent banner is needed. Ships inert until a website ID is set in `js/analytics.js`. Disclosed in privacy policy section 1.10, effective date bumped to June 11, 2026.
 - **robots.txt and sitemap.xml.** The site now tells crawlers what to index (marketing pages) and what to skip (app shell, OAuth handler, invite/delete flows). Sitemap lists `/`, `/switch`, `/privacy.html`, and `/terms.html` against the `www.pennyhelm.com` host.
 - **Open-source indicator on the landing page.** A small "Open source (AGPLv3) · View on GitHub" note under the hero CTAs and a "100% open source" bullet on the Self Host pricing card, so self-hosters can see the license and repo without it crowding the cloud pitch.
 - **Terms of Service page (`/terms.html`).** Covers the hosted Cloud subscription (pricing, 30-day trial, Stripe billing, auto-renewal, cancellation), a prominent "not financial advice" disclaimer, bank-connection accuracy caveats for Plaid, the AGPLv3 license and brand-use boundary, warranty disclaimer, and liability limits. Linked from every footer (was a dead `#` link). Governed by California law.
