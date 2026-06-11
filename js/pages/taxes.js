@@ -201,6 +201,7 @@ export function renderTaxes(container, store) {
             <button class="filter-chip" data-tab="income">Income</button>
             <button class="filter-chip ${activeTab === 'documents' ? 'active' : ''}" id="tab-documents">Documents</button>
             <button class="filter-chip ${activeTab === 'deductions' ? 'active' : ''}" id="tab-deductions">Deductions</button>
+            <button class="filter-chip" data-tab="assets" id="tab-assets">Assets</button>
         </div>
 
         ${years.length > 0 ? `
@@ -231,6 +232,9 @@ export function renderTaxes(container, store) {
     container.querySelector('#tab-deductions').addEventListener('click', () => {
         activeTab = 'deductions';
         window.location.hash = 'income/deductions';
+    });
+    container.querySelector('#tab-assets').addEventListener('click', () => {
+        window.location.hash = 'income/assets';
     });
 
     // Year tabs
