@@ -19,6 +19,12 @@ CLAUDE.md
 functions/node_modules/
 functions/.env
 
+# Marketing auto-poster — PRIVATE, never publish to the open-source repo.
+# These hold marketing copy + the Facebook posting logic. index.js loads
+# ./social with a try/catch so public/self-host checkouts work without them.
+functions/social.js
+functions/social-content.js
+
 # Temp files
 nul
 C*scratchpad*
