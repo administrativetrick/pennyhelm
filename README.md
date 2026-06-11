@@ -257,7 +257,7 @@ The Plaid "Connect Bank" and "Refresh Balances" buttons stay hidden until Plaid 
 
 ## Deploying to Firebase
 
-The hosted build at `cashpilot-c58d5.web.app` must always run in cloud mode — deploying selfhost would break every existing user. To make this impossible to get wrong:
+The hosted build at [pennyhelm.com](https://pennyhelm.com) must always run in cloud mode — deploying selfhost would break every existing user. To make this impossible to get wrong:
 
 ```bash
 npm run deploy:cloud
@@ -277,4 +277,4 @@ PennyHelm is licensed under the [GNU Affero General Public License v3.0](LICENSE
 
 You're free to run, study, modify, and redistribute PennyHelm — including self-hosting it for yourself, your family, or inside your organization. The key obligation: **if you host a modified version as a network service for others, you must publish your modifications under AGPLv3 too.** That's the "A" in AGPL. Unmodified self-hosting has no publishing obligation.
 
-The hosted build at `cashpilot-c58d5.web.app` is operated by the PennyHelm copyright holder under a separate commercial arrangement — dual licensing is permitted for the copyright holder. See the [LICENSE](LICENSE) file for full terms.
+The hosted build at [pennyhelm.com](https://pennyhelm.com) is operated by the PennyHelm copyright holder under a separate commercial arrangement — dual licensing is permitted for the copyright holder. See the [LICENSE](LICENSE) file for full terms.
