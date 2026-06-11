@@ -71,6 +71,12 @@ You can ignore `firebase.json`, `firestore.rules`, `firestore.indexes.json`, the
 
 PennyHelm Cloud is a hosted version with Firebase Auth and Firestore — sign up, log in, and access your finances from any device. Try it at [https://pennyhelm.com](https://pennyhelm.com).
 
+## Community & Support
+
+The official community is the subreddit [r/PennyHelm](https://www.reddit.com/r/PennyHelm/). It is the best place for community support, setup help, feature requests, and a look at what is being built next. The project is developed in the open, so feedback there genuinely shapes the roadmap.
+
+For reproducible bugs you can also open a [GitHub issue](https://github.com/administrativetrick/pennyhelm/issues).
+
 ## Configuration
 
 ### Port
