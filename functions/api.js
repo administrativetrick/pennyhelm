@@ -82,10 +82,13 @@ module.exports = function ({ admin, db }, validateApiKey) {
         const keyInfo = await authenticate(req, res);
         if (!keyInfo) return; // Response already sent
 
-        // Parse path: req.path is relative to the function name
-        // When deployed as "api", the path comes as /v1/bills etc.
+        // Parse path. Firebase Hosting rewrites /api/** to this function and
+        // preserves the full request path, so req.path arrives as
+        // /api/v1/<resource>. Hitting the function's direct URL instead gives
+        // /v1/<resource>. Drop a leading "api" segment so both forms work.
         const path = req.path.replace(/^\/+|\/+$/g, ""); // trim slashes
-        const segments = path.split("/");
+        let segments = path.split("/");
+        if (segments[0] === "api") segments = segments.slice(1);
 
         // Expect: v1/<resource>
         if (segments[0] !== "v1" || segments.length < 2) {
