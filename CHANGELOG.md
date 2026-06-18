@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Android app-install banner.** Visitors on an Android browser see a small dismissible banner on the homepage and sign-in page linking to the Play Store app. It is skipped on self-host and localhost, on non-Android browsers, in installed-PWA mode, and after dismissal (remembered in localStorage).
 - **Prebuilt multi-arch Docker image on GHCR.** A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and publishes `ghcr.io/administrativetrick/pennyhelm` for linux/amd64 and linux/arm64 (Raspberry Pi / homelab friendly) on version tags and manual dispatch. README now documents a one-line `docker run`, and `docker-compose.yml` pulls the prebuilt image by default instead of building from source.
 - **Screenshots in the README.** Added a dashboard, cashflow, bills, and calendar gallery near the top of the README.
 - **Privacy-friendly web analytics on the marketing pages.** Added a cookieless analytics loader (Umami) that runs only on the public pennyhelm.com pages, never on self-host or localhost, and never inside the app. It sets no cookies and collects no personal data, so no consent banner is needed. Ships inert until a website ID is set in `js/analytics.js`. Disclosed in privacy policy section 1.10, effective date bumped to June 11, 2026.
