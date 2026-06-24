@@ -65,8 +65,8 @@
                 </a></li>
             </ul>
             <!-- Self-host attribution badge — shown only in self-host mode (hidden on PennyHelm Cloud) -->
-            <a id="selfhost-badge" hidden href="https://pennyhelm.com/?utm_source=selfhost&utm_medium=badge&utm_campaign=powered-by" target="_blank" rel="noopener"
-               style="margin:auto 12px 16px 12px;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;text-decoration:none;color:var(--text-secondary,#9aa0b0);font-size:12px;border:1px solid var(--border,#2a2f3a);">
+            <a id="selfhost-badge" href="https://pennyhelm.com/?utm_source=selfhost&utm_medium=badge&utm_campaign=powered-by" target="_blank" rel="noopener"
+               style="display:none;margin:auto 12px 16px 12px;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;text-decoration:none;color:var(--text-secondary,#9aa0b0);font-size:12px;border:1px solid var(--border,#2a2f3a);">
                 <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#6366f1,#7c3aed);color:#fff;font-weight:700;font-size:11px;flex-shrink:0;">PH</span>
                 <span>Powered by <strong style="color:var(--text-primary,#e8eaed);">PennyHelm</strong></span>
             </a>
@@ -96,7 +96,7 @@
         import { APP_MODE } from './js/mode-config.js';
         if (APP_MODE === 'selfhost') {
             const el = document.getElementById('selfhost-badge');
-            if (el) el.hidden = false;
+            if (el) el.style.display = 'flex';
         }
     </script>
     <script type="module" src="js/app.js"></script>
