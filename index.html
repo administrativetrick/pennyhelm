@@ -20,6 +20,39 @@
     <meta name="twitter:title" content="PennyHelm - Open-source personal finance, self-hosted or cloud">
     <meta name="twitter:description" content="Track bills, accounts, debts, and cashflow in one dashboard. Self-host for privacy or use PennyHelm Cloud. 30-day free trial, no card required.">
     <meta name="twitter:image" content="https://pennyhelm.com/og-image.png">
+    <!-- Structured data: helps search engines and AI assistants understand and cite PennyHelm -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "PennyHelm",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Web, Android, Docker (self-hosted)",
+      "url": "https://pennyhelm.com/",
+      "description": "PennyHelm is an open-source personal finance tracker for bills, accounts, debts, and cashflow. Self-host it for free for total privacy, or use PennyHelm Cloud. An open-source alternative to Mint, YNAB, and Monarch Money.",
+      "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+      "isAccessibleForFree": true,
+      "offers": [
+        { "@type": "Offer", "price": "0", "priceCurrency": "USD", "name": "Self-Host", "description": "Free forever. Open source (AGPLv3), run on your own machine." },
+        { "@type": "Offer", "price": "77.88", "priceCurrency": "USD", "name": "PennyHelm Cloud (annual)", "description": "$6.49/month billed annually. 30-day free trial, no card required." },
+        { "@type": "Offer", "price": "7.99", "priceCurrency": "USD", "name": "PennyHelm Cloud (monthly)", "description": "Billed monthly, cancel anytime." }
+      ],
+      "featureList": [
+        "Bill tracking with due dates and recurring frequencies",
+        "Cashflow analysis with an interactive Sankey diagram",
+        "Debt payoff planning (avalanche and snowball)",
+        "Net worth tracking over time",
+        "Tax deduction tracking by tax year",
+        "Savings goals",
+        "Optional bank sync via Plaid",
+        "Self-hosting for complete data ownership"
+      ],
+      "sameAs": [
+        "https://github.com/administrativetrick/pennyhelm",
+        "https://www.facebook.com/profile.php?id=61588465287405"
+      ]
+    }
+    </script>
     <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
     <script>
         // First-touch acquisition capture: stash UTM/ref/gclid/fbclid params on

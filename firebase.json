@@ -82,6 +82,14 @@
       {
         "source": "/link-to-us",
         "destination": "/link.html"
+      },
+      {
+        "source": "/faq",
+        "destination": "/faq.html"
+      },
+      {
+        "source": "/alternatives",
+        "destination": "/alternatives.html"
       }
     ],
     "headers": [
