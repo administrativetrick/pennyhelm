@@ -39,10 +39,10 @@
                     '<span>PennyHelm</span>' +
                 '</div>' +
                 '<div class="footer-links">' +
-                    '<a href="/blog">Blog</a>' +
+                    '<a class="cloud-only" href="/blog">Blog</a>' +
                     '<a href="/privacy.html">Privacy</a>' +
                     '<a href="/terms.html">Terms</a>' +
-                    '<a href="/link-to-us">Link to us</a>' +
+                    '<a class="cloud-only" href="/link-to-us">Link to us</a>' +
                     '<a class="footer-social" href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="PennyHelm on GitHub">' + GITHUB_ICON + '</a>' +
                     '<a class="footer-social" href="' + FACEBOOK_URL + '" target="_blank" rel="noopener" aria-label="PennyHelm on Facebook">' + FACEBOOK_ICON + '</a>' +
                 '</div>' +
@@ -50,8 +50,20 @@
             '</div>' +
         '</footer>';
 
-    var mount = document.getElementById("site-footer");
-    if (mount) {
-        mount.outerHTML = html;
+    function inject(mode) {
+        // Tag the document so CSS can hide cloud-only links (Blog, Link to us)
+        // on self-hosted instances, which have no blog. Default to cloud.
+        document.documentElement.setAttribute("data-app-mode", mode === "selfhost" ? "selfhost" : "cloud");
+        var mount = document.getElementById("site-footer");
+        if (mount) {
+            mount.outerHTML = html;
+        }
     }
+
+    // Resolve the build mode (cloud vs self-host) before rendering, so the
+    // footer never flashes cloud-only links on a self-hosted instance. If the
+    // mode module can't load for any reason, fall back to cloud (show all).
+    import("/js/mode-config.js")
+        .then(function (m) { inject(m && m.APP_MODE); })
+        .catch(function () { inject("cloud"); });
 })();

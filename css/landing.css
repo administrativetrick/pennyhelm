@@ -121,6 +121,10 @@ body {
 }
 
 /* ===== Navigation ===== */
+/* Hide cloud-only marketing links (Blog, Link to us) on self-hosted builds,
+   which have no blog. data-app-mode is set by js/footer.js. */
+html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
+
 .landing-nav {
     position: fixed;
     top: 0;
