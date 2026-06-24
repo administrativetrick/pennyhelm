@@ -42,6 +42,7 @@
                     '<a href="/blog">Blog</a>' +
                     '<a href="/privacy.html">Privacy</a>' +
                     '<a href="/terms.html">Terms</a>' +
+                    '<a href="/link-to-us">Link to us</a>' +
                     '<a class="footer-social" href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="PennyHelm on GitHub">' + GITHUB_ICON + '</a>' +
                     '<a class="footer-social" href="' + FACEBOOK_URL + '" target="_blank" rel="noopener" aria-label="PennyHelm on Facebook">' + FACEBOOK_ICON + '</a>' +
                 '</div>' +
