@@ -25,6 +25,14 @@ functions/.env
 functions/social.js
 functions/social-content.js
 
+# Private cloud-only modules — internal tooling intentionally kept out of the
+# public repo. functions/index.js and js/pages/admin.js load these only if
+# present, so open-source and self-host checkouts build fine without them.
+functions/blg.js
+functions/blg.js.disabled
+functions/internal-jobs.js
+js/pages/admin-ext.js
+
 # Temp files
 nul
 C*scratchpad*

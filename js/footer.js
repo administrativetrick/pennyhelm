@@ -39,6 +39,7 @@
                     '<span>PennyHelm</span>' +
                 '</div>' +
                 '<div class="footer-links">' +
+                    '<a href="/blog">Blog</a>' +
                     '<a href="/privacy.html">Privacy</a>' +
                     '<a href="/terms.html">Terms</a>' +
                     '<a class="footer-social" href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="PennyHelm on GitHub">' + GITHUB_ICON + '</a>' +

@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { GEMINI_MODEL } = require("./gemini-config");
 
 module.exports = function({ secrets }) {
     const { GEMINI_API_KEY } = secrets;
@@ -65,7 +66,7 @@ ${financialSummary}`;
 
             try {
                 const apiKey = GEMINI_API_KEY.value().trim();
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
                 const response = await fetch(url, {
                     method: "POST",
@@ -79,7 +80,11 @@ ${financialSummary}`;
                             temperature: 0.7,
                             topP: 0.9,
                             topK: 40,
-                            maxOutputTokens: 1024,
+                            maxOutputTokens: 2048,
+                            // Disable gemini-2.5-flash's default "thinking" so it
+                            // doesn't consume the output budget and truncate/empty
+                            // the reply.
+                            thinkingConfig: { thinkingBudget: 0 },
                         },
                         safetySettings: [
                             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
