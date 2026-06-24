@@ -44,6 +44,14 @@
         "function": "api"
       },
       {
+        "source": "/blog",
+        "function": "blogSite"
+      },
+      {
+        "source": "/blog/**",
+        "function": "blogSite"
+      },
+      {
         "source": "/app",
         "destination": "/app.html"
       },

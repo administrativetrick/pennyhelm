@@ -178,6 +178,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Content posts, written server-side only (Cloud Functions via the Admin SDK
+    // bypass these rules); clients can never write. Published posts are
+    // world-readable so the site can render them; drafts and non-existent docs
+    // read as denied.
+    match /posts/{slug} {
+      allow read: if resource != null && resource.data.status == 'publish';
+      allow write: if false;
+    }
+
     // Deny everything else
     match /{document=**} {
       allow read, write: if false;

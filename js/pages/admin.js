@@ -164,6 +164,9 @@ export async function renderAdmin(container, store) {
                 <div id="user-lookup-result" class="mt-16"></div>
             </div>
         </div>
+
+        <!-- Optional admin extensions mount point (see dynamic import below) -->
+        <div id="admin-ext-root"></div>
     `;
 
     // === Trial Code Handlers ===
@@ -397,6 +400,22 @@ export async function renderAdmin(container, store) {
     // Real-time search as user types (debounced)
     const debouncedSearch = debounce(() => searchUsers(db), 300);
     document.getElementById('user-lookup-email').addEventListener('input', debouncedSearch);
+
+    // === Optional admin extensions ===
+    // Private builds may ship additional admin tools as a sibling module that is
+    // intentionally kept out of the open-source repo. Load it dynamically; if it
+    // isn't present (open-source / self-host build), the import fails and we
+    // simply render nothing extra.
+    try {
+        const ext = await import('./admin-ext.js');
+        if (ext && typeof ext.renderAdminExtensions === 'function') {
+            await ext.renderAdminExtensions(document.getElementById('admin-ext-root'), {
+                db, store, openModal, closeModal, refreshPage, navigate, escapeHtml,
+            });
+        }
+    } catch (_) {
+        /* Optional module absent in open-source builds — ignore. */
+    }
 }
 
 // ─── Active Users (DAU / MAU) ───────────────────────────────

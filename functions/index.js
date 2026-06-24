@@ -117,6 +117,8 @@ const apiKeyFns    = require("./api-keys")(shared);
 const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
 const adEventFns   = require("./ad-events")(shared);
 const activeUserFns = require("./active-users")(shared);
+const blogSiteFns  = require("./blog-site")(shared);
+const aiHealthFns  = require("./ai-health")(shared);
 
 // Marketing auto-poster — kept out of the public/self-host repo (.gitignore).
 // Load it only if present so open-source checkouts deploy fine without it.
@@ -131,6 +133,32 @@ try {
     }
 }
 
+// Optional private module — cloud-only, kept out of the public/self-host repo
+// (.gitignore). Loaded only if present so open-source checkouts deploy fine.
+let blgFns = {};
+try {
+    blgFns = require("./blg")(shared);
+} catch (err) {
+    if (err && err.code === "MODULE_NOT_FOUND" && /blg/.test(err.message)) {
+        console.log("[index] Optional ./blg module not present — skipping.");
+    } else {
+        throw err; // a real error inside the module should not be swallowed
+    }
+}
+
+// Optional private module — cloud-only, kept out of the public/self-host repo
+// (.gitignore). Loaded only if present so open-source checkouts deploy fine.
+let internalJobsFns = {};
+try {
+    internalJobsFns = require("./internal-jobs")(shared);
+} catch (err) {
+    if (err && err.code === "MODULE_NOT_FOUND" && /internal-jobs/.test(err.message)) {
+        console.log("[index] Optional ./internal-jobs module not present — skipping.");
+    } else {
+        throw err; // a real error inside the module should not be swallowed
+    }
+}
+
 // ─── Re-export All Cloud Functions ───────────────────────────
 
 // Remove internal helpers before exporting (these are plain functions,
@@ -138,4 +166,4 @@ try {
 delete apiKeyFns._validateApiKey;
 delete inviteFns.trackPaidReferral;
 
-Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, socialFns);
+Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, blogSiteFns, aiHealthFns, socialFns, blgFns, internalJobsFns);
