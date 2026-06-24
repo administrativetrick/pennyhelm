@@ -251,5 +251,75 @@ module.exports = (shared) => {
         }
     );
 
-    return { logAdEvent, getAdAttributionStats };
+    // ─── getBacklinkStats — callable, admin-only ───────────────
+    // Aggregates external referring domains from landing events + signups, so
+    // the admin can see which sites link to us and drive clicks. Search engines
+    // and our own domain are excluded. This only catches *clicked* links;
+    // Google Search Console / Umami give the fuller backlink picture.
+
+    const getBacklinkStats = onCall(
+        { region: "us-central1" },
+        async (request) => {
+            if (!request.auth || request.auth.token.admin !== true) {
+                throw new HttpsError("permission-denied", "Admin access required.");
+            }
+
+            const daysBack = Math.max(1, Math.min(365, Number(request.data?.daysBack) || 90));
+            const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+
+            const SELF = "pennyhelm.com";
+            const SEARCH = ["google.", "bing.", "duckduckgo.", "yahoo.", "yandex.", "baidu.", "ecosia.", "brave.", "startpage.", "search."];
+
+            const domainOf = (url) => {
+                if (!url || typeof url !== "string") return null;
+                try {
+                    const u = new URL(url.includes("://") ? url : "https://" + url);
+                    return u.hostname.replace(/^www\./, "").toLowerCase();
+                } catch { return null; }
+            };
+
+            const byDomain = {}; // domain -> { domain, visits, signups, sampleUrl }
+            let searchVisits = 0, directVisits = 0, selfVisits = 0;
+
+            const bump = (url, kind) => {
+                const domain = domainOf(url);
+                if (!domain) { directVisits++; return; }
+                if (domain === SELF || domain.endsWith("." + SELF)) { selfVisits++; return; }
+                if (SEARCH.some((s) => domain.includes(s))) { searchVisits++; return; }
+                if (!byDomain[domain]) byDomain[domain] = { domain, visits: 0, signups: 0, sampleUrl: url };
+                byDomain[domain][kind]++;
+            };
+
+            const [eventsSnap, usersSnap] = await Promise.all([
+                db.collection("adEvents").where("createdAt", ">=", since).get(),
+                db.collection("users").where("createdAt", ">=", since).get(),
+            ]);
+
+            eventsSnap.forEach((d) => bump(d.data().referrer, "visits"));
+            usersSnap.forEach((d) => {
+                const acq = d.data().acquisitionSource;
+                if (acq && acq.referrer) bump(acq.referrer, "signups");
+            });
+
+            // Rank by visits, weighting signups heavily (a signup is worth a lot).
+            const backlinks = Object.values(byDomain)
+                .sort((a, b) => (b.visits + b.signups * 5) - (a.visits + a.signups * 5))
+                .slice(0, 100);
+
+            return {
+                daysBack,
+                backlinks,
+                totals: {
+                    distinctDomains: backlinks.length,
+                    referredVisits: backlinks.reduce((s, b) => s + b.visits, 0),
+                    referredSignups: backlinks.reduce((s, b) => s + b.signups, 0),
+                    searchVisits,
+                    directVisits,
+                    selfVisits,
+                },
+            };
+        }
+    );
+
+    return { logAdEvent, getAdAttributionStats, getBacklinkStats };
 };

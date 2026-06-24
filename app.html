@@ -64,6 +64,12 @@
                     <span>Settings</span>
                 </a></li>
             </ul>
+            <!-- Self-host attribution badge — shown only in self-host mode (hidden on PennyHelm Cloud) -->
+            <a id="selfhost-badge" hidden href="https://pennyhelm.com/?utm_source=selfhost&utm_medium=badge&utm_campaign=powered-by" target="_blank" rel="noopener"
+               style="margin:auto 12px 16px 12px;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;text-decoration:none;color:var(--text-secondary,#9aa0b0);font-size:12px;border:1px solid var(--border,#2a2f3a);">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#6366f1,#7c3aed);color:#fff;font-weight:700;font-size:11px;flex-shrink:0;">PH</span>
+                <span>Powered by <strong style="color:var(--text-primary,#e8eaed);">PennyHelm</strong></span>
+            </a>
         </nav>
 
         <main class="main-content" id="main-content">
@@ -85,6 +91,14 @@
     <!-- Firebase, Plaid, and QRCode are loaded on demand in cloud mode only (see js/cloud-loader.js) -->
     <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+    <!-- Reveal the self-host attribution badge only when running in self-host mode -->
+    <script type="module">
+        import { APP_MODE } from './js/mode-config.js';
+        if (APP_MODE === 'selfhost') {
+            const el = document.getElementById('selfhost-badge');
+            if (el) el.hidden = false;
+        }
+    </script>
     <script type="module" src="js/app.js"></script>
 </body>
 </html>

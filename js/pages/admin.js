@@ -140,6 +140,24 @@ export async function renderAdmin(container, store) {
             </div>
         </div>
 
+        <!-- Backlinks / Referrers -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3>Backlinks &amp; Referrers</h3>
+                    <select id="backlinks-range" class="form-select" style="max-width:140px;font-size:12px;">
+                        <option value="30">Last 30 days</option>
+                        <option value="90" selected>Last 90 days</option>
+                        <option value="365">Last year</option>
+                    </select>
+                </div>
+                <div id="backlinks-summary" style="color:var(--text-secondary);font-size:12px;margin-bottom:12px;">
+                    Loading...
+                </div>
+                <div id="backlinks-content"></div>
+            </div>
+        </div>
+
         <!-- Test Users -->
         <div class="card mb-24">
             <div class="settings-section">
@@ -386,6 +404,16 @@ export async function renderAdmin(container, store) {
         });
     }
 
+    // === Backlinks Handlers ===
+
+    const blRange = document.getElementById('backlinks-range');
+    if (blRange) {
+        loadBacklinks(parseInt(blRange.value, 10) || 90);
+        blRange.addEventListener('change', () => {
+            loadBacklinks(parseInt(blRange.value, 10) || 90);
+        });
+    }
+
     // === User Lookup Handlers ===
 
     document.getElementById('user-lookup-btn').addEventListener('click', () => {
@@ -607,6 +635,66 @@ function renderAttributionTable(title, rows, keyLabel, keyField) {
             </div>
         </div>
     `;
+}
+
+// ─── Backlinks / Referrers ───────────────────────────────────
+
+async function loadBacklinks(daysBack) {
+    const summaryEl = document.getElementById('backlinks-summary');
+    const contentEl = document.getElementById('backlinks-content');
+    if (!summaryEl || !contentEl) return;
+
+    summaryEl.textContent = 'Loading...';
+    contentEl.innerHTML = '';
+
+    try {
+        const fn = firebase.app().functions().httpsCallable('getBacklinkStats');
+        const result = await fn({ daysBack });
+        const data = result.data;
+        const t = data.totals || {};
+
+        summaryEl.innerHTML = `${(t.distinctDomains || 0).toLocaleString()} referring site${t.distinctDomains === 1 ? '' : 's'} · ${(t.referredVisits || 0).toLocaleString()} referred visit${t.referredVisits === 1 ? '' : 's'} · ${(t.referredSignups || 0).toLocaleString()} signup${t.referredSignups === 1 ? '' : 's'} in the last ${data.daysBack} days. <span style="opacity:.7;">(${(t.searchVisits || 0).toLocaleString()} from search, ${(t.directVisits || 0).toLocaleString()} direct — excluded.)</span>`;
+
+        contentEl.innerHTML = renderBacklinksTable(data.backlinks || []) + `
+            <p style="color:var(--text-secondary);font-size:11px;margin-top:12px;">
+                Shows external sites that sent <strong>clicked</strong> traffic (from referrer data). For the complete list of links pointing to you — including ones nobody clicked yet — use
+                <a href="https://search.google.com/search-console" target="_blank" rel="noopener" style="color:var(--accent);">Google Search Console</a>
+                and your <a href="https://umami.is" target="_blank" rel="noopener" style="color:var(--accent);">Umami</a> referrers report.
+            </p>`;
+    } catch (err) {
+        console.error('getBacklinkStats failed:', err);
+        summaryEl.textContent = '';
+        contentEl.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px;">Failed to load backlinks: ${escapeHtml(err.message || 'unknown error')}</p>`;
+    }
+}
+
+function renderBacklinksTable(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return `<p style="color:var(--text-secondary);font-size:12px;">No external referrers recorded yet in this window. Once other sites link to you and people click through, they'll appear here.</p>`;
+    }
+
+    const body = rows.map((r) => `
+        <tr>
+            <td style="padding:6px 8px;">
+                <a href="https://${escapeHtml(r.domain)}" target="_blank" rel="noopener" style="color:var(--accent);font-family:monospace;font-size:12px;">${escapeHtml(r.domain)}</a>
+            </td>
+            <td style="padding:6px 8px;text-align:right;">${(r.visits || 0).toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:#22c55e;font-weight:600;">${(r.signups || 0).toLocaleString()}</td>
+        </tr>`).join('');
+
+    return `
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid var(--border,#2a2f3a);border-radius:6px;overflow:hidden;">
+                <thead>
+                    <tr style="background:var(--bg-input,#1a2431);">
+                        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Referring site</th>
+                        <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Visits</th>
+                        <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Signups</th>
+                    </tr>
+                </thead>
+                <tbody>${body}</tbody>
+            </table>
+        </div>`;
 }
 
 async function loadTestUsers(container, db, store) {
