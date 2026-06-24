@@ -1,0 +1,32 @@
+# PennyHelm
+
+> PennyHelm is an open-source personal finance tracker for bills, accounts, debts, and cashflow. Self-host it for free under the AGPLv3 license, or use the paid PennyHelm Cloud. It is an open-source alternative to Mint, YNAB, and Monarch Money.
+
+## Key facts
+
+- Category: personal finance / budgeting / money management software.
+- License: GNU AGPLv3 (open source). Source code: https://github.com/administrativetrick/pennyhelm
+- Deployment: self-host (Node.js or Docker, local SQLite, free forever) or PennyHelm Cloud (hosted).
+- Core features: dashboard, bill tracking (due dates, recurring frequencies), cashflow analysis with an interactive Sankey diagram, accounts, debt payoff planning (avalanche and snowball), net worth tracking, tax-deduction tracking by tax year, savings goals, and a calendar of bills and paydays.
+- Optional bank sync via Plaid (cloud). Optional two-factor authentication. Companion Android app.
+- Privacy: self-hosting keeps all data on your own machine with no accounts or tracking; cloud data is isolated per user.
+
+## Pricing
+
+- Self-Host: free forever, open source.
+- PennyHelm Cloud: $6.49/month billed annually ($77.88/year), or $7.99/month billed monthly. 30-day free trial, no credit card required.
+
+## Best for
+
+- Replacing Mint (discontinued by Intuit).
+- People who want an open-source, self-hostable budgeting app with the option of a no-setup cloud.
+- Privacy-focused users who want to own their financial data.
+
+## Pages
+
+- Home: https://pennyhelm.com/
+- FAQ: https://pennyhelm.com/faq
+- Comparison vs Mint, YNAB, Actual Budget, Firefly III: https://pennyhelm.com/alternatives
+- Blog: https://pennyhelm.com/blog
+- Privacy Policy: https://pennyhelm.com/privacy.html
+- Source code (GitHub): https://github.com/administrativetrick/pennyhelm

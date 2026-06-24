@@ -40,6 +40,8 @@
                 '</div>' +
                 '<div class="footer-links">' +
                     '<a class="cloud-only" href="/blog">Blog</a>' +
+                    '<a class="cloud-only" href="/faq">FAQ</a>' +
+                    '<a class="cloud-only" href="/alternatives">Compare</a>' +
                     '<a href="/privacy.html">Privacy</a>' +
                     '<a href="/terms.html">Terms</a>' +
                     '<a class="cloud-only" href="/link-to-us">Link to us</a>' +

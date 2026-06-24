@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PennyHelm FAQ - Open-source personal finance, self-hosted or cloud</title>
+    <meta name="description" content="Frequently asked questions about PennyHelm: pricing, self-hosting, open source, bank sync, privacy, and how it compares to Mint, YNAB, and Actual Budget.">
+    <link rel="canonical" href="https://pennyhelm.com/faq">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="PennyHelm">
+    <meta property="og:title" content="PennyHelm FAQ">
+    <meta property="og:description" content="Answers about PennyHelm: pricing, self-hosting, open source, bank sync, privacy, and how it compares to Mint and YNAB.">
+    <meta property="og:url" content="https://pennyhelm.com/faq">
+    <meta property="og:image" content="https://pennyhelm.com/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is PennyHelm?",
+          "acceptedAnswer": { "@type": "Answer", "text": "PennyHelm is an open-source personal finance tracker. It helps you track bills, accounts, debts, and cashflow in one dashboard and budget by paycheck. You can self-host it for free, or use PennyHelm Cloud for access from any device." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is PennyHelm free?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. The self-hosted version is free forever and open source under the AGPLv3 license. PennyHelm Cloud is a paid hosted option at $6.49/month billed annually ($77.88/year) or $7.99/month billed monthly, with a 30-day free trial and no credit card required." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is PennyHelm open source?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. PennyHelm is licensed under the GNU AGPLv3 and the source code is on GitHub at github.com/administrativetrick/pennyhelm. You are free to self-host it, inspect it, and modify it." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I self-host PennyHelm?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. PennyHelm runs on your own machine using Node.js or Docker, storing data in a local SQLite database. Self-hosting gives you complete data ownership with no accounts or tracking, and includes the full feature set at no cost." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is PennyHelm a good alternative to Mint?",
+          "acceptedAnswer": { "@type": "Answer", "text": "PennyHelm is a strong alternative for people looking to replace Mint, which Intuit discontinued. It covers the core Mint workflow of tracking bills, accounts, and net worth in one dashboard, and adds options Mint never offered: a free self-hosted version, complete data ownership, and a low-cost cloud tier." }
+        },
+        {
+          "@type": "Question",
+          "name": "How is PennyHelm different from YNAB?",
+          "acceptedAnswer": { "@type": "Answer", "text": "YNAB is a paid, cloud-only app focused on strict zero-based budgeting. PennyHelm is open source with a free self-hosted option and a cheaper cloud tier, and it centers on tracking bills, accounts, debts, and cashflow with paycheck-based budgeting rather than enforcing a single budgeting method." }
+        },
+        {
+          "@type": "Question",
+          "name": "How does PennyHelm compare to Actual Budget and Firefly III?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Actual Budget and Firefly III are also free, open-source, self-hostable finance tools, and all three are good choices. PennyHelm's main differences are an optional fully-hosted cloud version that needs no setup, a companion Android app, and built-in features like an interactive cashflow Sankey diagram, debt payoff planning, and tax-deduction tracking." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does PennyHelm connect to my bank?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Optionally, yes. PennyHelm Cloud can sync balances and transactions through Plaid. Bank sync is optional: you can also add and update accounts manually, which is the only option when self-hosting." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is my financial data private?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Privacy is a core design goal. If you self-host, your data stays entirely on your own machine with no accounts or tracking. On PennyHelm Cloud, your data is isolated per user and protected by Firebase Auth with optional two-factor authentication." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does PennyHelm have a mobile app?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes, there is a companion Android app built with React Native that syncs with PennyHelm Cloud." }
+        }
+      ]
+    }
+    </script>
+    <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
+    <link rel="stylesheet" href="css/landing.css">
+    <style>
+        .faq-wrap{max-width:780px;margin:0 auto;padding:96px 20px 60px;}
+        .faq-wrap h1{font-size:2rem;font-weight:700;color:#e8eaed;margin:0 0 8px;}
+        .faq-lead{color:#9aa0b0;font-size:1rem;line-height:1.7;margin-bottom:32px;}
+        .faq-item{padding:20px 0;border-bottom:1px solid #2e3348;}
+        .faq-item:last-child{border-bottom:none;}
+        .faq-item h2{font-size:1.15rem;font-weight:700;color:#e8eaed;margin:0 0 8px;}
+        .faq-item p{color:#9aa0b0;font-size:0.97rem;line-height:1.7;margin:0;}
+        .faq-item a{color:#4f8cff;text-decoration:none;}
+        .faq-item a:hover{text-decoration:underline;}
+        .back-link{display:inline-block;margin-bottom:24px;color:#4f8cff;text-decoration:none;font-size:0.95rem;}
+        .back-link:hover{text-decoration:underline;}
+        .faq-cta{margin-top:32px;padding:18px;background:#13151d;border:1px solid #2e3348;border-radius:10px;color:#9aa0b0;font-size:0.95rem;}
+        .faq-cta a{color:#4f8cff;text-decoration:none;}
+    </style>
+</head>
+<body>
+    <nav class="landing-nav">
+        <div class="landing-nav-inner">
+            <div class="landing-logo">
+                <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+                    <div class="logo-mark">PH</div>
+                    <span class="logo-text">PennyHelm</span>
+                </a>
+            </div>
+            <div class="landing-nav-links">
+                <a href="/blog" class="cloud-only">Blog</a>
+                <a href="/">Home</a>
+                <a href="/login.html" class="nav-cta">Sign In</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="faq-wrap">
+        <a href="/" class="back-link">&larr; Back to Home</a>
+        <h1>Frequently Asked Questions</h1>
+        <p class="faq-lead">Everything you might want to know about PennyHelm, an open-source personal finance tracker you can self-host or use in the cloud.</p>
+
+        <div class="faq-item">
+            <h2>What is PennyHelm?</h2>
+            <p>PennyHelm is an open-source personal finance tracker. It helps you track bills, accounts, debts, and cashflow in one dashboard and budget by paycheck. You can self-host it for free, or use PennyHelm Cloud for access from any device.</p>
+        </div>
+        <div class="faq-item">
+            <h2>Is PennyHelm free?</h2>
+            <p>Yes. The self-hosted version is free forever and open source under the AGPLv3 license. PennyHelm Cloud is a paid hosted option at $6.49/month billed annually ($77.88/year) or $7.99/month billed monthly, with a 30-day free trial and no credit card required.</p>
+        </div>
+        <div class="faq-item">
+            <h2>Is PennyHelm open source?</h2>
+            <p>Yes. PennyHelm is licensed under the GNU AGPLv3 and the source code is on <a href="https://github.com/administrativetrick/pennyhelm" target="_blank" rel="noopener">GitHub</a>. You are free to self-host it, inspect it, and modify it.</p>
+        </div>
+        <div class="faq-item">
+            <h2>Can I self-host PennyHelm?</h2>
+            <p>Yes. PennyHelm runs on your own machine using Node.js or Docker, storing data in a local SQLite database. Self-hosting gives you complete data ownership with no accounts or tracking, and includes the full feature set at no cost.</p>
+        </div>
+        <div class="faq-item">
+            <h2>Is PennyHelm a good alternative to Mint?</h2>
+            <p>PennyHelm is a strong alternative for people looking to replace Mint, which Intuit discontinued. It covers the core Mint workflow of tracking bills, accounts, and net worth in one dashboard, and adds options Mint never offered: a free self-hosted version, complete data ownership, and a low-cost cloud tier. See our <a href="/alternatives">comparison page</a> for details.</p>
+        </div>
+        <div class="faq-item">
+            <h2>How is PennyHelm different from YNAB?</h2>
+            <p>YNAB is a paid, cloud-only app focused on strict zero-based budgeting. PennyHelm is open source with a free self-hosted option and a cheaper cloud tier, and it centers on tracking bills, accounts, debts, and cashflow with paycheck-based budgeting rather than enforcing a single budgeting method.</p>
+        </div>
+        <div class="faq-item">
+            <h2>How does PennyHelm compare to Actual Budget and Firefly III?</h2>
+            <p>Actual Budget and Firefly III are also free, open-source, self-hostable finance tools, and all three are good choices. PennyHelm's main differences are an optional fully-hosted cloud version that needs no setup, a companion Android app, and built-in features like an interactive cashflow Sankey diagram, debt payoff planning, and tax-deduction tracking.</p>
+        </div>
+        <div class="faq-item">
+            <h2>Does PennyHelm connect to my bank?</h2>
+            <p>Optionally, yes. PennyHelm Cloud can sync balances and transactions through Plaid. Bank sync is optional: you can also add and update accounts manually, which is the only option when self-hosting.</p>
+        </div>
+        <div class="faq-item">
+            <h2>Is my financial data private?</h2>
+            <p>Privacy is a core design goal. If you self-host, your data stays entirely on your own machine with no accounts or tracking. On PennyHelm Cloud, your data is isolated per user and protected by Firebase Auth with optional two-factor authentication.</p>
+        </div>
+        <div class="faq-item">
+            <h2>Does PennyHelm have a mobile app?</h2>
+            <p>Yes, there is a companion Android app built with React Native that syncs with PennyHelm Cloud.</p>
+        </div>
+
+        <div class="faq-cta">
+            Ready to try it? <a href="/login?signup=1">Start a free 30-day trial</a> of PennyHelm Cloud, or <a href="https://github.com/administrativetrick/pennyhelm" target="_blank" rel="noopener">self-host it for free</a>.
+        </div>
+    </main>
+
+    <div id="site-footer"></div>
+    <script src="/js/footer.js" defer></script>
+</body>
+</html>
