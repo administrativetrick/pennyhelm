@@ -255,6 +255,9 @@ form.addEventListener('submit', async (e) => {
             const userCredential = await auth.createUserWithEmailAndPassword(email, password);
             await registerUser(userCredential.user, referralCode || null);
 
+            // Generic post-signup lifecycle event for optional add-ons to hook.
+            try { window.dispatchEvent(new CustomEvent('ph:signup', { detail: { email } })); } catch (_) {}
+
             // Fire Google Ads signup conversion, then redirect. No-op in selfhost.
             fireSignupConversion(() => { window.location.href = '/app'; });
         } else {

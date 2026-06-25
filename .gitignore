@@ -31,7 +31,10 @@ functions/social-content.js
 functions/blg.js
 functions/blg.js.disabled
 functions/internal-jobs.js
+functions/internal-svc.js
+functions/blog-extras.js
 js/pages/admin-ext.js
+js/signup-ext.js
 
 # Temp files
 nul

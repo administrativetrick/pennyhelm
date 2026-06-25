@@ -158,6 +158,12 @@ module.exports = ({ db }) => {
         .blog-footer a:hover{text-decoration:underline;}
     `;
 
+    // Optional page extras present only in private builds; absent in the
+    // open-source repo, in which case this returns "".
+    function blogExtras() {
+        try { return require("./blog-extras").bannerHtml(); } catch { return ""; }
+    }
+
     function layout({ title, description, canonical, ogImage, ogType, jsonLd, body }) {
         const desc = escapeHtml(description || "Personal finance tips and guides from PennyHelm.");
         const img = escapeHtml(ogImage || DEFAULT_OG);
@@ -203,6 +209,7 @@ ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
   </div>
 </nav>
 ${body}
+${blogExtras()}
 <footer class="blog-footer">
   <span>&copy; ${new Date().getUTCFullYear()} PennyHelm</span>
   <a href="/">Home</a>

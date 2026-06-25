@@ -105,5 +105,7 @@
     <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script type="module" src="js/login.js"></script>
+    <!-- Optional signup add-ons; absent in open-source/self-host builds. -->
+    <script type="module">import('/js/signup-ext.js').catch(function(){});</script>
 </body>
 </html>
