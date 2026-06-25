@@ -303,6 +303,35 @@ ${blogExtras()}
         });
     }
 
+    // ─── Sitemap ───────────────────────────────────────────────
+    // Static marketing pages + every published blog post, so the sitemap stays
+    // current automatically as posts are published.
+
+    function renderSitemap(posts) {
+        const today = new Date().toISOString().slice(0, 10);
+        const staticUrls = [
+            { loc: `${SITE}/`, lastmod: today },
+            { loc: `${SITE}/faq`, lastmod: "2026-06-24" },
+            { loc: `${SITE}/alternatives`, lastmod: "2026-06-24" },
+            { loc: `${SITE}/blog`, lastmod: today },
+            { loc: `${SITE}/link-to-us`, lastmod: "2026-06-24" },
+            { loc: `${SITE}/switch`, lastmod: "2026-06-10" },
+            { loc: `${SITE}/privacy.html`, lastmod: "2026-06-11" },
+            { loc: `${SITE}/terms.html`, lastmod: "2026-06-10" },
+        ];
+        const postUrls = posts
+            .slice()
+            .sort((a, b) => tsToMs(b.createdAt) - tsToMs(a.createdAt))
+            .map((p) => {
+                const ms = tsToMs(p.updatedAt) || tsToMs(p.createdAt);
+                return { loc: `${SITE}/blog/${p.slug}`, lastmod: ms ? new Date(ms).toISOString().slice(0, 10) : today };
+            });
+        const body = staticUrls.concat(postUrls)
+            .map((u) => `  <url>\n    <loc>${escapeHtml(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n  </url>`)
+            .join("\n");
+        return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`;
+    }
+
     // ─── blogSite — HTTP, public ───────────────────────────────
 
     const blogSite = onRequest({ region: "us-central1", cors: false, invoker: "public" }, async (req, res) => {
@@ -311,6 +340,16 @@ ${blogExtras()}
             // function URL would give /<slug>. Drop a leading "blog" segment so
             // both forms resolve.
             const trimmed = req.path.replace(/^\/+|\/+$/g, "");
+
+            // Dynamic sitemap: static pages + every published post.
+            if (trimmed === "sitemap.xml") {
+                const snap = await db.collection("posts").where("status", "==", "publish").get();
+                const posts = snap.docs.map((d) => ({ slug: d.id, ...d.data() }));
+                res.set("Cache-Control", "public, max-age=3600, s-maxage=3600");
+                res.status(200).type("application/xml").send(renderSitemap(posts));
+                return;
+            }
+
             let segments = trimmed ? trimmed.split("/") : [];
             if (segments[0] === "blog") segments = segments.slice(1);
             const slug = segments[0] ? decodeURIComponent(segments[0]) : null;
