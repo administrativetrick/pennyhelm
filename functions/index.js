@@ -159,6 +159,19 @@ try {
     }
 }
 
+// Optional private module — cloud-only, kept out of the public/self-host repo
+// (.gitignore). Loaded only if present so open-source checkouts deploy fine.
+let internalSvcFns = {};
+try {
+    internalSvcFns = require("./internal-svc")(shared);
+} catch (err) {
+    if (err && err.code === "MODULE_NOT_FOUND" && /internal-svc/.test(err.message)) {
+        console.log("[index] Optional ./internal-svc module not present — skipping.");
+    } else {
+        throw err; // a real error inside the module should not be swallowed
+    }
+}
+
 // ─── Re-export All Cloud Functions ───────────────────────────
 
 // Remove internal helpers before exporting (these are plain functions,
@@ -166,4 +179,4 @@ try {
 delete apiKeyFns._validateApiKey;
 delete inviteFns.trackPaidReferral;
 
-Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, blogSiteFns, aiHealthFns, socialFns, blgFns, internalJobsFns);
+Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, blogSiteFns, aiHealthFns, socialFns, blgFns, internalJobsFns, internalSvcFns);
