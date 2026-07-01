@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Social icons in the footer, rendered from one place.** GitHub and Facebook now appear as icons in the footer (GitHub was previously a text link). The footer markup moved into a single `js/footer.js`, so it is defined once and shared across the landing, privacy, and terms pages instead of being duplicated on each.
 
 ### Changed
+- **Refreshed app theme and typography.** The web app moved to a new visual identity — a deeper near-black canvas, a green accent, warmer semantic colors, and the Hanken Grotesk / IBM Plex Mono typefaces — applied through the existing design tokens so both dark and light modes are updated. No layout or feature changes yet; this is the foundation for a broader dashboard redesign.
 - **Landing page now uses WebP screenshots.** The four product screenshots were converted from PNG to WebP, cutting their combined weight ~59% (436 KB to 180 KB) for a faster hero load.
 - **Footer copyright corrected and license-forward.** Year fixed to 2026 (the project's first release year), and "All rights reserved" replaced with "Open source under AGPLv3" across the landing and policy pages, which is the accurate framing for a copyleft project.
 - **Landing `<title>` rewritten for search.** From "Take Control of Your Finances" to "Open-source personal finance, self-hosted or cloud" so it carries the keywords people actually search.
