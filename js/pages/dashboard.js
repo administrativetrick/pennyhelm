@@ -29,6 +29,7 @@ const GOAL_CATEGORIES = [
 const DASHBOARD_WIDGETS = [
     { id: 'cashflow-hero',     label: 'Cashflow Summary',        icon: '💸' },
     { id: 'stats-grid',        label: 'Financial Summary',       icon: '📊' },
+    { id: 'net-worth-trend',   label: 'Net Worth Trend',         icon: '📈' },
     { id: 'health-score',      label: 'Financial Health Score',  icon: '🏥' },
     { id: 'pay-periods',       label: 'Pay Period Breakdown',    icon: '📅' },
     { id: 'monthly-progress',  label: 'Monthly Progress',        icon: '📈' },
@@ -107,6 +108,88 @@ function buildCashflowHeroHtml(ctx) {
     html += '</div>';
     html += '</div>';
     html += '</div>';
+
+    html += '</div>';
+    return html;
+}
+
+function buildNetWorthTrendHtml(ctx) {
+    // Only meaningful once there's something to compose a net worth from.
+    if (ctx.accounts.length === 0 && ctx.debts.length === 0) return '';
+
+    var nw = ctx.netBalance;
+
+    // Net worth history (may be sparse or missing on new accounts).
+    var history = ctx.store.getBalanceHistory().filter(function(h) { return typeof h.netWorth === 'number'; });
+    if (history.length > 90) history = history.slice(-90);
+    var vals = history.map(function(h) { return h.netWorth; });
+
+    var deltaHtml = '';
+    if (history.length >= 2) {
+        var first = vals[0];
+        var delta = nw - first;
+        var pct = first !== 0 ? (delta / Math.abs(first) * 100) : 0;
+        var up = delta >= 0;
+        var arrow = up
+            ? '<polyline points="6 15 12 9 18 15"/>'
+            : '<polyline points="6 9 12 15 18 9"/>';
+        deltaHtml = '<span class="nw-trend-delta" style="color:' + (up ? 'var(--green)' : 'var(--red)') + ';background:' + (up ? 'var(--green-bg)' : 'var(--red-bg)') + ';">' +
+            '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' + arrow + '</svg>' +
+            Math.abs(pct).toFixed(1) + '%</span>';
+    }
+
+    var html = '<div class="card nw-trend">';
+    html += '<div class="nw-trend-eyebrow">Net worth</div>';
+    html += '<div class="nw-trend-head">';
+    html += '<div class="nw-trend-value" style="color:' + (nw >= 0 ? 'var(--text-primary)' : 'var(--red)') + ';">' + formatCurrency(nw) + '</div>';
+    html += deltaHtml;
+    html += '</div>';
+
+    if (history.length >= 2) {
+        var W = 680, H = 120, pd = 10;
+        var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+        if (lo === hi) { lo -= 1; hi += 1; }
+        var padY = (hi - lo) * 0.12;
+        var dmin = lo - padY, dmax = hi + padY;
+        var n = vals.length, ih = H - pd * 2;
+        var pts = vals.map(function(v, i) {
+            var x = n === 1 ? 0 : (i / (n - 1)) * W;
+            var y = pd + ih - ((v - dmin) / (dmax - dmin)) * ih;
+            return [x, y];
+        });
+        var line = pts.map(function(p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
+        var area = line + ' L ' + W + ' ' + H + ' L 0 ' + H + ' Z';
+        var gid = 'nwFill';
+        var fmtShort = function(d) { return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }); };
+        html += '<div class="nw-trend-chart">';
+        html += '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none">';
+        html += '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">';
+        html += '<stop offset="0" stop-color="var(--accent)" stop-opacity="0.28"/>';
+        html += '<stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>';
+        html += '<path d="' + area + '" fill="url(#' + gid + ')"/>';
+        html += '<path d="' + line + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+        html += '</svg>';
+        html += '<div class="nw-trend-axis"><span>' + fmtShort(history[0].date) + '</span><span>' + fmtShort(history[history.length - 1].date) + '</span></div>';
+        html += '</div>';
+    }
+
+    // Component chips (assets positive, liabilities negative).
+    var chips = [];
+    if (ctx.cashTotal) chips.push({ label: 'Cash', val: ctx.cashTotal, color: 'var(--green)' });
+    if (ctx.investmentTotal) chips.push({ label: 'Invested', val: ctx.investmentTotal, color: 'var(--blue)' });
+    if (ctx.propertyEquity) chips.push({ label: 'Property', val: ctx.propertyEquity, color: 'var(--purple)' });
+    if (ctx.vehicleEquity) chips.push({ label: 'Vehicle', val: ctx.vehicleEquity, color: 'var(--orange)' });
+    if (ctx.creditOwed) chips.push({ label: 'Credit owed', val: -ctx.creditOwed, color: 'var(--red)' });
+    if (ctx.unlinkedDebtBalance) chips.push({ label: 'Debt', val: -ctx.unlinkedDebtBalance, color: 'var(--yellow)' });
+    if (chips.length > 0) {
+        html += '<div class="nw-trend-chips">';
+        chips.forEach(function(c) {
+            html += '<div class="nw-chip"><span class="nw-chip-dot" style="background:' + c.color + ';"></span>' +
+                '<span class="nw-chip-label">' + c.label + '</span>' +
+                '<span class="nw-chip-val">' + formatCurrency(c.val) + '</span></div>';
+        });
+        html += '</div>';
+    }
 
     html += '</div>';
     return html;
@@ -593,6 +676,7 @@ export function renderDashboard(container, store, subTab) {
     const widgetRenderers = {
         'cashflow-hero':     () => buildCashflowHeroHtml(ctx),
         'stats-grid':        () => buildStatsGridHtml(ctx),
+        'net-worth-trend':   () => buildNetWorthTrendHtml(ctx),
         'health-score':      () => buildHealthScoreHtml(ctx),
         'pay-periods':       () => buildPayPeriodsHtml(ctx),
         'monthly-progress':  () => buildMonthlyProgressHtml(ctx),
