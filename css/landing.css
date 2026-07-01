@@ -1,37 +1,41 @@
 /* ===== PennyHelm Landing & Login Pages ===== */
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap');
 
 :root {
-    --bg-primary: #0f1117;
-    --bg-secondary: #1a1d27;
-    --bg-card: #222636;
-    --bg-card-hover: #2a2f42;
-    --bg-input: #181b25;
-    --border: #2e3348;
-    --text-primary: #e8eaed;
-    --text-secondary: #9aa0b0;
-    --text-muted: #6b7185;
-    --accent: #4f8cff;
-    --accent-hover: #3a75e6;
-    --accent-bg: rgba(79, 140, 255, 0.12);
-    --green: #34d399;
-    --green-bg: rgba(52, 211, 153, 0.12);
-    --red: #f87171;
-    --red-bg: rgba(248, 113, 113, 0.12);
-    --orange: #fb923c;
-    --orange-bg: rgba(251, 146, 60, 0.12);
-    --yellow: #fbbf24;
-    --yellow-bg: rgba(251, 191, 36, 0.12);
-    --purple: #a78bfa;
-    --purple-bg: rgba(167, 139, 250, 0.12);
-    --blue: #60a5fa;
-    --blue-bg: rgba(96, 165, 250, 0.12);
-    --cyan: #22d3ee;
-    --cyan-bg: rgba(34, 211, 238, 0.12);
-    --pink: #ec4899;
-    --pink-bg: rgba(236, 72, 153, 0.12);
+    --bg-primary: #0a0d12;
+    --bg-secondary: #0c1017;
+    --bg-card: #12161e;
+    --bg-card-hover: #151a23;
+    --bg-input: #171c26;
+    --border: #212836;
+    --text-primary: #f1f3f6;
+    --text-secondary: #98a0af;
+    --text-muted: #6e7787;
+    --accent: #56d2a0;
+    --accent-hover: #46b98a;
+    --accent-bg: rgba(86, 210, 160, 0.12);
+    --green: #56d2a0;
+    --green-bg: rgba(86, 210, 160, 0.12);
+    --red: #f0776b;
+    --red-bg: rgba(240, 119, 107, 0.12);
+    --orange: #e8a05b;
+    --orange-bg: rgba(232, 160, 91, 0.12);
+    --yellow: #f3c05a;
+    --yellow-bg: rgba(243, 192, 90, 0.12);
+    --purple: #9b8cfa;
+    --purple-bg: rgba(155, 140, 250, 0.12);
+    --blue: #6d9bf5;
+    --blue-bg: rgba(109, 155, 245, 0.12);
+    --cyan: #56c7d2;
+    --cyan-bg: rgba(86, 199, 210, 0.12);
+    --pink: #e87ba8;
+    --pink-bg: rgba(232, 123, 168, 0.12);
     --modal-overlay: rgba(0, 0, 0, 0.6);
-    --radius: 10px;
-    --radius-sm: 6px;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-lg: 18px;
+    --font-sans: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-num: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
 
 /* ===== Light Theme ===== */
@@ -45,9 +49,9 @@
     --text-primary: #1a1d27;
     --text-secondary: #5a6174;
     --text-muted: #8890a4;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --accent-bg: rgba(37, 99, 235, 0.08);
+    --accent: #0e9f6e;
+    --accent-hover: #0b8a5e;
+    --accent-bg: rgba(14, 159, 110, 0.10);
     --green: #059669;
     --green-bg: rgba(5, 150, 105, 0.08);
     --red: #dc2626;
@@ -78,9 +82,9 @@
         --text-primary: #1a1d27;
         --text-secondary: #5a6174;
         --text-muted: #8890a4;
-        --accent: #2563eb;
-        --accent-hover: #1d4ed8;
-        --accent-bg: rgba(37, 99, 235, 0.08);
+        --accent: #0e9f6e;
+        --accent-hover: #0b8a5e;
+        --accent-bg: rgba(14, 159, 110, 0.10);
         --green: #059669;
         --green-bg: rgba(5, 150, 105, 0.08);
         --red: #dc2626;
@@ -113,7 +117,7 @@ html {
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: var(--font-sans);
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.6;
@@ -157,7 +161,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 .logo-mark {
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    background: linear-gradient(140deg, var(--accent), #6d9bf5);
     border-radius: 9px;
     display: flex;
     align-items: center;
@@ -234,7 +238,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
     transform: translateX(-50%);
     width: 800px;
     height: 600px;
-    background: radial-gradient(ellipse, rgba(79, 140, 255, 0.12) 0%, rgba(124, 58, 237, 0.06) 40%, transparent 70%);
+    background: radial-gradient(ellipse, color-mix(in oklab, var(--accent) 12%, transparent) 0%, color-mix(in oklab, var(--purple) 6%, transparent) 40%, transparent 70%);
     pointer-events: none;
 }
 
@@ -253,7 +257,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 }
 
 .text-gradient {
-    background: linear-gradient(135deg, var(--accent), #a78bfa, var(--cyan));
+    background: linear-gradient(135deg, var(--accent), var(--purple), var(--cyan));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -330,7 +334,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
     border-radius: 12px;
     border: 1px solid var(--border);
     box-shadow:
-        0 30px 60px -20px rgba(79, 140, 255, 0.35),
+        0 30px 60px -20px color-mix(in oklab, var(--accent) 35%, transparent),
         0 20px 40px -20px rgba(0, 0, 0, 0.7);
     display: block;
 }
@@ -372,7 +376,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 /* ===== Screenshots gallery ===== */
 .screenshots-gallery {
     padding: 80px 0;
-    background: linear-gradient(180deg, transparent 0%, rgba(79, 140, 255, 0.03) 100%);
+    background: linear-gradient(180deg, transparent 0%, color-mix(in oklab, var(--accent) 3%, transparent) 100%);
 }
 
 .screenshots-gallery .section-inner {
@@ -389,7 +393,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 
 .screenshot-featured img {
     box-shadow:
-        0 24px 60px -20px rgba(79, 140, 255, 0.4),
+        0 24px 60px -20px color-mix(in oklab, var(--accent) 40%, transparent),
         0 16px 40px -16px rgba(0, 0, 0, 0.6);
 }
 
@@ -429,7 +433,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 .screenshot-card img:hover {
     transform: translateY(-2px);
     box-shadow:
-        0 20px 48px -16px rgba(79, 140, 255, 0.35),
+        0 20px 48px -16px color-mix(in oklab, var(--accent) 35%, transparent),
         0 16px 40px -16px rgba(0, 0, 0, 0.7);
 }
 
@@ -555,7 +559,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 .btn-primary:hover {
     background: var(--accent-hover);
     transform: translateY(-1px);
-    box-shadow: 0 8px 24px rgba(79, 140, 255, 0.25);
+    box-shadow: 0 8px 24px color-mix(in oklab, var(--accent) 25%, transparent);
 }
 
 .btn-ghost {
@@ -640,7 +644,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
     margin-bottom: 16px;
 }
 
-.feature-icon.blue { background: rgba(79, 140, 255, 0.12); color: var(--accent); }
+.feature-icon.blue { background: color-mix(in oklab, var(--accent) 12%, transparent); color: var(--accent); }
 .feature-icon.green { background: var(--green-bg); color: var(--green); }
 .feature-icon.purple { background: var(--purple-bg); color: var(--purple); }
 .feature-icon.cyan { background: var(--cyan-bg); color: var(--cyan); }
@@ -687,7 +691,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 
 .path-card.featured {
     border-color: var(--accent);
-    box-shadow: 0 0 40px rgba(79, 140, 255, 0.1);
+    box-shadow: 0 0 40px color-mix(in oklab, var(--accent) 10%, transparent);
 }
 
 .path-badge {
@@ -797,9 +801,9 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    background: linear-gradient(135deg, rgba(79, 140, 255, 0.15), rgba(124, 58, 237, 0.15));
+    background: linear-gradient(135deg, color-mix(in oklab, var(--accent) 15%, transparent), color-mix(in oklab, var(--purple) 15%, transparent));
     color: var(--accent);
-    border: 1px solid rgba(79, 140, 255, 0.3);
+    border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
     padding: 4px 12px;
     border-radius: 20px;
     margin-bottom: 8px;
@@ -868,7 +872,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 .step-number {
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    background: linear-gradient(140deg, var(--accent), #6d9bf5);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -921,7 +925,7 @@ html[data-app-mode="selfhost"] .cloud-only { display: none !important; }
 .step-icon {
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    background: linear-gradient(140deg, var(--accent), #6d9bf5);
     border-radius: 50%;
     display: flex;
     align-items: center;
