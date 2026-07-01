@@ -27,6 +27,7 @@ const GOAL_CATEGORIES = [
 ];
 
 const DASHBOARD_WIDGETS = [
+    { id: 'cashflow-hero',     label: 'Cashflow Summary',        icon: '💸' },
     { id: 'stats-grid',        label: 'Financial Summary',       icon: '📊' },
     { id: 'health-score',      label: 'Financial Health Score',  icon: '🏥' },
     { id: 'pay-periods',       label: 'Pay Period Breakdown',    icon: '📅' },
@@ -46,6 +47,70 @@ let activeDashboardTab = 'overview';
 // ─────────────────────────────────────────────
 // WIDGET BUILDER FUNCTIONS
 // ─────────────────────────────────────────────
+
+function buildCashflowHeroHtml(ctx) {
+    var income = ctx.userMonthlyIncome;
+    var outflow = ctx.totalBills + ctx.depCoverageTotal;
+    var remaining = ctx.remaining;
+    var positive = remaining >= 0;
+    var monthLabel = new Date(ctx.year, ctx.month, 1).toLocaleDateString('en-US', { month: 'long' });
+    var pctStr = (income > 0 ? (outflow / income * 100) : 0).toFixed(1) + '%';
+
+    // Plain-English summary of where the month stands.
+    var narrative;
+    if (income <= 0) {
+        narrative = 'Add your income in <strong>Settings</strong> to see how your bills stack up against what you earn.';
+    } else if (positive) {
+        narrative = 'Bills are <strong style="color:var(--green);">' + pctStr + '</strong> of income this month — you have <strong>' + formatCurrency(remaining) + '</strong> left to spend.';
+    } else {
+        narrative = 'Bills are running <strong style="color:var(--red);">' + pctStr + '</strong> of income this month — you\'re <strong style="color:var(--red);">' + formatCurrency(Math.abs(remaining)) + '</strong> over.';
+    }
+
+    // Income vs. outflow bars, both scaled to whichever is larger.
+    var maxVal = Math.max(income, outflow, 1);
+    var incomeW = income / maxVal * 100;
+    var overIncome = outflow > income;
+    var billsBaseW = (overIncome ? income : outflow) / maxVal * 100;
+    var billsOverW = overIncome ? (outflow - income) / maxVal * 100 : 0;
+
+    var accentBar = positive
+        ? 'linear-gradient(90deg, var(--accent), var(--blue))'
+        : 'linear-gradient(90deg, var(--red), var(--yellow))';
+
+    var html = '<div class="card cashflow-hero">';
+    html += '<div class="cashflow-hero-bar" style="background:' + accentBar + ';"></div>';
+    html += '<div class="cashflow-hero-top">';
+    html += '<div>';
+    html += '<div class="cashflow-hero-eyebrow">Left to spend &middot; ' + monthLabel + '</div>';
+    html += '<div class="cashflow-hero-value" style="color:' + (positive ? 'var(--green)' : 'var(--red)') + ';">' + formatCurrency(remaining) + '</div>';
+    html += '<div class="cashflow-hero-note">' + narrative + '</div>';
+    html += '</div>';
+    if (ctx.depEnabled && ctx.depCoverageTotal > 0) {
+        html += '<div class="cashflow-hero-aside">';
+        html += '<div class="cashflow-hero-aside-label">Covering ' + escapeHtml(ctx.depName) + '</div>';
+        html += '<div class="cashflow-hero-aside-value">' + formatCurrency(ctx.depCoverageTotal) + '</div>';
+        html += '<div class="cashflow-hero-aside-sub">' + ctx.depCoveredBills.length + ' of ' + ctx.dependentBills.length + ' bills</div>';
+        html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="cashflow-hero-bars">';
+    html += '<div>';
+    html += '<div class="cashflow-hero-barlabel"><span>Income</span><span>' + formatCurrency(income) + '</span></div>';
+    html += '<div class="cashflow-hero-track"><div class="cashflow-hero-fill" style="width:' + incomeW + '%;background:linear-gradient(90deg, var(--accent), var(--blue));"></div></div>';
+    html += '</div>';
+    html += '<div>';
+    html += '<div class="cashflow-hero-barlabel"><span>Bills &amp; spending</span><span>' + formatCurrency(outflow) + '</span></div>';
+    html += '<div class="cashflow-hero-track" style="display:flex;">';
+    html += '<div class="cashflow-hero-fill" style="width:' + billsBaseW + '%;background:color-mix(in oklab, var(--text-secondary) 45%, transparent);"></div>';
+    if (billsOverW > 0) html += '<div class="cashflow-hero-fill" style="width:' + billsOverW + '%;background:var(--red);"></div>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+}
 
 function buildStatsGridHtml(ctx) {
     var html = '<div class="card-grid">';
@@ -526,6 +591,7 @@ export function renderDashboard(container, store, subTab) {
 
     // Widget renderers map
     const widgetRenderers = {
+        'cashflow-hero':     () => buildCashflowHeroHtml(ctx),
         'stats-grid':        () => buildStatsGridHtml(ctx),
         'health-score':      () => buildHealthScoreHtml(ctx),
         'pay-periods':       () => buildPayPeriodsHtml(ctx),
