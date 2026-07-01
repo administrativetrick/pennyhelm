@@ -17,7 +17,7 @@ A personal finance tracker built with vanilla HTML, CSS, and JavaScript. Self-ho
 
 ## Features
 
-- **Dashboard** — Monthly income, bills, remaining balance, net worth, credit scores, pay-period breakdowns, and a Financial Health Score with conditional weighting, mortgage-aware DTI, and a Liquid Reserves calculation that counts taxable brokerage balances at a user-configurable risk tier
+- **Dashboard** — A customizable widget board (reorder or hide any card): a plain-English cashflow summary of what's left to spend this month, monthly income, bills, remaining balance, a net-worth trend with a balance-history chart, credit scores, pay-period breakdowns, and a Financial Health Score with conditional weighting, mortgage-aware DTI, and a Liquid Reserves calculation that counts taxable brokerage balances at a user-configurable risk tier
 - **Bills** — Track recurring bills with due dates, categories, payment sources, paid/unpaid status, and an interactive Sankey that can be driven by real Plaid-imported spend (falls back to recurring bills when none)
 - **Calendar** — Visual month view of bill due dates and paydays
 - **Budgets** — Category budgets with rollover, case-insensitive matching, and one-time migration of legacy category casings
