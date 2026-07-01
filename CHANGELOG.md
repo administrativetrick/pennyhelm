@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Net worth widget on the dashboard.** A new customizable widget shows current net worth, a trend area chart drawn from your saved balance history (once at least two snapshots exist), and colored chips breaking down the components (cash, investments, property/vehicle equity, credit owed, debt).
 - **Cashflow summary on the dashboard.** A new top-of-dashboard widget leads with how much is left to spend this month in plain English ("Bills are running 112.8% of income — you're $1,845.07 over"), with income-vs-spending bars and a dependent-coverage callout. It's a customizable widget like the others (reorder or hide it from the gear menu).
 - **Android app-install banner.** Visitors on an Android browser see a small dismissible banner on the homepage and sign-in page linking to the Play Store app. It is skipped on self-host and localhost, on non-Android browsers, in installed-PWA mode, and after dismissal (remembered in localStorage).
 - **Prebuilt multi-arch Docker image on GHCR.** A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and publishes `ghcr.io/administrativetrick/pennyhelm` for linux/amd64 and linux/arm64 (Raspberry Pi / homelab friendly) on version tags and manual dispatch. README now documents a one-line `docker run`, and `docker-compose.yml` pulls the prebuilt image by default instead of building from source.
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Social icons in the footer, rendered from one place.** GitHub and Facebook now appear as icons in the footer (GitHub was previously a text link). The footer markup moved into a single `js/footer.js`, so it is defined once and shared across the landing, privacy, and terms pages instead of being duplicated on each.
 
 ### Changed
+- **Grouped the sidebar navigation.** The left nav is now organized under Overview / Manage / Wealth headings, with Settings pinned to the bottom. All existing pages are kept; the active item gets a green accent bar. Also swept the last hardcoded blue tints (active nav, selected rows, toggles, calendar "today", filter chips) over to the new accent color for a consistent rebrand.
 - **Refreshed app theme and typography.** The web app moved to a new visual identity — a deeper near-black canvas, a green accent, warmer semantic colors, and the Hanken Grotesk / IBM Plex Mono typefaces — applied through the existing design tokens so both dark and light modes are updated. No layout or feature changes yet; this is the foundation for a broader dashboard redesign.
 - **Landing page now uses WebP screenshots.** The four product screenshots were converted from PNG to WebP, cutting their combined weight ~59% (436 KB to 180 KB) for a faster hero load.
 - **Footer copyright corrected and license-forward.** Year fixed to 2026 (the project's first release year), and "All rights reserved" replaced with "Open source under AGPLv3" across the landing and policy pages, which is the accurate framing for a copyleft project.

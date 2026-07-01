@@ -1498,7 +1498,7 @@ class Store {
 
     getDashboardLayout() {
         const data = this._load();
-        const defaultOrder = ['cashflow-hero', 'stats-grid', 'health-score', 'pay-periods', 'monthly-progress', 'upcoming-bills', 'spending-category', 'payment-sources', 'savings-goals', 'smart-insights'];
+        const defaultOrder = ['cashflow-hero', 'stats-grid', 'net-worth-trend', 'health-score', 'pay-periods', 'monthly-progress', 'upcoming-bills', 'spending-category', 'payment-sources', 'savings-goals', 'smart-insights'];
         if (!data.dashboardLayout) {
             return { order: [...defaultOrder], hidden: [] };
         }

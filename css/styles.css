@@ -188,6 +188,27 @@ body {
     list-style: none;
     padding: 12px 10px;
     flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Uppercase group label between sidebar sections (Overview / Manage / Wealth) */
+.nav-section {
+    font-size: 10.5px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 700;
+    padding: 14px 14px 6px;
+}
+.nav-section:first-child {
+    padding-top: 4px;
+}
+
+/* Flexible gap that pushes trailing items (Settings/Admin) to the bottom */
+.nav-spacer {
+    flex: 1;
+    min-height: 12px;
 }
 
 .nav-link {
@@ -210,8 +231,10 @@ body {
 }
 
 .nav-link.active {
-    background: rgba(79, 140, 255, 0.12);
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
     color: var(--accent);
+    font-weight: 600;
+    box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .nav-link svg {
@@ -357,6 +380,86 @@ body {
     .cashflow-hero-note { max-width: none; }
 }
 
+/* ===== Dashboard: Net Worth Trend widget ===== */
+.nw-trend {
+    border-radius: var(--radius-lg);
+    padding: 22px;
+}
+.nw-trend-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+.nw-trend-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.nw-trend-value {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.nw-trend-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+}
+.nw-trend-chart {
+    margin-top: 16px;
+}
+.nw-trend-chart svg {
+    display: block;
+}
+.nw-trend-axis {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.nw-trend-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+.nw-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+}
+.nw-chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+.nw-chip-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.nw-chip-val {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
 /* Compact stats grid used on Debts / Income / Taxes / Assets.
    Tighter minmax than .card-grid because these cards are smaller
    (label + value only, no sub-text). */
@@ -467,8 +570,8 @@ tr[data-bill-id] {
 }
 
 tr.bill-selected td {
-    background: rgba(79, 140, 255, 0.12) !important;
-    border-bottom-color: rgba(79, 140, 255, 0.25) !important;
+    background: color-mix(in oklab, var(--accent) 12%, transparent) !important;
+    border-bottom-color: color-mix(in oklab, var(--accent) 25%, transparent) !important;
 }
 tr.bill-selected td:first-child {
     box-shadow: inset 3px 0 0 var(--accent);
@@ -969,7 +1072,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 }
 
 .toggle input:checked + .toggle-slider {
-    background: rgba(79, 140, 255, 0.3);
+    background: color-mix(in oklab, var(--accent) 30%, transparent);
     border-color: var(--accent);
 }
 
@@ -1271,7 +1374,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 }
 
 .calendar-day.today {
-    background: rgba(79, 140, 255, 0.08);
+    background: color-mix(in oklab, var(--accent) 8%, transparent);
     box-shadow: inset 0 0 0 1px var(--accent);
 }
 
@@ -1402,7 +1505,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 .dependent-bill-row.covering {
     border-color: var(--accent);
-    background: rgba(79, 140, 255, 0.06);
+    background: color-mix(in oklab, var(--accent) 6%, transparent);
 }
 
 .dependent-bill-info {
@@ -1454,7 +1557,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 }
 
 .filter-chip.active {
-    background: rgba(79, 140, 255, 0.12);
+    background: color-mix(in oklab, var(--accent) 12%, transparent);
     border-color: var(--accent);
     color: var(--accent);
 }
@@ -2210,7 +2313,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 }
 
 .waterfall-bar.net-positive {
-    background: linear-gradient(180deg, var(--accent), rgba(79, 140, 255, 0.6));
+    background: linear-gradient(180deg, var(--accent), color-mix(in oklab, var(--accent) 60%, transparent));
 }
 
 .waterfall-bar.net-negative {
