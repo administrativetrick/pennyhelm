@@ -258,13 +258,19 @@ export function renderBills(container, store) {
         ` : ''}
 
         ${(() => {
-            // Bills are already expanded into individual occurrences, so just sum
-            const regularTotal = bills.filter(b => !b.frozen && !b.excludeFromTotal).reduce((s, b) => s + b.amount, 0);
+            // Bills are already expanded into occurrences. Sum only the ones still
+            // unpaid so this reads as what's left to pay this period — matching the
+            // unpaid bill table above (same paid logic via getBillPaidBucket).
+            const isUnpaid = (b) => {
+                const [py, pm] = getBillPaidBucket(b, year, month);
+                return !store.isBillPaid(b.id, py, pm, b._occurrenceKey);
+            };
+            const regularTotal = bills.filter(b => !b.frozen && !b.excludeFromTotal && isUnpaid(b)).reduce((s, b) => s + b.amount, 0);
             const periodicDueTotal = (() => {
                 if (billsViewMode === 'paycheck') {
-                    return periodicBills.filter(b => !b.frozen && !b.excludeFromTotal).reduce((s, b) => s + b.amount, 0);
+                    return periodicBills.filter(b => !b.frozen && !b.excludeFromTotal && isUnpaid(b)).reduce((s, b) => s + b.amount, 0);
                 } else {
-                    return allPeriodicBills.filter(b => !b.frozen && !b.excludeFromTotal && isPeriodicBillDueInMonth(b, year, month))
+                    return allPeriodicBills.filter(b => !b.frozen && !b.excludeFromTotal && isPeriodicBillDueInMonth(b, year, month) && isUnpaid(b))
                         .reduce((s, b) => s + b.amount, 0);
                 }
             })();
@@ -272,7 +278,7 @@ export function renderBills(container, store) {
             return `
         <div class="card mt-16">
             <div class="flex-between">
-                <span style="font-size:13px;color:var(--text-secondary);">${billsViewMode === 'paycheck' ? 'Monthly Bills This Period' : 'Monthly Bills'}</span>
+                <span style="font-size:13px;color:var(--text-secondary);">${billsViewMode === 'paycheck' ? 'Remaining Bills This Period' : 'Remaining Bills'}</span>
                 <span class="font-bold">${formatCurrency(regularTotal)}</span>
             </div>
             ${periodicDueTotal > 0 ? `
