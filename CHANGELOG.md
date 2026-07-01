@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Cashflow summary on the dashboard.** A new top-of-dashboard widget leads with how much is left to spend this month in plain English ("Bills are running 112.8% of income — you're $1,845.07 over"), with income-vs-spending bars and a dependent-coverage callout. It's a customizable widget like the others (reorder or hide it from the gear menu).
 - **Android app-install banner.** Visitors on an Android browser see a small dismissible banner on the homepage and sign-in page linking to the Play Store app. It is skipped on self-host and localhost, on non-Android browsers, in installed-PWA mode, and after dismissal (remembered in localStorage).
 - **Prebuilt multi-arch Docker image on GHCR.** A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and publishes `ghcr.io/administrativetrick/pennyhelm` for linux/amd64 and linux/arm64 (Raspberry Pi / homelab friendly) on version tags and manual dispatch. README now documents a one-line `docker run`, and `docker-compose.yml` pulls the prebuilt image by default instead of building from source.
 - **Screenshots in the README.** Added a dashboard, cashflow, bills, and calendar gallery near the top of the README.

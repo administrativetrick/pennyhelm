@@ -262,6 +262,101 @@ body {
     margin-bottom: 24px;
 }
 
+/* ===== Dashboard: Cashflow Hero widget ===== */
+.cashflow-hero {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    padding: 22px;
+}
+.cashflow-hero-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+}
+.cashflow-hero-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+.cashflow-hero-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+.cashflow-hero-value {
+    font-size: 44px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.cashflow-hero-note {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    margin-top: 10px;
+    max-width: 420px;
+    line-height: 1.5;
+}
+.cashflow-hero-aside {
+    text-align: right;
+    flex-shrink: 0;
+}
+.cashflow-hero-aside-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 3px;
+}
+.cashflow-hero-aside-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--purple);
+    font-variant-numeric: tabular-nums;
+}
+.cashflow-hero-aside-sub {
+    font-size: 11.5px;
+    color: var(--text-muted);
+}
+.cashflow-hero-bars {
+    margin-top: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.cashflow-hero-barlabel {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    margin-bottom: 6px;
+    color: var(--text-secondary);
+}
+.cashflow-hero-barlabel span:last-child {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.cashflow-hero-track {
+    height: 12px;
+    border-radius: 6px;
+    background: var(--bg-input);
+    overflow: hidden;
+}
+.cashflow-hero-fill {
+    height: 100%;
+    border-radius: 6px;
+}
+@media (max-width: 640px) {
+    .cashflow-hero-value { font-size: 34px; }
+    .cashflow-hero-note { max-width: none; }
+}
+
 /* Compact stats grid used on Debts / Income / Taxes / Assets.
    Tighter minmax than .card-grid because these cards are smaller
    (label + value only, no sub-text). */
@@ -298,6 +393,8 @@ body {
 .stat-card .stat-value {
     font-size: 26px;
     font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
 }
 
 /* Compact stat-value in .stats-grid — trimmed size so 4 cards fit comfortably */
