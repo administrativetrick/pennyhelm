@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-01
+
 ### Added
 - **Net worth widget on the dashboard.** A new customizable widget shows current net worth, a trend area chart drawn from your saved balance history (once at least two snapshots exist), and colored chips breaking down the components (cash, investments, property/vehicle equity, credit owed, debt).
 - **Cashflow summary on the dashboard.** A new top-of-dashboard widget leads with how much is left to spend this month in plain English ("Bills are running 112.8% of income — you're $1,845.07 over"), with income-vs-spending bars and a dependent-coverage callout. It's a customizable widget like the others (reorder or hide it from the gear menu).
@@ -148,6 +150,8 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/administrativetrick/pennyhelm/releases/tag/v0.1.0
