@@ -2,7 +2,7 @@ import { formatCurrency, getCategoryBadgeClass, escapeHtml, getOrdinal } from '.
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup, getCategoryColor } from '../categories.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
-import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount } from '../services/financial-service.js';
+import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
 import { capabilities } from '../mode/mode.js';
@@ -10,21 +10,6 @@ import { EXPENSE_CATEGORIES, renderCategoryOptions, mountSearchableCategoryPicke
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
-// Determine the paidHistory month bucket [year, month] for a bill row based on its
-// OWN due date rather than the calendar month being viewed. Recurring occurrences
-// carry _occurrenceDate; monthly bills in paycheck view carry _paidYear/_paidMonth
-// (the month they're actually due). Everything else falls back to the viewed month.
-// This keeps paid status correct when a pay period straddles a month boundary.
-function getBillPaidBucket(bill, fallbackYear, fallbackMonth) {
-    if (bill._occurrenceDate) {
-        return [bill._occurrenceDate.getFullYear(), bill._occurrenceDate.getMonth()];
-    }
-    if (bill._paidYear != null && bill._paidMonth != null) {
-        return [bill._paidYear, bill._paidMonth];
-    }
-    return [fallbackYear, fallbackMonth];
-}
 
 let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
 let cfPeriodOffset = 0; // For cashflow view pay period navigation
@@ -260,20 +245,13 @@ export function renderBills(container, store) {
         ${(() => {
             // Bills are already expanded into occurrences. Sum only the ones still
             // unpaid so this reads as what's left to pay this period — matching the
-            // unpaid bill table above (same paid logic via getBillPaidBucket).
-            const isUnpaid = (b) => {
-                const [py, pm] = getBillPaidBucket(b, year, month);
-                return !store.isBillPaid(b.id, py, pm, b._occurrenceKey);
-            };
-            const regularTotal = bills.filter(b => !b.frozen && !b.excludeFromTotal && isUnpaid(b)).reduce((s, b) => s + b.amount, 0);
-            const periodicDueTotal = (() => {
-                if (billsViewMode === 'paycheck') {
-                    return periodicBills.filter(b => !b.frozen && !b.excludeFromTotal && isUnpaid(b)).reduce((s, b) => s + b.amount, 0);
-                } else {
-                    return allPeriodicBills.filter(b => !b.frozen && !b.excludeFromTotal && isPeriodicBillDueInMonth(b, year, month) && isUnpaid(b))
-                        .reduce((s, b) => s + b.amount, 0);
-                }
-            })();
+            // unpaid bill table above (same paid logic, via the shared
+            // sumRemainingBills service helper, which is unit-tested).
+            const isPaidFn = (id, py, pm, key) => store.isBillPaid(id, py, pm, key);
+            const regularTotal = sumRemainingBills(bills, isPaidFn, year, month);
+            const periodicDueTotal = billsViewMode === 'paycheck'
+                ? sumRemainingBills(periodicBills, isPaidFn, year, month)
+                : sumRemainingBills(allPeriodicBills.filter(b => isPeriodicBillDueInMonth(b, year, month)), isPaidFn, year, month);
             const grandTotal = regularTotal + periodicDueTotal;
             return `
         <div class="card mt-16">
