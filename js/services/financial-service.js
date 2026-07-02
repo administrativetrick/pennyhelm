@@ -862,3 +862,35 @@ export function buildPayPeriods(payDates, bills, store, income, year, month, cov
 
     return periods;
 }
+
+// ─── Bills-page summary helpers ──────────────────────────────
+//
+// Determine the paidHistory month bucket [year, month] for a bill row based on
+// its OWN due date rather than the calendar month being viewed. Recurring
+// occurrences carry _occurrenceDate; monthly bills in paycheck view carry
+// _paidYear/_paidMonth (the month they're actually due). Everything else falls
+// back to the viewed month. This keeps paid status correct when a pay period
+// straddles a month boundary.
+export function getBillPaidBucket(bill, fallbackYear, fallbackMonth) {
+    if (bill._occurrenceDate) {
+        return [bill._occurrenceDate.getFullYear(), bill._occurrenceDate.getMonth()];
+    }
+    if (bill._paidYear != null && bill._paidMonth != null) {
+        return [bill._paidYear, bill._paidMonth];
+    }
+    return [fallbackYear, fallbackMonth];
+}
+
+// Sum what is still owed for a set of expanded bill occurrences: skips frozen
+// and excluded-from-total bills, and skips anything already marked paid in its
+// own due-month bucket. isBillPaid is store.isBillPaid (dependency-injected so
+// this stays a pure, testable function): (billId, year, month, occurrenceKey)
+// => boolean.
+export function sumRemainingBills(bills, isBillPaid, fallbackYear, fallbackMonth) {
+    return bills.reduce((sum, b) => {
+        if (b.frozen || b.excludeFromTotal) return sum;
+        const [py, pm] = getBillPaidBucket(b, fallbackYear, fallbackMonth);
+        if (isBillPaid(b.id, py, pm, b._occurrenceKey)) return sum;
+        return sum + b.amount;
+    }, 0);
+}

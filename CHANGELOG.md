@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Product screenshots recaptured from fictional sample data.** The previous screenshots (README gallery and landing page) were captured from a real database. They have been replaced with captures of the built-in sample dataset, and the affected image files were purged from the entire git history (history rewritten and force-pushed; the v0.4.0 release tag was recreated). If you cloned or forked before this, please re-clone.
+
 ### Changed
 - **Bills summary now shows what's left to pay.** The bills-page summary card is labeled "Remaining Bills This Period" (and "Remaining Bills" in the monthly view) and totals only unpaid bills, so it reflects what you still owe this period instead of the full scheduled amount. Marking a bill paid lowers the total.
 
