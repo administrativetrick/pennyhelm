@@ -2,7 +2,7 @@ import { formatCurrency, getCategoryBadgeClass, escapeHtml, getOrdinal } from '.
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup, getCategoryColor } from '../categories.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
-import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills } from '../services/financial-service.js';
+import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills, addDays, getOverdueCarryForwards } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
 import { capabilities } from '../mode/mode.js';
@@ -23,6 +23,9 @@ export function renderBills(container, store) {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
+    // Apply any pending auto-ticks before reading paid state (no-op unless
+    // the auto-tick setting is enabled).
+    store.reconcileAutoPayBills(now);
     const userName = store.getUserName();
     const depName = store.getDependentName();
     const depEnabled = store.isDependentEnabled();
@@ -42,8 +45,8 @@ export function renderBills(container, store) {
     for (let i = 0; i < sorted.length; i++) {
         const pStart = sorted[i];
         const pEnd = sorted[i + 1]
-            ? new Date(sorted[i + 1].getTime() - 86400000)
-            : new Date(pStart.getTime() + 13 * 86400000);
+            ? addDays(sorted[i + 1], -1)
+            : addDays(pStart, 13);
         if (today >= pStart && today <= pEnd) {
             periodStart = pStart;
             periodEnd = pEnd;
@@ -154,6 +157,15 @@ export function renderBills(container, store) {
         : billsOwnerFilter === 'user' ? `${escapeHtml(userName)}'s Bills`
         : 'All Bills';
 
+    // Bills that went unpaid last month surface here instead of silently
+    // vanishing at the month rollover. Rows carry _paidYear/_paidMonth for
+    // the missed month, so their paid toggle resolves LAST month's bucket.
+    const overdueBills = getOverdueCarryForwards(allRegularBills, (id, py, pm) => store.isBillPaid(id, py, pm), now);
+    const overdueMonthName = overdueBills.length > 0
+        ? new Date(overdueBills[0]._overdueFrom.year, overdueBills[0]._overdueFrom.month, 1).toLocaleDateString('en-US', { month: 'long' })
+        : '';
+    const overdueTotal = overdueBills.reduce((s, b) => s + (b.amount || 0), 0);
+
     const showImportFromBank = capabilities().plaid && hasPlaidConnections(store);
     container.innerHTML = `
         <div class="page-header">
@@ -192,6 +204,37 @@ export function renderBills(container, store) {
             ${categories.map(c => `<button class="filter-chip" data-filter="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}
             ${billsViewMode === 'month' ? '<button class="filter-chip" data-filter="frozen" style="border-color:var(--blue);color:var(--blue);">Frozen</button>' : ''}
         </div>
+
+        ${overdueBills.length > 0 ? `
+        <div style="margin-bottom:24px;">
+            <div class="flex-between" style="margin-bottom:8px;">
+                <h3 style="font-size:15px;font-weight:600;color:var(--red);">
+                    Overdue from ${overdueMonthName}
+                    <span style="font-size:11px;font-weight:400;margin-left:8px;color:var(--text-muted);">${overdueBills.length} bill${overdueBills.length !== 1 ? 's' : ''} &middot; ${formatCurrency(overdueTotal)} &middot; marking paid resolves ${overdueMonthName}</span>
+                </h3>
+                <button class="btn btn-secondary btn-sm" id="overdue-dismiss-all" title="Mark every bill below as paid for ${overdueMonthName}">Mark all as ${overdueMonthName} paid</button>
+            </div>
+            <div class="table-wrapper bills-table" style="border-color:color-mix(in oklab, var(--red) 35%, var(--border));">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Paid</th>
+                            <th>Name</th>
+                            <th>Amount</th>
+                            <th>Category</th>
+                            <th>Was Due</th>
+                            <th>Payment Source</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="overdue-tbody">
+                        ${renderBillRows(overdueBills, store, year, month, depEnabled, userName, depName)}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        ` : ''}
 
         <div class="table-wrapper bills-table">
             <table>
@@ -508,6 +551,17 @@ export function renderBills(container, store) {
     if (periodicTbody) {
         attachRowEvents(periodicTbody, store, rawBills, sources, categories, year, month, depEnabled, userName, depName);
     }
+    const overdueTbody = container.querySelector('#overdue-tbody');
+    if (overdueTbody) {
+        attachRowEvents(overdueTbody, store, rawBills, sources, categories, year, month, depEnabled, userName, depName);
+    }
+    const overdueDismissAll = container.querySelector('#overdue-dismiss-all');
+    if (overdueDismissAll) {
+        overdueDismissAll.addEventListener('click', () => {
+            overdueBills.forEach(b => store.setBillPaid(b.id, b._paidYear, b._paidMonth, true));
+            renderBills(container, store);
+        });
+    }
 }
 
 function filterBills(bills, filter, store = null, year = null, month = null) {
@@ -569,7 +623,7 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
         const [paidYear, paidMonth] = getBillPaidBucket(bill, year, month);
         const isPaid = store.isBillPaid(bill.id, paidYear, paidMonth, bill._occurrenceKey);
         const statusClass = bill.frozen ? 'status-frozen' : isPaid ? 'status-paid' : 'status-unpaid';
-        const statusText = bill.frozen ? 'FROZEN' : isPaid ? 'Paid' : 'Unpaid';
+        const statusText = bill.frozen ? 'FROZEN' : isPaid ? 'Paid' : bill._overdueFrom ? 'Overdue' : 'Unpaid';
         const isLinked = !!bill.linkedDebtId;
         const isDepBill = bill.owner === 'dependent';
         const isCovering = isDepBill && bill.userCovering;
@@ -595,7 +649,7 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
                 </td>
                 <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every check</div>' : bill.frequency === 'twice-monthly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">2x/month</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : ''}</td>
                 <td class="bill-category-cell" data-bill-id="${bill.id}" style="cursor:pointer;" title="Click to change category"><span class="badge ${badgeClass}">${escapeHtml(bill.category)}</span></td>
-                <td>${bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
+                <td>${bill._overdueFrom ? `<span style="font-size:11px;color:var(--red);font-weight:600;">${MONTH_ABBR[bill._overdueFrom.month]} ${bill._overdueFrom.day}</span>` : bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
                 <td style="font-size:12px;">
                     ${escapeHtml(bill.paymentSource || '-')}
                     ${bill.autoPay ? '<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:var(--green)18;color:var(--green);border:1px solid var(--green)40;border-radius:3px;vertical-align:middle;font-weight:600;letter-spacing:0.3px;">AUTO</span>' : ''}
@@ -1456,8 +1510,8 @@ function countDayOfWeekInMonth(targetDay, yr, mo) {
     const lastOfMonth = new Date(yr, mo + 1, 0);
     let count = 0;
     let d = new Date(yr, mo, 1);
-    while (d.getDay() !== targetDay) d = new Date(d.getTime() + 86400000);
-    while (d <= lastOfMonth) { count++; d = new Date(d.getTime() + 7 * 86400000); }
+    while (d.getDay() !== targetDay) d = addDays(d, 1);
+    while (d <= lastOfMonth) { count++; d = addDays(d, 7); }
     return count;
 }
 

@@ -10,6 +10,8 @@ import {
     frequencyToMonthly,
     calculateBillMonthlyAmount,
     sumDebtMinimums,
+    addDays,
+    getOverdueCarryForwards,
     HOUSING_BILL_CATEGORIES,
     DEBT_BILL_CATEGORIES,
 } from '../services/financial-service.js';
@@ -577,6 +579,9 @@ export function renderDashboard(container, store, subTab) {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
+    // Apply any pending auto-ticks before reading paid state (no-op unless
+    // the auto-tick setting is enabled).
+    store.reconcileAutoPayBills(now);
 
     const userName = store.getUserName();
     const depName = store.getDependentName();
@@ -602,8 +607,8 @@ export function renderDashboard(container, store, subTab) {
         const lastOfMonth = new Date(yr, mo + 1, 0);
         let count = 0;
         let d = new Date(yr, mo, 1);
-        while (d.getDay() !== targetDay) d = new Date(d.getTime() + 86400000);
-        while (d <= lastOfMonth) { count++; d = new Date(d.getTime() + 7 * 86400000); }
+        while (d.getDay() !== targetDay) d = addDays(d, 1);
+        while (d <= lastOfMonth) { count++; d = addDays(d, 7); }
         return count;
     };
     const payDatesAll = store.getPayDates();
@@ -658,7 +663,22 @@ export function renderDashboard(container, store, subTab) {
     const dependentScore = depEnabled && creditScores.dependent ? creditScores.dependent.score : null;
     const dependentRating = dependentScore ? getScoreRating(dependentScore) : null;
 
-    const upcoming = getUpcomingBills(bills, store, 7);
+    // Bills that went unpaid last month lead the upcoming list as overdue —
+    // getUpcomingBills only looks 5 days back, so month-rollover misses would
+    // otherwise never surface here.
+    const todayMidnight = new Date(year, month, now.getDate());
+    const overdueCarry = getOverdueCarryForwards(bills, (id, py, pm) => store.isBillPaid(id, py, pm), now)
+        .map(b => {
+            const dueDate = new Date(b._overdueFrom.year, b._overdueFrom.month, b._overdueFrom.day);
+            return {
+                ...b,
+                daysUntil: Math.round((dueDate - todayMidnight) / 86400000),
+                isPaid: false,
+                isOverdue: true,
+                isDueSoon: false,
+            };
+        });
+    const upcoming = [...overdueCarry, ...getUpcomingBills(bills, store, 7)];
     const payPeriods = buildPayPeriods(payDates, bills, store, income, year, month, depCoveredBills, otherIncome);
 
     // Context object passed to widget builders
@@ -2079,8 +2099,8 @@ function buildDashboardPdfContent(store, dateLabel) {
         var lastOfMonth = new Date(yr, mo + 1, 0);
         var count = 0;
         var d = new Date(yr, mo, 1);
-        while (d.getDay() !== targetDay) d = new Date(d.getTime() + 86400000);
-        while (d <= lastOfMonth) { count++; d = new Date(d.getTime() + 7 * 86400000); }
+        while (d.getDay() !== targetDay) d = addDays(d, 1);
+        while (d <= lastOfMonth) { count++; d = addDays(d, 7); }
         return count;
     };
     var totalBills = bills.reduce(function(sum, b) {

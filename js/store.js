@@ -1,7 +1,7 @@
 import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
@@ -319,6 +319,9 @@ class Store {
     addBill(bill) {
         const data = this._load();
         bill.id = crypto.randomUUID();
+        // Lets the overdue carry-forward logic skip bills that didn't exist
+        // yet in the month being checked (bills without it are treated as old).
+        if (!bill.createdAt) bill.createdAt = new Date().toISOString();
         // Coerce expenseCategory to its canonical key so budget matching works
         // regardless of whether the caller passed "Mortgage", "mortgage", or a
         // custom slug. Unknown strings pass through unchanged.
@@ -377,6 +380,45 @@ class Store {
         data.paidHistory[key][paidKey] = !data.paidHistory[key][paidKey];
         this._save();
         return data.paidHistory[key][paidKey];
+    }
+
+    // Idempotent set (vs. toggle) — used by the overdue bulk-dismiss and the
+    // auto-tick reconciler, where "already paid" must stay paid.
+    setBillPaid(billId, year, month, paid = true, occurrenceKey) {
+        const data = this._load();
+        const key = this.getPaidKey(year, month);
+        if (!data.paidHistory[key]) data.paidHistory[key] = {};
+        data.paidHistory[key][occurrenceKey || billId] = !!paid;
+        this._save();
+    }
+
+    // ─── Auto-pay reconciliation ─────────────────────────────
+    //
+    // Off by default: manual ticking is the reconciliation workflow (you
+    // confirm against real bank activity). When enabled, monthly auto-pay
+    // bills are marked paid automatically once their due date passes.
+
+    getAutoTickAutoPay() {
+        return this._load().autoTickAutoPay === true;
+    }
+
+    setAutoTickAutoPay(enabled) {
+        this._load().autoTickAutoPay = !!enabled;
+        this._save();
+    }
+
+    // Apply any pending auto-ticks (previous + current month). Cheap and
+    // idempotent — safe to call on every dashboard/bills render. Returns the
+    // number of marks written.
+    reconcileAutoPayBills(now = new Date()) {
+        if (!this.getAutoTickAutoPay()) return 0;
+        const updates = computeAutoTickUpdates(
+            this.getBills(),
+            (id, y, m) => this.isBillPaid(id, y, m),
+            now,
+        );
+        updates.forEach(u => this.setBillPaid(u.id, u.year, u.month, true));
+        return updates.length;
     }
 
     /**
