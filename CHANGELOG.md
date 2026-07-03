@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **New bill frequencies: "Every 4 Weeks" and "Every Other Month".** Every-4-weeks bills (e.g. daycare billed on a rotating custody cycle) are anchored by any known due date and repeat on a true 28-day cycle; every-other-month bills (common for water/sewer/trash) repeat in alternating months from a chosen month. Both flow through the paycheck view, month view, calendar, dashboard totals, budgets, and the overdue carry-forward.
+- **Missed weekly/biweekly/every-4-weeks payments now carry forward too.** The "Overdue from last month" section previously only covered monthly bills; recurring bills now carry forward per missed occurrence.
 - **Unpaid bills now carry forward as overdue.** A bill left unpaid last month no longer silently disappears at the month rollover — it appears in a red "Overdue from [month]" section at the top of the Bills page (and leads the dashboard's Upcoming Bills as "Overdue by N days"). Marking it paid resolves last month's record, not this month's. Auto-pay bills are exempt (an untick isn't a missed payment), and a "Mark all as paid" button clears a backlog in one click.
 - **Optional auto-tick for auto-pay bills.** New setting (Settings → Bills): automatically mark auto-pay bills as paid once their due date passes. Off by default so manual ticking remains the reconciliation workflow.
 

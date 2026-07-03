@@ -40,6 +40,7 @@ export function renderCalendar(container, store) {
     );
     const recurringBills = allBills.filter(b =>
         b.frequency === 'weekly' || b.frequency === 'biweekly' ||
+        b.frequency === 'every-4-weeks' || b.frequency === 'every-2-months' ||
         b.frequency === 'per-paycheck' || b.frequency === 'twice-monthly'
     );
 

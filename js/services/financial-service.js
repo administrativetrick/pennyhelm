@@ -122,9 +122,11 @@ export function frequencyToMonthly(amount, frequency) {
     switch (frequency) {
         case 'weekly':        return amt * 52 / 12;
         case 'biweekly':      return amt * 26 / 12;
+        case 'every-4-weeks': return amt * 13 / 12;
         case 'semimonthly':
         case 'twice-monthly': return amt * 2;
         case 'monthly':       return amt;
+        case 'every-2-months': return amt / 2;
         case 'quarterly':     return amt / 3;
         case 'semiannual':
         case 'semi-annual':   return amt / 6;
@@ -337,6 +339,53 @@ export function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRang
                 occurrences.push({ ...bill, _occurrenceDate: last, _occurrenceKey: `${bill.id}_tm_last_${last.getTime()}` });
             }
         });
+    } else if (freq === 'every-4-weeks') {
+        // 28-day cycle anchored on a known due date (bill.anchorDate,
+        // YYYY-MM-DD). The anchor pins the phase — unlike biweekly's
+        // weekday-only walk, "every 4 weeks" can't be derived from a weekday.
+        // Without an anchor, fall back to the first dueDay-weekday in range.
+        let cursor;
+        if (bill.anchorDate) {
+            cursor = new Date(bill.anchorDate + 'T00:00:00');
+            if (isNaN(cursor)) cursor = null;
+        }
+        if (cursor) {
+            while (cursor > rangeStart) cursor = addDays(cursor, -28);
+            while (cursor < rangeStart) cursor = addDays(cursor, 28);
+        } else {
+            const targetDay = (bill.dueDay || 0) % 7;
+            cursor = new Date(rangeStart);
+            while (cursor.getDay() !== targetDay) cursor = addDays(cursor, 1);
+        }
+        while (cursor <= rangeEnd) {
+            occurrences.push({
+                ...bill,
+                _occurrenceDate: new Date(cursor),
+                _occurrenceKey: `${bill.id}_4w_${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`,
+            });
+            cursor = addDays(cursor, 28);
+        }
+    } else if (freq === 'every-2-months') {
+        // Due every other month on dueDay, phase-anchored by dueMonth parity
+        // (e.g. dueMonth=January → Jan/Mar/May/…). Common for utilities like
+        // water/sewer/trash.
+        const anchorMonth = bill.dueMonth != null ? bill.dueMonth : 0;
+        let y = rangeStart.getFullYear();
+        let m = rangeStart.getMonth();
+        while (new Date(y, m, 1) <= rangeEnd) {
+            if (((m - anchorMonth) % 2 + 2) % 2 === 0) {
+                const d = new Date(y, m, Math.min(bill.dueDay || 1, new Date(y, m + 1, 0).getDate()));
+                if (d >= rangeStart && d <= rangeEnd) {
+                    occurrences.push({
+                        ...bill,
+                        _occurrenceDate: d,
+                        _occurrenceKey: `${bill.id}_2m_${y}-${m}`,
+                    });
+                }
+            }
+            m++;
+            if (m > 11) { m = 0; y++; }
+        }
     } else {
         return null; // monthly, yearly, semi-annual — no expansion
     }
@@ -770,8 +819,8 @@ export function buildPayPeriods(payDates, bills, store, income, year, month, cov
     for (let i = 0; i < sorted.length; i++) {
         const periodStart = sorted[i];
         const periodEnd = sorted[i + 1]
-            ? new Date(sorted[i + 1].getTime() - 24 * 60 * 60 * 1000)
-            : new Date(periodStart.getTime() + 13 * 24 * 60 * 60 * 1000);
+            ? addDays(sorted[i + 1], -1)
+            : addDays(periodStart, 13);
 
         const periodBills = [];
         const startMonth = periodStart.getMonth();
@@ -903,40 +952,68 @@ export function sumRemainingBills(bills, isBillPaid, fallbackYear, fallbackMonth
     }, 0);
 }
 
-// Find monthly bills that went unpaid in the PREVIOUS month so they can be
-// carried forward as overdue instead of silently vanishing when the calendar
-// rolls over. Returns copies stamped with _paidYear/_paidMonth (the missed
-// month) so the existing paid-toggle machinery reads and writes the right
-// bucket, plus _overdueFrom for display. Bills created during the current
-// month are skipped (they were never due last month); bills without a
-// createdAt predate that field and are treated as old enough.
+// Find bills that went unpaid in the PREVIOUS month so they can be carried
+// forward as overdue instead of silently vanishing when the calendar rolls
+// over. Returns copies stamped with _paidYear/_paidMonth (the missed month)
+// so the existing paid-toggle machinery reads and writes the right bucket,
+// plus _overdueFrom for display. Bills created during the current month are
+// skipped (they were never due last month); bills without a createdAt
+// predate that field and are treated as old enough.
+//
+// Monthly and every-2-months bills are checked by their month bucket;
+// weekly / biweekly / every-4-weeks bills are expanded and checked per
+// occurrence. Pay-date-driven frequencies (per-paycheck, twice-monthly) are
+// skipped — their occurrences depend on the pay schedule, not the calendar.
 export function getOverdueCarryForwards(bills, isBillPaid, now = new Date()) {
     const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
     const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const prevMonthDays = new Date(prevYear, prevMonth + 1, 0).getDate();
+    const prevMonthStart = new Date(prevYear, prevMonth, 1);
+    const prevMonthEnd = new Date(prevYear, prevMonth + 1, 0);
+    const prevMonthDays = prevMonthEnd.getDate();
 
-    return bills
-        .filter(b => {
-            if (b.frozen) return false;
-            // Auto-pay bills pay themselves — an untick is bookkeeping, not a
-            // missed payment, so they never carry forward as overdue.
-            if (b.autoPay) return false;
-            const freq = b.frequency || 'monthly';
-            if (freq !== 'monthly') return false;
-            if (b.createdAt && new Date(b.createdAt) >= monthStart) return false;
-            return !isBillPaid(b.id, prevYear, prevMonth);
-        })
-        .map(b => ({
-            ...b,
-            _paidYear: prevYear,
-            _paidMonth: prevMonth,
-            _overdueFrom: {
-                year: prevYear,
-                month: prevMonth,
-                day: Math.min(b.dueDay || 1, prevMonthDays),
-            },
-        }));
+    const out = [];
+    for (const b of bills) {
+        if (b.frozen) continue;
+        // Auto-pay bills pay themselves — an untick is bookkeeping, not a
+        // missed payment, so they never carry forward as overdue.
+        if (b.autoPay) continue;
+        if (b.createdAt && new Date(b.createdAt) >= monthStart) continue;
+        const freq = b.frequency || 'monthly';
+
+        if (freq === 'monthly' ||
+            (freq === 'every-2-months' && ((prevMonth - (b.dueMonth != null ? b.dueMonth : 0)) % 2 + 2) % 2 === 0)) {
+            if (!isBillPaid(b.id, prevYear, prevMonth)) {
+                out.push({
+                    ...b,
+                    _paidYear: prevYear,
+                    _paidMonth: prevMonth,
+                    _overdueFrom: {
+                        year: prevYear,
+                        month: prevMonth,
+                        day: Math.min(b.dueDay || 1, prevMonthDays),
+                    },
+                });
+            }
+        } else if (freq === 'weekly' || freq === 'biweekly' || freq === 'every-4-weeks') {
+            const occurrences = expandBillOccurrences(b, prevMonthStart, prevMonthEnd, []) || [];
+            for (const occ of occurrences) {
+                if (!isBillPaid(b.id, prevYear, prevMonth, occ._occurrenceKey)) {
+                    out.push({
+                        ...occ,
+                        _paidYear: prevYear,
+                        _paidMonth: prevMonth,
+                        _overdueFrom: {
+                            year: prevYear,
+                            month: prevMonth,
+                            day: occ._occurrenceDate.getDate(),
+                        },
+                    });
+                }
+            }
+        }
+    }
+    return out;
 }
 
 // When the "auto-tick auto-pay bills" setting is on, this computes which
@@ -956,8 +1033,11 @@ export function computeAutoTickUpdates(bills, isBillPaid, now = new Date()) {
     const updates = [];
     for (const b of bills) {
         if (b.frozen || !b.autoPay) continue;
-        if ((b.frequency || 'monthly') !== 'monthly') continue;
+        const freq = b.frequency || 'monthly';
+        if (freq !== 'monthly' && freq !== 'every-2-months') continue;
         for (const { year, month } of months) {
+            if (freq === 'every-2-months' &&
+                ((month - (b.dueMonth != null ? b.dueMonth : 0)) % 2 + 2) % 2 !== 0) continue;
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const dueDate = new Date(year, month, Math.min(b.dueDay || 1, daysInMonth));
             if (b.createdAt && new Date(b.createdAt) > dueDate) continue;

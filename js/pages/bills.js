@@ -647,9 +647,9 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
                     </div>
                     ${bill.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(bill.notes)}</div>` : ''}
                 </td>
-                <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every check</div>' : bill.frequency === 'twice-monthly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">2x/month</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : ''}</td>
+                <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every check</div>' : bill.frequency === 'twice-monthly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">2x/month</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : bill.frequency === 'every-4-weeks' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every 4 weeks</div>' : bill.frequency === 'every-2-months' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every 2 months</div>' : ''}</td>
                 <td class="bill-category-cell" data-bill-id="${bill.id}" style="cursor:pointer;" title="Click to change category"><span class="badge ${badgeClass}">${escapeHtml(bill.category)}</span></td>
-                <td>${bill._overdueFrom ? `<span style="font-size:11px;color:var(--red);font-weight:600;">${MONTH_ABBR[bill._overdueFrom.month]} ${bill._overdueFrom.day}</span>` : bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
+                <td>${bill._overdueFrom ? `<span style="font-size:11px;color:var(--red);font-weight:600;">${MONTH_ABBR[bill._overdueFrom.month]} ${bill._overdueFrom.day}</span>` : bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'every-4-weeks' ? '<span style="font-size:11px;color:var(--blue);">Every 4 weeks</span>' : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual' || bill.frequency === 'every-2-months') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${bill.frequency === 'every-2-months' ? MONTH_ABBR[bill.dueMonth] + '/alt' : MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
                 <td style="font-size:12px;">
                     ${escapeHtml(bill.paymentSource || '-')}
                     ${bill.autoPay ? '<span style="display:inline-block;margin-left:4px;font-size:9px;padding:1px 5px;background:var(--green)18;color:var(--green);border:1px solid var(--green)40;border-radius:3px;vertical-align:middle;font-weight:600;letter-spacing:0.3px;">AUTO</span>' : ''}
@@ -895,9 +895,14 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
                 <label>Amount</label>
                 <input type="number" class="form-input" id="bill-amount" step="0.01" value="${bill.amount}">
             </div>
-            <div class="form-group" id="bill-due-group" style="${bill.frequency === 'weekly' || bill.frequency === 'biweekly' || bill.frequency === 'per-paycheck' || bill.frequency === 'twice-monthly' ? 'display:none;' : ''}">
+            <div class="form-group" id="bill-due-group" style="${bill.frequency === 'weekly' || bill.frequency === 'biweekly' || bill.frequency === 'every-4-weeks' || bill.frequency === 'per-paycheck' || bill.frequency === 'twice-monthly' ? 'display:none;' : ''}">
                 <label>Due Day of Month</label>
                 <input type="number" class="form-input" id="bill-due" min="1" max="31" value="${bill.dueDay}">
+            </div>
+            <div class="form-group" id="bill-anchor-group" style="${bill.frequency === 'every-4-weeks' ? '' : 'display:none;'}">
+                <label>A Date This Bill Is Due</label>
+                <input type="date" class="form-input" id="bill-anchor" value="${escapeHtml(bill.anchorDate || '')}">
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Any known due date — it anchors the 4-week cycle.</div>
             </div>
             <div class="form-group" id="bill-dayofweek-group" style="${bill.frequency === 'weekly' || bill.frequency === 'biweekly' ? '' : 'display:none;'}">
                 <label>Day of Week</label>
@@ -912,8 +917,8 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
                 </select>
             </div>
         </div>
-        <div class="form-group" id="bill-duemonth-group" style="${bill.frequency === 'yearly' || bill.frequency === 'semi-annual' ? '' : 'display:none;'}">
-            <label id="bill-duemonth-label">${bill.frequency === 'semi-annual' ? 'First Due Month (repeats 6 months later)' : 'Due Month'}</label>
+        <div class="form-group" id="bill-duemonth-group" style="${bill.frequency === 'yearly' || bill.frequency === 'semi-annual' || bill.frequency === 'every-2-months' ? '' : 'display:none;'}">
+            <label id="bill-duemonth-label">${bill.frequency === 'semi-annual' ? 'First Due Month (repeats 6 months later)' : bill.frequency === 'every-2-months' ? 'A Month This Bill Is Due (repeats every 2 months)' : 'Due Month'}</label>
             <select class="form-select" id="bill-duemonth">
                 ${['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) =>
                     `<option value="${i}" ${(bill.dueMonth || 0) === i ? 'selected' : ''}>${m}</option>`
@@ -947,8 +952,10 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
                     <option value="monthly" ${bill.frequency === 'monthly' ? 'selected' : ''}>Monthly</option>
                     <option value="per-paycheck" ${bill.frequency === 'per-paycheck' ? 'selected' : ''}>Per Paycheck</option>
                     <option value="twice-monthly" ${bill.frequency === 'twice-monthly' ? 'selected' : ''}>2x/Month (1st &amp; last check)</option>
-                    <option value="biweekly" ${bill.frequency === 'biweekly' ? 'selected' : ''}>Biweekly</option>
                     <option value="weekly" ${bill.frequency === 'weekly' ? 'selected' : ''}>Weekly</option>
+                    <option value="biweekly" ${bill.frequency === 'biweekly' ? 'selected' : ''}>Every 2 Weeks</option>
+                    <option value="every-4-weeks" ${bill.frequency === 'every-4-weeks' ? 'selected' : ''}>Every 4 Weeks</option>
+                    <option value="every-2-months" ${bill.frequency === 'every-2-months' ? 'selected' : ''}>Every Other Month</option>
                     <option value="semi-annual" ${bill.frequency === 'semi-annual' ? 'selected' : ''}>Semi-Annual (6 months)</option>
                     <option value="yearly" ${bill.frequency === 'yearly' ? 'selected' : ''}>Yearly</option>
                 </select>
@@ -1008,15 +1015,20 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
     const dueMonthLabel = document.getElementById('bill-duemonth-label');
     const dueDayGroup = document.getElementById('bill-due-group');
     const dayOfWeekGroup = document.getElementById('bill-dayofweek-group');
+    const anchorGroup = document.getElementById('bill-anchor-group');
     freqSelect.addEventListener('change', () => {
         const freq = freqSelect.value;
-        const showMonth = freq === 'yearly' || freq === 'semi-annual';
+        const showMonth = freq === 'yearly' || freq === 'semi-annual' || freq === 'every-2-months';
         const showDayOfWeek = freq === 'weekly' || freq === 'biweekly';
+        const showAnchor = freq === 'every-4-weeks';
         const isPaycheckBased = freq === 'per-paycheck' || freq === 'twice-monthly';
         dueMonthGroup.style.display = showMonth ? '' : 'none';
-        dueMonthLabel.textContent = freq === 'semi-annual' ? 'First Due Month (repeats 6 months later)' : 'Due Month';
-        dueDayGroup.style.display = (showDayOfWeek || isPaycheckBased) ? 'none' : '';
+        dueMonthLabel.textContent = freq === 'semi-annual' ? 'First Due Month (repeats 6 months later)'
+            : freq === 'every-2-months' ? 'A Month This Bill Is Due (repeats every 2 months)'
+            : 'Due Month';
+        dueDayGroup.style.display = (showDayOfWeek || isPaycheckBased || showAnchor) ? 'none' : '';
         dayOfWeekGroup.style.display = showDayOfWeek ? '' : 'none';
+        anchorGroup.style.display = showAnchor ? '' : 'none';
     });
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
@@ -1027,6 +1039,7 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
         const coveringEl = document.getElementById('bill-covering');
         const owner = ownerEl ? ownerEl.value : 'user';
 
+        const anchorVal = document.getElementById('bill-anchor').value;
         const data = {
             name: document.getElementById('bill-name').value.trim(),
             amount: parseFloat(document.getElementById('bill-amount').value) || 0,
@@ -1036,7 +1049,8 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             category: document.getElementById('bill-category').value.trim(),
             paymentSource: document.getElementById('bill-source').value,
             frequency: freq,
-            dueMonth: (freq === 'yearly' || freq === 'semi-annual') ? parseInt(document.getElementById('bill-duemonth').value) : null,
+            dueMonth: (freq === 'yearly' || freq === 'semi-annual' || freq === 'every-2-months') ? parseInt(document.getElementById('bill-duemonth').value) : null,
+            anchorDate: freq === 'every-4-weeks' ? (anchorVal || null) : null,
             frozen: document.getElementById('bill-frozen').checked,
             autoPay: document.getElementById('bill-autopay').checked,
             excludeFromTotal: document.getElementById('bill-exclude').checked,
@@ -1047,6 +1061,7 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
         };
 
         if (!data.name) { alert('Please enter a bill name'); return; }
+        if (freq === 'every-4-weeks' && !anchorVal) { alert('Pick a date this bill is due — it anchors the 4-week cycle'); return; }
 
         if (isEdit) {
             store.updateBill(existingBill.id, data);
@@ -1535,6 +1550,18 @@ function getBillMonthlyAmount(bill, targetMonth, store) {
     if (bill.frequency === 'biweekly') {
         const targetDay = (bill.dueDay || 0) % 7;
         return bill.amount * Math.ceil(countDayOfWeekInMonth(targetDay, yr, targetMonth) / 2);
+    }
+    if (bill.frequency === 'every-4-weeks') {
+        // Count actual 28-day-cycle occurrences that land in the month
+        const yr2 = new Date().getFullYear();
+        const monthStart = new Date(yr2, targetMonth, 1);
+        const monthEnd = new Date(yr2, targetMonth + 1, 0);
+        const occ = expandBillOccurrences(bill, monthStart, monthEnd, []) || [];
+        return bill.amount * occ.length;
+    }
+    if (bill.frequency === 'every-2-months') {
+        const anchor = bill.dueMonth != null ? bill.dueMonth : 0;
+        return ((targetMonth - anchor) % 2 + 2) % 2 === 0 ? bill.amount : 0;
     }
     if (bill.frequency === 'yearly') {
         return bill.dueMonth === targetMonth ? bill.amount : 0;

@@ -85,14 +85,23 @@ describe('getOverdueCarryForwards', () => {
         assert.equal(getOverdueCarryForwards(bills, paidSet('water:2026:5'), NOW).length, 0);
     });
 
-    test('frozen, auto-pay, and non-monthly bills are skipped', () => {
+    test('frozen, auto-pay, periodic, and pay-date-driven bills are skipped', () => {
         const bills = [
             { id: 'a', amount: 10, dueDay: 5, frozen: true },
-            { id: 'b', amount: 10, dueDay: 5, frequency: 'weekly' },
             { id: 'c', amount: 10, dueDay: 5, frequency: 'yearly' },
             { id: 'd', amount: 10, dueDay: 5, autoPay: true },
+            { id: 'e', amount: 10, dueDay: 5, frequency: 'per-paycheck' },
+            { id: 'f', amount: 10, dueDay: 5, frequency: 'twice-monthly' },
         ];
         assert.equal(getOverdueCarryForwards(bills, unpaid, NOW).length, 0);
+    });
+
+    test('weekly bills carry forward per unpaid occurrence', () => {
+        // June 2026 has four Fridays (5, 12, 19, 26); dueDay 5 = Friday.
+        const bills = [{ id: 'lawn', amount: 40, dueDay: 5, frequency: 'weekly' }];
+        const out = getOverdueCarryForwards(bills, unpaid, NOW);
+        assert.equal(out.length, 4);
+        assert.ok(out.every(o => o._paidMonth === 5 && o._occurrenceKey));
     });
 
     test('bills created this month are not flagged for last month', () => {
