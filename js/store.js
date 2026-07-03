@@ -453,12 +453,14 @@ class Store {
             const monthHistory = data.paidHistory[key] || {};
 
             for (const bill of bills) {
-                // Skip yearly/semi-annual bills not due this month
+                // Skip yearly/semi-annual/every-2-months bills not due this month
                 if (bill.frequency === 'yearly' && bill.dueMonth !== m) continue;
                 if (bill.frequency === 'semi-annual') {
                     const secondMonth = (bill.dueMonth + 6) % 12;
                     if (bill.dueMonth !== m && secondMonth !== m) continue;
                 }
+                if (bill.frequency === 'every-2-months' &&
+                    ((m - (bill.dueMonth != null ? bill.dueMonth : 0)) % 2 + 2) % 2 !== 0) continue;
                 totalBills++;
 
                 // (a) Manually marked paid — either by billId or any occurrence key

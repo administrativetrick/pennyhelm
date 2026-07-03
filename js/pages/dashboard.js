@@ -428,6 +428,8 @@ function buildSpendingCategoryHtml(ctx) {
         else if (bill.frequency === 'twice-monthly') amt = bill.amount * Math.min(ctx.payDatesThisMonth, 2);
         else if (bill.frequency === 'weekly') amt = bill.amount * ctx.countDayOfWeekInMonth((bill.dueDay || 0) % 7, ctx.year, ctx.month);
         else if (bill.frequency === 'biweekly') amt = bill.amount * Math.ceil(ctx.countDayOfWeekInMonth((bill.dueDay || 0) % 7, ctx.year, ctx.month) / 2);
+        else if (bill.frequency === 'every-4-weeks') amt = bill.amount * ((expandBillOccurrences(bill, new Date(ctx.year, ctx.month, 1), new Date(ctx.year, ctx.month + 1, 0), []) || []).length);
+        else if (bill.frequency === 'every-2-months') amt = ((ctx.month - (bill.dueMonth != null ? bill.dueMonth : 0)) % 2 + 2) % 2 === 0 ? bill.amount : 0;
         else if (bill.frequency === 'yearly') amt = bill.dueMonth === ctx.month ? bill.amount : 0;
         else if (bill.frequency === 'semi-annual') {
             var secondMonth = (bill.dueMonth + 6) % 12;
@@ -620,6 +622,8 @@ export function renderDashboard(container, store, subTab) {
         if (b.frequency === 'twice-monthly') return sum + b.amount * Math.min(payDatesThisMonth, 2);
         if (b.frequency === 'weekly') return sum + b.amount * countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month);
         if (b.frequency === 'biweekly') return sum + b.amount * Math.ceil(countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month) / 2);
+        if (b.frequency === 'every-4-weeks') return sum + b.amount * ((expandBillOccurrences(b, new Date(year, month, 1), new Date(year, month + 1, 0), []) || []).length);
+        if (b.frequency === 'every-2-months') return sum + (((month - (b.dueMonth != null ? b.dueMonth : 0)) % 2 + 2) % 2 === 0 ? b.amount : 0);
         if (b.frequency === 'yearly') return sum + (b.dueMonth === month ? b.amount : 0);
         if (b.frequency === 'semi-annual') {
             const secondMonth = (b.dueMonth + 6) % 12;
@@ -633,6 +637,8 @@ export function renderDashboard(container, store, subTab) {
         if (b.frequency === 'twice-monthly') return sum + b.amount * Math.min(payDatesThisMonth, 2);
         if (b.frequency === 'weekly') return sum + b.amount * countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month);
         if (b.frequency === 'biweekly') return sum + b.amount * Math.ceil(countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month) / 2);
+        if (b.frequency === 'every-4-weeks') return sum + b.amount * ((expandBillOccurrences(b, new Date(year, month, 1), new Date(year, month + 1, 0), []) || []).length);
+        if (b.frequency === 'every-2-months') return sum + (((month - (b.dueMonth != null ? b.dueMonth : 0)) % 2 + 2) % 2 === 0 ? b.amount : 0);
         if (b.frequency === 'yearly') return sum + (b.dueMonth === month ? b.amount : 0);
         if (b.frequency === 'semi-annual') {
             const secondMonth = (b.dueMonth + 6) % 12;
