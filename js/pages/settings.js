@@ -172,6 +172,19 @@ export function renderSettings(container, store) {
         <div class="settings-grid">
             <div class="card mb-24">
             <div class="settings-section">
+                <h3>Bills</h3>
+                <div class="settings-row">
+                    <div>
+                        <div class="setting-label">Auto-tick auto-pay bills</div>
+                        <div class="setting-desc">Mark auto-pay bills as paid automatically once their due date passes. Leave off to tick them yourself when reconciling against your bank.</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" ${store.getAutoTickAutoPay() ? 'checked' : ''} id="auto-tick-autopay-toggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="settings-section">
                 <h3>Credit Scores</h3>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
                     Track your FICO credit score (300–850) and estimate how debt changes might affect it.
@@ -1496,6 +1509,17 @@ export function renderSettings(container, store) {
         };
         dependentDebtAmount.addEventListener('input', updateDependentEstimate);
         dependentDebtDir.addEventListener('change', updateDependentEstimate);
+    }
+
+    // Auto-tick auto-pay bills toggle
+    const autoTickToggle = container.querySelector('#auto-tick-autopay-toggle');
+    if (autoTickToggle) {
+        autoTickToggle.addEventListener('change', (e) => {
+            store.setAutoTickAutoPay(e.target.checked);
+            // Apply immediately so the user sees the effect without waiting
+            // for the next dashboard/bills render.
+            if (e.target.checked) store.reconcileAutoPayBills();
+        });
     }
 
     // Dependent enabled toggle
