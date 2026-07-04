@@ -22,11 +22,64 @@ import { escapeHtml } from '../utils.js';
 
 const MODE_KEY = 'pennyhelm-shared-mode';   // localStorage: persisted viewing context
 const VIEW_KEY = 'pennyhelm-shared-view';   // sessionStorage: read by shared-view.js
+const OWN_SETUP_KEY = 'pennyhelm-own-setup-started';   // localStorage: user chose "My finances" — never auto-enter again
+const RESUME_ONBOARD_KEY = 'pennyhelm-resume-onboarding'; // sessionStorage: run the setup tour after leaving shared mode
 
 // Pages reachable while shared mode is active; anything else → 'shared'.
 export const SHARED_MODE_PAGES = ['shared', 'settings'];
 
 let myShares = [];
+let sharesLoaded = false;
+let storeRef = null;
+
+async function fetchShares() {
+    if (sharesLoaded) return myShares;
+    const listMyShares = firebase.functions().httpsCallable('listMyShares');
+    const result = await listMyShares({});
+    myShares = (result.data && result.data.shares) || [];
+    sharesLoaded = true;
+    return myShares;
+}
+
+function ownSetupStarted() {
+    return !!localStorage.getItem(OWN_SETUP_KEY);
+}
+
+/**
+ * Boot-time check, called BEFORE the first-run welcome screen: an invited
+ * account that has never set up finances of its own defaults straight into
+ * the shared view — no "Load Sample Data / Start Fresh" screen. Setup stays
+ * incomplete, so pressing "My finances" later runs the normal first-run
+ * flow. Returns true when shared mode was activated.
+ */
+export async function maybeAutoEnterSharedEarly({ store, auth }) {
+    storeRef = store;
+    if (!auth.isCloud()) return false;
+    if (isSharedMode()) return true;          // already viewing a share
+    if (ownSetupStarted()) return false;      // they chose to build their own
+    try {
+        const shares = await fetchShares();
+        if (shares.length === 0) return false;
+        const s = shares[0];
+        const state = { ownerUid: s.ownerUid, ownerName: s.ownerName, role: s.role };
+        localStorage.setItem(MODE_KEY, JSON.stringify(state));
+        sessionStorage.setItem(VIEW_KEY, JSON.stringify(state));
+        return true;
+    } catch (e) {
+        return false; // offline / not deployed — fall back to the welcome screen
+    }
+}
+
+/**
+ * Consumes the "resume onboarding" flag set when a user without finances of
+ * their own leaves shared mode via "My finances" — the boot flow uses it to
+ * start the setup tour.
+ */
+export function consumeResumeOnboarding() {
+    if (!sessionStorage.getItem(RESUME_ONBOARD_KEY)) return false;
+    sessionStorage.removeItem(RESUME_ONBOARD_KEY);
+    return true;
+}
 
 export function getSharedModeState() {
     try { return JSON.parse(localStorage.getItem(MODE_KEY) || 'null'); } catch (e) { return null; }
@@ -59,6 +112,13 @@ export function enterSharedMode(share) {
 export function exitSharedMode() {
     localStorage.removeItem(MODE_KEY);
     sessionStorage.removeItem(VIEW_KEY);
+    // An explicit "My finances" means: stop defaulting to the shared view.
+    localStorage.setItem(OWN_SETUP_KEY, '1');
+    // If they have no finances of their own yet, the reload runs the
+    // first-run flow (welcome screen if setup never completed) and this
+    // flag starts the setup tour on top.
+    const noOwnFinances = !storeRef || !storeRef.isSetupComplete() || ownDataIsEmpty(storeRef);
+    if (noOwnFinances) sessionStorage.setItem(RESUME_ONBOARD_KEY, '1');
     // Reload rebuilds the full sidebar/mobile nav with their listeners.
     window.location.hash = 'dashboard';
     window.location.reload();
@@ -72,6 +132,7 @@ export function exitSharedMode() {
  */
 export function initSharedMode({ store, auth }) {
     if (!auth.isCloud()) return;
+    storeRef = store;
 
     const state = getSharedModeState();
     if (state && state.ownerUid) {
@@ -80,9 +141,7 @@ export function initSharedMode({ store, auth }) {
 
     (async () => {
         try {
-            const listMyShares = firebase.functions().httpsCallable('listMyShares');
-            const result = await listMyShares({});
-            myShares = (result.data && result.data.shares) || [];
+            await fetchShares();
         } catch (e) {
             return; // offline or not deployed — leave chrome as-is
         }
@@ -101,9 +160,10 @@ export function initSharedMode({ store, auth }) {
 
         if (myShares.length === 0) return;
 
-        // Auto-enter: a single share + no finances of their own means this
-        // account exists to view someone else's — take them straight there.
-        if (myShares.length === 1 && ownDataIsEmpty(store)) {
+        // Default to the shared view for accounts with an invite and no
+        // finances of their own — unless they've explicitly chosen
+        // "My finances" before.
+        if (!ownSetupStarted() && (!store.isSetupComplete() || ownDataIsEmpty(store))) {
             enterSharedMode(myShares[0]);
             return;
         }

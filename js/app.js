@@ -18,7 +18,7 @@ import { renderSharedView } from './pages/shared-view.js';
 import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 import { pingActiveUser } from './active-ping.js';
-import { primeSharedMode, initSharedMode, isSharedMode, SHARED_MODE_PAGES } from './services/shared-mode.js';
+import { primeSharedMode, initSharedMode, isSharedMode, SHARED_MODE_PAGES, maybeAutoEnterSharedEarly, consumeResumeOnboarding } from './services/shared-mode.js';
 
 const pages = {
     dashboard: renderDashboard,
@@ -263,9 +263,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const canContinue = await mode.gateAccess({ auth, store });
     if (!canContinue) return;
 
-    // 6. First-run welcome screen.
+    // 6. First-run welcome screen — skipped for invited accounts, which
+    //    default straight into the finances shared with them. Their own
+    //    setup runs the first time they press "My finances".
     if (!store.isSetupComplete()) {
-        await showWelcomeScreen();
+        const autoShared = await maybeAutoEnterSharedEarly({ store, auth });
+        if (!autoShared) {
+            await showWelcomeScreen();
+        }
     }
 
     // Seed the shared-view state before the first navigate so a tab
@@ -278,8 +283,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSharedMode({ store, auth });
 
     // 7. Onboarding (both modes; skipped in shared mode — the tour points
-    //    at nav tabs that don't exist there).
-    if (!isSharedMode() && shouldShowOnboarding()) {
+    //    at nav tabs that don't exist there). Leaving shared mode via
+    //    "My finances" with no finances of your own re-runs the tour.
+    const resumeOnboarding = consumeResumeOnboarding();
+    if (!isSharedMode() && (resumeOnboarding || shouldShowOnboarding())) {
         setTimeout(() => startOnboarding(), 400);
     }
 
