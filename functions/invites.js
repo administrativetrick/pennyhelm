@@ -328,6 +328,47 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
         }
     );
 
+    // getInvitePreview
+    //   Returns display-safe fields for one invite, looked up by its
+    //   unguessable UUID. Intentionally callable WITHOUT auth: the
+    //   accept-invite page must show "James invited you…" before the
+    //   invitee has signed in (Firestore rules correctly block direct
+    //   client reads of the invites collection). Accepting/declining
+    //   still requires signing in as the invited email.
+    exports.getInvitePreview = onCall(
+        async (request) => {
+            const { inviteId } = request.data || {};
+            if (!inviteId || typeof inviteId !== "string" || inviteId.length > 64) {
+                throw new HttpsError("invalid-argument", "Missing inviteId.");
+            }
+
+            try {
+                const doc = await db.collection("invites").doc(inviteId).get();
+                if (!doc.exists) {
+                    throw new HttpsError("not-found", "Invitation not found.");
+                }
+                const d = doc.data();
+                return {
+                    invite: {
+                        id: doc.id,
+                        inviterName: d.inviterName || null,
+                        inviterEmail: d.inviterEmail || null,
+                        inviteeEmail: d.inviteeEmail || null,
+                        type: d.type || null,
+                        role: d.role || null,
+                        permissions: d.permissions || null,
+                        status: d.status || null,
+                        createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : null
+                    }
+                };
+            } catch (err) {
+                if (err instanceof HttpsError) throw err;
+                console.error("getInvitePreview error:", err);
+                throw new HttpsError("internal", "Failed to load invitation.");
+            }
+        }
+    );
+
     // getMyInvites
     //   Returns all pending invites for the current user (by email)
     exports.getMyInvites = onCall(
