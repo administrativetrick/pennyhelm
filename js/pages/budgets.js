@@ -97,6 +97,7 @@ export function renderBudgets(container, store) {
                         <div>
                             <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">Spent</div>
                             <div style="font-size:22px;font-weight:700;margin-top:4px;color:var(--red);">${formatCurrency(totals.spent)}</div>
+                            ${totals.unlimitedSpent > 0 ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">incl. ${formatCurrency(totals.unlimitedSpent)} tracked (no limit)</div>` : ''}
                         </div>
                         <div>
                             <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">Remaining</div>
@@ -144,12 +145,32 @@ export function renderBudgets(container, store) {
                             </div>
                         `;
                     }
-                    const overBudget = s.remaining < -0.005;
-                    const rolloverNote = budget.rollover
+                    const overBudget = !s.unlimited && s.remaining < -0.005;
+                    const rolloverNote = (!s.unlimited && budget.rollover)
                         ? (Math.abs(s.rolledIn) > 0.005
                             ? `<span style="color:${s.rolledIn >= 0 ? 'var(--green)' : 'var(--red)'};">${s.rolledIn >= 0 ? '+' : ''}${formatCurrency(s.rolledIn)} rolled in</span>`
                             : '<span style="color:var(--text-muted);">rollover enabled</span>')
                         : '';
+                    if (s.unlimited) {
+                        return `
+                        <div class="card">
+                            <div class="settings-section">
+                                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+                                    <div style="width:12px;height:12px;border-radius:3px;background:${color};"></div>
+                                    <div style="flex:1;font-weight:600;font-size:15px;">${escapeHtml(label)} <span style="font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-input);padding:2px 8px;border-radius:10px;margin-left:6px;">no limit</span></div>
+                                    <div style="display:flex;gap:4px;">
+                                        <button class="btn-icon edit-budget" data-budget-id="${budget.id}" title="Edit"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                        <button class="btn-icon delete-budget" data-budget-id="${budget.id}" title="Delete" style="color:var(--red);"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+                                    </div>
+                                </div>
+                                <div style="font-size:20px;font-weight:700;">
+                                    ${formatCurrency(s.spent)} <span style="font-size:13px;color:var(--text-muted);font-weight:500;">spent this month — tracking only</span>
+                                </div>
+                                ${s.billSpent > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);">Bills ${formatCurrency(s.billSpent)} &middot; Expenses ${formatCurrency(s.expenseSpent)}</div>` : ''}
+                            </div>
+                        </div>
+                        `;
+                    }
                     return `
                         <div class="card">
                             <div class="settings-section">
@@ -264,7 +285,8 @@ function showBudgetForm(store, existing = null) {
         <div class="form-row">
             <div class="form-group">
                 <label>Monthly limit</label>
-                <input type="number" step="0.01" class="form-input" id="budget-amount" value="${budget.monthlyAmount || ''}" placeholder="0.00">
+                <input type="number" step="0.01" min="0" class="form-input" id="budget-amount" value="${budget.monthlyAmount || ''}" placeholder="0.00">
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Enter 0 for no limit — just track the spending.</div>
             </div>
             <div class="form-group">
                 <label>Start month</label>
@@ -310,10 +332,17 @@ function showBudgetForm(store, existing = null) {
     document.getElementById('modal-save').addEventListener('click', () => {
         const targetType = document.getElementById('budget-target-type').value;
         const tagValue = document.getElementById('budget-tag').value.trim();
+        const amountRaw = document.getElementById('budget-amount').value.trim();
+        if (amountRaw === '') {
+            const err0 = document.getElementById('budget-form-error');
+            err0.textContent = 'Enter a monthly limit — 0 means no limit (track spending only).';
+            err0.style.display = 'block';
+            return;
+        }
         const payload = {
             category: targetType === 'tag' ? undefined : document.getElementById('budget-category').value,
             tag: targetType === 'tag' ? tagValue : undefined,
-            monthlyAmount: Number(document.getElementById('budget-amount').value) || 0,
+            monthlyAmount: Number(amountRaw) || 0,
             rollover: document.getElementById('budget-rollover').checked,
             startMonth: document.getElementById('budget-start-month').value || monthKey(),
             notes: document.getElementById('budget-notes').value.trim(),
@@ -415,6 +444,13 @@ function renderVarianceReport(store, budgets) {
                                         ${r.cells.map(c => {
                                             if (c.notStarted) {
                                                 return `<td style="text-align:right;color:var(--text-muted);">—</td>`;
+                                            }
+                                            if (Number(r.budget.monthlyAmount || 0) === 0) {
+                                                // Unlimited budget: spend is tracked, never "over"
+                                                return `<td style="text-align:right;white-space:nowrap;">
+                                                    <div>${formatCurrency(c.spent)}</div>
+                                                    <div style="font-size:11px;color:var(--text-muted);">no limit</div>
+                                                </td>`;
                                             }
                                             const over = c.variance > 0.005;
                                             const under = c.variance < -0.005;

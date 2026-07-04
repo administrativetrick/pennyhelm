@@ -1327,11 +1327,11 @@ function buildBudgetHealthHtml(store) {
                                     ${escapeHtml(label)}
                                 </span>
                                 <span style="color:${over ? 'var(--red)' : 'var(--text-secondary)'};">
-                                    ${formatCurrency(s.spent)} / ${formatCurrency(s.available)}
+                                    ${s.unlimited ? `${formatCurrency(s.spent)} · no limit` : `${formatCurrency(s.spent)} / ${formatCurrency(s.available)}`}
                                 </span>
                             </div>
                             <div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden;">
-                                <div style="height:100%;width:${isFinite(pct) ? pct : 100}%;background:${barColor};"></div>
+                                <div style="height:100%;width:${s.unlimited ? 100 : (isFinite(pct) ? pct : 100)}%;background:${s.unlimited ? 'var(--bg-card-hover)' : barColor};"></div>
                             </div>
                         </div>
                     `;

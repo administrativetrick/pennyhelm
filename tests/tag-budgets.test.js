@@ -72,3 +72,47 @@ describe('tag budgets', () => {
         assert.ok(!('category' in snap.budgetConfigs[0]));
     });
 });
+
+// ─── Unlimited ($0) budgets ─────────────────────────────────────────
+
+describe('unlimited ($0) budgets', () => {
+    const zero = { id: 'z', category: 'dining', monthlyAmount: 0, rollover: false, startMonth: '2026-06' };
+
+    test('validateBudget accepts 0 but rejects negatives', async () => {
+        const { validateBudget } = await import('../js/services/budget-service.js');
+        assert.equal(validateBudget({ ...zero }), null);
+        assert.match(validateBudget({ ...zero, monthlyAmount: -5 }), /zero.*or a positive/i);
+    });
+
+    test('tracks spend with unlimited flag, zero remaining, zero pctUsed', async () => {
+        const { computeBudgetStatus } = await import('../js/services/budget-service.js');
+        const s = computeBudgetStatus(zero, EXPENSES, '2026-07');
+        assert.equal(s.unlimited, true);
+        assert.equal(s.spent, 60); // e1 (dining, July, not ignored/split)
+        assert.equal(s.remaining, 0);
+        assert.equal(s.pctUsed, 0, 'unlimited must never read as over budget');
+    });
+
+    test('rollover never applies to unlimited budgets', async () => {
+        const { computeBudgetStatus } = await import('../js/services/budget-service.js');
+        const s = computeBudgetStatus({ ...zero, rollover: true }, EXPENSES, '2026-07');
+        assert.equal(s.rolledIn, 0, 'June spend must not carry a debit into July');
+        assert.equal(s.rolledOut, 0);
+    });
+
+    test('totals exclude unlimited spend from remaining but report it', async () => {
+        const { computeBudgetStatus, computeBudgetTotals } = await import('../js/services/budget-service.js');
+        const limited = computeBudgetStatus({ id: 'l', category: 'shopping', monthlyAmount: 200, rollover: false, startMonth: '2026-07' }, EXPENSES, '2026-07');
+        const unlim = computeBudgetStatus(zero, EXPENSES, '2026-07');
+        const t = computeBudgetTotals([limited, unlim]);
+        assert.equal(t.spent, limited.spent + unlim.spent);
+        assert.equal(t.unlimitedSpent, unlim.spent);
+        assert.equal(t.remaining, 200 - limited.spent, 'unlimited spend must not push totals over');
+    });
+
+    test('shared snapshot carries the unlimited flag', () => {
+        const data = { userName: 'J', accounts: [], bills: [], expenses: EXPENSES, budgets: [zero], sharedWith: [] };
+        const snap = model.filterDataForRole(data, { role: 'companion', accountIds: [] }, new Date(2026, 6, 15));
+        assert.equal(snap.budgets.statuses[0].unlimited, true);
+    });
+});

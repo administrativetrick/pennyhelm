@@ -143,6 +143,7 @@ function computeBudgetAggregates(data, now = new Date()) {
         tag: s.tag || null,
         month: s.month,
         monthlyAmount: s.monthlyAmount,
+        unlimited: s.unlimited === true,
         rollover: s.rollover,
         rolledIn: s.rolledIn,
         available: s.available,

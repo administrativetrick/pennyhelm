@@ -101,6 +101,11 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
         : (e) => notSplitParent(e)
             && String(e.category || 'other').toLowerCase() === budgetCat;
 
+    // A $0 monthly amount means "unlimited" — no cap, just track the spend.
+    // No rollover math applies (there's no headroom to carry), remaining is
+    // reported as 0, and pctUsed stays 0 so no UI treats it as over budget.
+    const unlimited = Number(budget.monthlyAmount || 0) === 0;
+
     // Walk every month from startMonth to asOfMonth, computing rolledOut each step.
     let rolledIn = 0;
     let cursor = startMonth;
@@ -117,12 +122,13 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
         const spent = expenseSpent + billSpent;
 
         if (cursor === asOfMonth) {
-            const remaining = available - spent;
+            const remaining = unlimited ? 0 : available - spent;
             return {
                 category: budget.category,
                 tag: budget.tag || null,
                 monthlyAmount: Number(budget.monthlyAmount || 0),
-                rollover: !!budget.rollover,
+                rollover: !unlimited && !!budget.rollover,
+                unlimited,
                 month: cursor,
                 rolledIn,
                 available,
@@ -130,12 +136,12 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
                 billSpent,
                 spent,
                 remaining,
-                rolledOut: budget.rollover ? remaining : 0,
-                pctUsed: available > 0 ? spent / available : (spent > 0 ? Infinity : 0),
+                rolledOut: (!unlimited && budget.rollover) ? remaining : 0,
+                pctUsed: unlimited ? 0 : (available > 0 ? spent / available : (spent > 0 ? Infinity : 0)),
             };
         }
 
-        rolledIn = budget.rollover ? (available - spent) : 0;
+        rolledIn = (!unlimited && budget.rollover) ? (available - spent) : 0;
         cursor = addMonth(cursor, 1);
 
         // Safety brake — shouldn't trigger in practice since asOfMonth >= startMonth.
@@ -148,6 +154,7 @@ function emptyStatus(budget, month, notStarted = false) {
         category: budget.category,
         tag: budget.tag || null,
         monthlyAmount: Number(budget.monthlyAmount || 0),
+        unlimited: Number(budget.monthlyAmount || 0) === 0,
         rollover: !!budget.rollover,
         month,
         rolledIn: 0,
@@ -172,17 +179,23 @@ export function computeAllBudgetStatuses(budgets, expenses, asOfMonth, getBillSp
 
 /**
  * Aggregate top-line totals across all budgets for the given month.
+ *
+ * Unlimited ($0) budgets contribute to the spent totals but are excluded
+ * from limit/remaining math — otherwise any tracked spending would read as
+ * "over budget". Their spend is also broken out as `unlimitedSpent`.
  */
 export function computeBudgetTotals(statuses) {
     const active = statuses.filter(s => !s.notStarted);
-    const monthlyAmount = active.reduce((s, b) => s + b.monthlyAmount, 0);
-    const rolledIn = active.reduce((s, b) => s + b.rolledIn, 0);
-    const available = active.reduce((s, b) => s + b.available, 0);
+    const limited = active.filter(s => !s.unlimited);
+    const monthlyAmount = limited.reduce((s, b) => s + b.monthlyAmount, 0);
+    const rolledIn = limited.reduce((s, b) => s + b.rolledIn, 0);
+    const available = limited.reduce((s, b) => s + b.available, 0);
     const expenseSpent = active.reduce((s, b) => s + (b.expenseSpent || 0), 0);
     const billSpent = active.reduce((s, b) => s + (b.billSpent || 0), 0);
     const spent = active.reduce((s, b) => s + b.spent, 0);
-    const remaining = available - spent;
-    return { monthlyAmount, rolledIn, available, expenseSpent, billSpent, spent, remaining };
+    const unlimitedSpent = active.filter(s => s.unlimited).reduce((s, b) => s + b.spent, 0);
+    const remaining = available - (spent - unlimitedSpent);
+    return { monthlyAmount, rolledIn, available, expenseSpent, billSpent, spent, unlimitedSpent, remaining };
 }
 
 /** Basic shape validation before persisting. */
@@ -193,7 +206,7 @@ export function validateBudget(budget) {
     if (!hasCategory && !hasTag) return 'A category or tag is required';
     if (hasCategory && hasTag) return 'Pick a category OR a tag, not both';
     const amount = Number(budget.monthlyAmount);
-    if (!Number.isFinite(amount) || amount <= 0) return 'Monthly amount must be a positive number';
+    if (!Number.isFinite(amount) || amount < 0) return 'Monthly amount must be zero (no limit) or a positive number';
     if (!budget.startMonth || !/^\d{4}-\d{2}$/.test(budget.startMonth)) return 'Start month must be in YYYY-MM format';
     return null;
 }
