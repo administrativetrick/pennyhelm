@@ -1313,6 +1313,8 @@ function buildBudgetHealthHtml(store) {
                 ${top.map(s => {
                     const allCats = getAllExpenseCategories(store);
                     const cat = allCats[s.category] || allCats['other'];
+                    const label = s.tag ? `#${s.tag}` : cat.label;
+                    const dotColor = s.tag ? 'var(--purple)' : cat.color;
                     const pct = Math.min(100, (s.pctUsed || 0) * 100);
                     const over = s.remaining < -0.005;
                     const almost = !over && s.pctUsed >= 0.9;
@@ -1321,8 +1323,8 @@ function buildBudgetHealthHtml(store) {
                         <div>
                             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
                                 <span style="font-weight:600;">
-                                    <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${cat.color};margin-right:6px;vertical-align:middle;"></span>
-                                    ${escapeHtml(cat.label)}
+                                    <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${dotColor};margin-right:6px;vertical-align:middle;"></span>
+                                    ${escapeHtml(label)}
                                 </span>
                                 <span style="color:${over ? 'var(--red)' : 'var(--text-secondary)'};">
                                     ${formatCurrency(s.spent)} / ${formatCurrency(s.available)}

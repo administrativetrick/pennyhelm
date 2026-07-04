@@ -95,13 +95,15 @@ function renderSnapshot(container, store, state, snap) {
             <div style="display:flex;flex-direction:column;gap:14px;">` + statuses.map(s => {
                 const over = s.remaining < 0;
                 const pct = Math.min(100, Math.round((s.available > 0 ? s.spent / s.available : 0) * 100));
+                const label = s.tag ? `#${s.tag}` : s.category;
+                const targetKey = s.tag ? `tag:${s.tag}` : `cat:${s.category}`;
                 return `
                 <div>
                     <div class="flex-between" style="margin-bottom:5px;">
-                        <span style="font-size:13px;font-weight:600;text-transform:capitalize;">${escapeHtml(s.category)}</span>
+                        <span style="font-size:13px;font-weight:600;${s.tag ? 'color:var(--purple);' : 'text-transform:capitalize;'}">${escapeHtml(label)}</span>
                         <span style="font-size:12.5px;color:${over ? 'var(--red)' : 'var(--text-secondary)'};font-variant-numeric:tabular-nums;">
                             ${formatCurrency(s.spent)} of ${formatCurrency(s.available)} · ${over ? formatCurrency(-s.remaining) + ' over' : formatCurrency(s.remaining) + ' left'}
-                            ${snap._shared.canEditBudgets ? `<button class="btn-icon shared-edit-budget" data-category="${escapeHtml(s.category)}" title="Adjust budget" style="margin-left:6px;">✏️</button>` : ''}
+                            ${snap._shared.canEditBudgets ? `<button class="btn-icon shared-edit-budget" data-target="${escapeHtml(targetKey)}" title="Adjust budget" style="margin-left:6px;">✏️</button>` : ''}
                         </span>
                     </div>
                     <div style="height:8px;border-radius:5px;background:var(--bg-input);overflow:hidden;">
@@ -155,11 +157,14 @@ function renderSnapshot(container, store, state, snap) {
     // sends the full replacement config set through sharedUpdateBudget.
     container.querySelectorAll('.shared-edit-budget').forEach(btn => {
         btn.addEventListener('click', async () => {
-            const category = btn.dataset.category;
+            const [kind, ...rest] = btn.dataset.target.split(':');
+            const name = rest.join(':');
             const configs = snap.budgetConfigs || [];
-            const target = configs.find(c => String(c.category).toLowerCase() === String(category).toLowerCase());
+            const target = kind === 'tag'
+                ? configs.find(c => String(c.tag || '').toLowerCase() === name.toLowerCase())
+                : configs.find(c => !c.tag && String(c.category || '').toLowerCase() === name.toLowerCase());
             if (!target) { alert('This budget cannot be adjusted.'); return; }
-            const input = prompt(`New monthly amount for ${category}:`, target.monthlyAmount);
+            const input = prompt(`New monthly amount for ${kind === 'tag' ? '#' + name : name}:`, target.monthlyAmount);
             if (input === null) return;
             const amount = parseFloat(input);
             if (!Number.isFinite(amount) || amount <= 0) { alert('Enter a positive number.'); return; }

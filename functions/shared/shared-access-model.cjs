@@ -140,6 +140,7 @@ function computeBudgetAggregates(data, now = new Date()) {
     ).map(s => ({
         // Only the numbers — no payees, no transactions.
         category: s.category,
+        tag: s.tag || null,
         month: s.month,
         monthlyAmount: s.monthlyAmount,
         rollover: s.rollover,
@@ -185,7 +186,9 @@ function filterDataForRole(data, grant, now = new Date()) {
     // the client can send a valid replacement set. Notes stay private.
     if (canEditBudgets(grant)) {
         snapshot.budgetConfigs = (data.budgets || []).map(b => ({
-            id: b.id, category: b.category, monthlyAmount: b.monthlyAmount,
+            id: b.id,
+            ...(b.tag ? { tag: b.tag } : { category: b.category }),
+            monthlyAmount: b.monthlyAmount,
             rollover: b.rollover === true, startMonth: b.startMonth,
         }));
     }
