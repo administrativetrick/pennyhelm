@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "deploy:cloud": "node scripts/deploy-cloud.js",
+    "sync:shared": "node scripts/sync-shared.mjs",
     "test": "node --test \"tests/**/*.test.js\""
   },
   "dependencies": {
