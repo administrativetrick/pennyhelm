@@ -93,21 +93,24 @@ function renderSnapshot(container, store, state, snap) {
                 </span>
             </div>
             <div style="display:flex;flex-direction:column;gap:14px;">` + statuses.map(s => {
-                const over = s.remaining < 0;
-                const pct = Math.min(100, Math.round((s.available > 0 ? s.spent / s.available : 0) * 100));
+                const over = !s.unlimited && s.remaining < 0;
+                const pct = s.unlimited ? 100 : Math.min(100, Math.round((s.available > 0 ? s.spent / s.available : 0) * 100));
                 const label = s.tag ? `#${s.tag}` : s.category;
                 const targetKey = s.tag ? `tag:${s.tag}` : `cat:${s.category}`;
+                const amounts = s.unlimited
+                    ? `${formatCurrency(s.spent)} spent · no limit`
+                    : `${formatCurrency(s.spent)} of ${formatCurrency(s.available)} · ${over ? formatCurrency(-s.remaining) + ' over' : formatCurrency(s.remaining) + ' left'}`;
                 return `
                 <div>
                     <div class="flex-between" style="margin-bottom:5px;">
                         <span style="font-size:13px;font-weight:600;${s.tag ? 'color:var(--purple);' : 'text-transform:capitalize;'}">${escapeHtml(label)}</span>
                         <span style="font-size:12.5px;color:${over ? 'var(--red)' : 'var(--text-secondary)'};font-variant-numeric:tabular-nums;">
-                            ${formatCurrency(s.spent)} of ${formatCurrency(s.available)} · ${over ? formatCurrency(-s.remaining) + ' over' : formatCurrency(s.remaining) + ' left'}
+                            ${amounts}
                             ${snap._shared.canEditBudgets ? `<button class="btn-icon shared-edit-budget" data-target="${escapeHtml(targetKey)}" title="Adjust budget" style="margin-left:6px;">✏️</button>` : ''}
                         </span>
                     </div>
                     <div style="height:8px;border-radius:5px;background:var(--bg-input);overflow:hidden;">
-                        <div style="height:100%;border-radius:5px;width:${pct}%;background:${over ? 'var(--red)' : 'var(--accent)'};"></div>
+                        <div style="height:100%;border-radius:5px;width:${pct}%;background:${s.unlimited ? 'var(--bg-card-hover)' : over ? 'var(--red)' : 'var(--accent)'};"></div>
                     </div>
                 </div>`;
             }).join('') + `</div></div>`;
