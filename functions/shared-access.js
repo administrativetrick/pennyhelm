@@ -121,7 +121,7 @@ module.exports = function({ admin, db, enforceRateLimit }) {
 
             userData.budgets = budgets.map(b => ({
                 id: String(b.id || ''),
-                category: String(b.category),
+                ...(b.tag ? { tag: String(b.tag) } : { category: String(b.category) }),
                 monthlyAmount: Number(b.monthlyAmount),
                 rollover: b.rollover === true,
                 startMonth: String(b.startMonth),

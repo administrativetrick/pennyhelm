@@ -4,8 +4,9 @@
  * A budget has this shape:
  *   {
  *     id: string,
- *     category: string,        // matches EXPENSE_CATEGORIES key
- *     monthlyAmount: number,
+ *     category?: string,       // matches EXPENSE_CATEGORIES key…
+ *     tag?: string,            // …OR targets expenses carrying this tag
+ *     monthlyAmount: number,   //   (exactly one of category/tag is set)
  *     rollover: boolean,       // carry unspent / overspent into next month
  *     startMonth: 'YYYY-MM',   // first month the budget applies to
  *     notes?: string
@@ -76,16 +77,26 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
         return emptyStatus(budget, asOfMonth, true);
     }
 
-    // Compare categories case-insensitively. Legacy data + user-typed rule
-    // values mix capitalized labels and lowercase keys (e.g. "Mortgage" vs
-    // "mortgage", "Groceries" vs "groceries"). A one-time migration backfills
-    // canonical keys, but this comparator is the safety net so a single
-    // stray value can't silently zero out a whole budget.
+    // A budget targets EITHER a category OR a tag. Tag budgets qualify
+    // expenses by tag membership (e.g. everything tagged "discretionary"
+    // across any category); bills carry no tags, so tag budgets count
+    // expenses only.
+    //
+    // Compare case-insensitively. Legacy data + user-typed rule values mix
+    // capitalized labels and lowercase keys (e.g. "Mortgage" vs "mortgage").
+    // A one-time migration backfills canonical keys, but this comparator is
+    // the safety net so a single stray value can't silently zero out a
+    // whole budget.
+    const budgetTag = String(budget.tag || '').toLowerCase();
     const budgetCat = String(budget.category || '').toLowerCase();
-    const qualifies = (e) =>
+    const notSplitParent = (e) =>
         !e.ignored
-        && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0)
-        && String(e.category || 'other').toLowerCase() === budgetCat;
+        && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0);
+    const qualifies = budgetTag
+        ? (e) => notSplitParent(e)
+            && (Array.isArray(e.tags) ? e.tags : []).some(t => String(t).toLowerCase() === budgetTag)
+        : (e) => notSplitParent(e)
+            && String(e.category || 'other').toLowerCase() === budgetCat;
 
     // Walk every month from startMonth to asOfMonth, computing rolledOut each step.
     let rolledIn = 0;
@@ -97,7 +108,7 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
         const expenseSpent = expenses
             .filter(e => qualifies(e) && (e.date || '').startsWith(cursor))
             .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-        const billSpent = typeof getBillSpendForMonth === 'function'
+        const billSpent = (!budgetTag && typeof getBillSpendForMonth === 'function')
             ? Number(getBillSpendForMonth(budget.category, cursor)) || 0
             : 0;
         const spent = expenseSpent + billSpent;
@@ -106,6 +117,7 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
             const remaining = available - spent;
             return {
                 category: budget.category,
+                tag: budget.tag || null,
                 monthlyAmount: Number(budget.monthlyAmount || 0),
                 rollover: !!budget.rollover,
                 month: cursor,
@@ -131,6 +143,7 @@ export function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendFor
 function emptyStatus(budget, month, notStarted = false) {
     return {
         category: budget.category,
+        tag: budget.tag || null,
         monthlyAmount: Number(budget.monthlyAmount || 0),
         rollover: !!budget.rollover,
         month,
@@ -172,7 +185,10 @@ export function computeBudgetTotals(statuses) {
 /** Basic shape validation before persisting. */
 export function validateBudget(budget) {
     if (!budget || typeof budget !== 'object') return 'Budget must be an object';
-    if (!budget.category || typeof budget.category !== 'string') return 'Category is required';
+    const hasCategory = budget.category && typeof budget.category === 'string';
+    const hasTag = budget.tag && typeof budget.tag === 'string' && budget.tag.trim();
+    if (!hasCategory && !hasTag) return 'A category or tag is required';
+    if (hasCategory && hasTag) return 'Pick a category OR a tag, not both';
     const amount = Number(budget.monthlyAmount);
     if (!Number.isFinite(amount) || amount <= 0) return 'Monthly amount must be a positive number';
     if (!budget.startMonth || !/^\d{4}-\d{2}$/.test(budget.startMonth)) return 'Start month must be in YYYY-MM format';

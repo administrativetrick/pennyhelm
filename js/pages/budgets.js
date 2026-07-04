@@ -50,7 +50,7 @@ export function renderBudgets(container, store) {
         const aOver = a.remaining < 0 ? 1 : 0;
         const bOver = b.remaining < 0 ? 1 : 0;
         if (aOver !== bOver) return bOver - aOver;
-        return (a.category || '').localeCompare(b.category || '');
+        return (a.tag || a.category || '').localeCompare(b.tag || b.category || '');
     });
 
     const isCurrentMonth = viewMonth === monthKey();
@@ -113,9 +113,10 @@ export function renderBudgets(container, store) {
                     <div style="font-size:40px;margin-bottom:12px;">🎯</div>
                     <h3 class="mb-8">No budgets yet</h3>
                     <p style="color:var(--text-secondary);margin-bottom:20px;max-width:520px;margin-left:auto;margin-right:auto;">
-                        Set a monthly limit per category. Spending is tracked automatically
-                        from your expenses. Optionally enable rollover to carry unused
-                        (or overspent) amounts into the next month.
+                        Set a monthly limit per category, or per tag (e.g. everything
+                        tagged "discretionary" across any category). Spending is tracked
+                        automatically from your expenses. Optionally enable rollover to
+                        carry unused (or overspent) amounts into the next month.
                     </p>
                     <button class="btn btn-primary" id="empty-add-budget">+ Add Your First Budget</button>
                 </div>
@@ -123,10 +124,10 @@ export function renderBudgets(container, store) {
         ` : `
             <div style="display:flex;flex-direction:column;gap:12px;">
                 ${sorted.map(s => {
-                    const budget = budgets.find(b => b.category === s.category);
+                    const budget = budgets.find(b => s.tag ? b.tag === s.tag : (b.category === s.category && !b.tag));
                     const catMeta = getAllExpenseCategories(store)[s.category] || getAllExpenseCategories(store)['other'];
-                    const label = catMeta.label;
-                    const color = catMeta.color;
+                    const label = s.tag ? `#${s.tag}` : catMeta.label;
+                    const color = s.tag ? 'var(--purple)' : catMeta.color;
                     if (s.notStarted) {
                         return `
                             <div class="card" style="opacity:0.5;">
@@ -232,14 +233,34 @@ function showBudgetForm(store, existing = null) {
         notes: '',
     };
 
+    const isTagBudget = !!budget.tag;
+    const existingTags = store.getAllExpenseTags();
     const html = `
         <div class="form-group">
+            <label>Track by</label>
+            <select class="form-select" id="budget-target-type" ${isEdit ? 'disabled' : ''}>
+                <option value="category" ${!isTagBudget ? 'selected' : ''}>Category (e.g. Groceries)</option>
+                <option value="tag" ${isTagBudget ? 'selected' : ''}>Tag (e.g. #discretionary, across any category)</option>
+            </select>
+        </div>
+        <div class="form-group" id="budget-category-group" style="${isTagBudget ? 'display:none;' : ''}">
             <label>Category</label>
             <select class="form-select" id="budget-category" ${isEdit ? 'disabled' : ''}>
                 ${renderCategoryOptions(budget.category, store)}
             </select>
-            ${isEdit ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Category is locked once a budget is created — delete and re-add to change.</div>' : ''}
         </div>
+        <div class="form-group" id="budget-tag-group" style="${isTagBudget ? '' : 'display:none;'}">
+            <label>Tag</label>
+            <input type="text" class="form-input" id="budget-tag" list="budget-tag-options"
+                   value="${escapeHtml(budget.tag || '')}" placeholder="e.g. discretionary" ${isEdit ? 'disabled' : ''}>
+            <datalist id="budget-tag-options">
+                ${existingTags.map(t => `<option value="${escapeHtml(t)}">`).join('')}
+            </datalist>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                Counts every expense carrying this tag, whatever its category. Tags come from rules or manual tagging${existingTags.length ? '' : ' — you have no tagged expenses yet'}.
+            </div>
+        </div>
+        ${isEdit ? '<div style="font-size:11px;color:var(--text-muted);margin:-8px 0 12px;">The target is locked once a budget is created — delete and re-add to change.</div>' : ''}
         <div class="form-row">
             <div class="form-group">
                 <label>Monthly limit</label>
@@ -274,20 +295,30 @@ function showBudgetForm(store, existing = null) {
 
     openModal(isEdit ? 'Edit Budget' : 'Add Budget', html);
 
-    // Searchable category picker (only on new budgets — category is locked on edit)
+    // Searchable category picker (only on new budgets — target is locked on edit)
     if (!isEdit) {
         mountSearchableCategoryPicker(document.getElementById('budget-category'), store);
+        const typeSel = document.getElementById('budget-target-type');
+        typeSel.addEventListener('change', () => {
+            const isTag = typeSel.value === 'tag';
+            document.getElementById('budget-category-group').style.display = isTag ? 'none' : '';
+            document.getElementById('budget-tag-group').style.display = isTag ? '' : 'none';
+        });
     }
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
     document.getElementById('modal-save').addEventListener('click', () => {
+        const targetType = document.getElementById('budget-target-type').value;
+        const tagValue = document.getElementById('budget-tag').value.trim();
         const payload = {
-            category: document.getElementById('budget-category').value,
+            category: targetType === 'tag' ? undefined : document.getElementById('budget-category').value,
+            tag: targetType === 'tag' ? tagValue : undefined,
             monthlyAmount: Number(document.getElementById('budget-amount').value) || 0,
             rollover: document.getElementById('budget-rollover').checked,
             startMonth: document.getElementById('budget-start-month').value || monthKey(),
             notes: document.getElementById('budget-notes').value.trim(),
         };
+        Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
 
         const err = document.getElementById('budget-form-error');
         try {
@@ -295,9 +326,12 @@ function showBudgetForm(store, existing = null) {
                 store.updateBudget(existing.id, payload);
             } else {
                 // Guard against duplicates (store.addBudget replaces, but surface the intent)
-                const dup = store.getBudgets().find(b => b.category === payload.category);
+                const dup = store.getBudgets().find(b => payload.tag
+                    ? String(b.tag || '').toLowerCase() === payload.tag.toLowerCase()
+                    : (b.category === payload.category && !b.tag));
                 if (dup) {
-                    if (!confirm(`A budget already exists for ${getAllExpenseCategories(store)[payload.category]?.label || payload.category}. Replace it?`)) return;
+                    const dupLabel = payload.tag ? `#${payload.tag}` : (getAllExpenseCategories(store)[payload.category]?.label || payload.category);
+                    if (!confirm(`A budget already exists for ${dupLabel}. Replace it?`)) return;
                 }
                 store.addBudget(payload);
             }
@@ -324,7 +358,7 @@ function renderVarianceReport(store, budgets) {
     // Precompute statuses: rows = budgets, cols = months
     const rows = budgets.map(budget => {
         const cells = months.map(m => {
-            const status = store.getBudgetStatuses(m).find(s => s.category === budget.category);
+            const status = store.getBudgetStatuses(m).find(s => budget.tag ? s.tag === budget.tag : (s.category === budget.category && !s.tag));
             if (!status || status.notStarted) return { notStarted: true };
             const variance = status.spent - status.monthlyAmount;
             return {
@@ -370,11 +404,13 @@ function renderVarianceReport(store, budgets) {
                         <tbody>
                             ${rows.map(r => {
                                 const cat = getAllExpenseCategories(store)[r.budget.category] || getAllExpenseCategories(store)['other'];
+                                const rowLabel = r.budget.tag ? `#${r.budget.tag}` : cat.label;
+                                const rowColor = r.budget.tag ? 'var(--purple)' : cat.color;
                                 return `
                                     <tr>
                                         <td style="font-weight:600;">
-                                            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${cat.color};margin-right:6px;vertical-align:middle;"></span>
-                                            ${escapeHtml(cat.label)}
+                                            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${rowColor};margin-right:6px;vertical-align:middle;"></span>
+                                            ${escapeHtml(rowLabel)}
                                         </td>
                                         ${r.cells.map(c => {
                                             if (c.notStarted) {
