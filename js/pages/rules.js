@@ -228,9 +228,9 @@ export function renderRules(container, store) {
     const reapply = container.querySelector('#reapply-rules-btn');
     if (reapply) {
         reapply.addEventListener('click', () => {
-            if (!confirm('Re-apply all enabled rules to every existing expense? Manual edits that rules would overwrite will be lost.')) return;
-            const changed = store.reapplyRulesToAllExpenses();
-            alert(`Updated ${changed} expense${changed === 1 ? '' : 's'}.`);
+            if (!confirm('Re-apply all enabled rules to existing expenses? Expenses you have edited by hand are left untouched.')) return;
+            const { changed, skipped } = store.reapplyRulesToAllExpenses();
+            alert(`Updated ${changed} expense${changed === 1 ? '' : 's'}.${skipped > 0 ? ` ${skipped} manually edited expense${skipped === 1 ? ' was' : 's were'} preserved.` : ''}`);
             refreshPage();
         });
     }
