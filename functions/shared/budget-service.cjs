@@ -78,7 +78,10 @@ function isMonthBefore(a, b) {
  * }}
  */
 function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendForMonth) {
-    const startMonth = budget.startMonth || asOfMonth;
+    // Defensive slice: a startMonth stored as a full date ('2026-07-03')
+    // compares lexicographically AFTER '2026-07' and would wrongly mark the
+    // budget not-started for its whole first month.
+    const startMonth = String(budget.startMonth || asOfMonth).slice(0, 7);
     if (isMonthBefore(asOfMonth, startMonth)) {
         return emptyStatus(budget, asOfMonth, true);
     }

@@ -80,9 +80,10 @@ export function renderRules(container, store) {
         <div class="card mb-24">
             <div class="settings-section">
                 <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0;">
-                    Rules run in priority order on every imported transaction. Each matching rule
-                    applies its actions in sequence — later rules can override earlier ones, so you
-                    can set up broad defaults and then specific overrides.
+                    Rules run in priority order (1, 2, 3…) on every imported transaction, and the
+                    <strong>first rule that matches wins</strong> — its actions apply and the rest are
+                    skipped. Put specific rules above general ones, and <strong>drag rows to
+                    reorder</strong>.
                 </p>
             </div>
         </div>
@@ -113,10 +114,15 @@ export function renderRules(container, store) {
                                 <th style="width:110px;">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="rules-tbody">
                             ${rules.map((r, i) => `
-                                <tr ${r.enabled ? '' : 'style="opacity:0.5;"'}>
-                                    <td style="color:var(--text-muted);">${i + 1}</td>
+                                <tr draggable="true" data-rule-id="${r.id}" ${r.enabled ? '' : 'style="opacity:0.5;"'}>
+                                    <td style="color:var(--text-muted);cursor:grab;" title="Drag to reorder">
+                                        <span style="display:inline-flex;align-items:center;gap:4px;">
+                                            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" opacity="0.4"><circle cx="9" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
+                                            ${i + 1}
+                                        </span>
+                                    </td>
                                     <td><div style="font-weight:600;">${escapeHtml(r.name)}</div></td>
                                     <td style="font-size:13px;">
                                         <code>${escapeHtml(fieldLabel(r.match.field))}</code>
@@ -145,6 +151,41 @@ export function renderRules(container, store) {
             </div>
         `}
     `;
+
+    // Drag-and-drop reordering — dropping a row renumbers every rule's
+    // priority to its new list position (0-based), which is the exact order
+    // the first-match-wins engine evaluates in.
+    const tbody = container.querySelector('#rules-tbody');
+    if (tbody) {
+        let draggedRow = null;
+        tbody.querySelectorAll('tr[data-rule-id]').forEach(tr => {
+            tr.addEventListener('dragstart', (e) => {
+                draggedRow = tr;
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => { tr.style.opacity = '0.4'; }, 0);
+            });
+            tr.addEventListener('dragend', () => {
+                if (draggedRow) draggedRow.style.opacity = '';
+                draggedRow = null;
+            });
+            tr.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                if (!draggedRow || draggedRow === tr) return;
+                const rect = tr.getBoundingClientRect();
+                const before = e.clientY < rect.top + rect.height / 2;
+                tbody.insertBefore(draggedRow, before ? tr : tr.nextSibling);
+            });
+            tr.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (!draggedRow) return;
+                // Persist new order as priorities 0..n-1
+                [...tbody.querySelectorAll('tr[data-rule-id]')].forEach((row, idx) => {
+                    store.updateRule(row.dataset.ruleId, { priority: idx });
+                });
+                refreshPage();
+            });
+        });
+    }
 
     const add = () => showRuleForm(store);
 

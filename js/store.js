@@ -1376,20 +1376,33 @@ class Store {
         if (err) throw new Error(err);
         const data = this._load();
         if (!data.categoryBudgets) data.categoryBudgets = [];
-        // Normalize so the "one active budget per category" dedupe below
+        // Normalize so the "one active budget per target" dedupe below
         // treats "Mortgage" and "mortgage" as the same bucket.
         const normalized = budget.category
             ? { ...budget, category: normalizeCategoryKey(budget.category, this) }
             : budget;
-        const needle = String(normalized.category || '').toLowerCase();
-        data.categoryBudgets = data.categoryBudgets.filter(b =>
-            String(b.category || '').toLowerCase() !== needle
-        );
+        // Dedupe is TARGET-aware: a tag budget only replaces the budget for
+        // the same tag; a category budget only replaces the budget for the
+        // same category. (Comparing categories alone made every tag budget
+        // — category undefined — collide with every other tag budget.)
+        if (normalized.tag) {
+            const tagNeedle = String(normalized.tag).toLowerCase();
+            data.categoryBudgets = data.categoryBudgets.filter(b =>
+                String(b.tag || '').toLowerCase() !== tagNeedle
+            );
+        } else {
+            const needle = String(normalized.category || '').toLowerCase();
+            data.categoryBudgets = data.categoryBudgets.filter(b =>
+                b.tag ? true : String(b.category || '').toLowerCase() !== needle
+            );
+        }
         const next = {
             id: crypto.randomUUID(),
             rollover: false,
-            startMonth: monthKey(),
             ...normalized,
+            // Defensive: a full date here ('2026-07-03' > '2026-07') makes
+            // the budget look not-started for its entire first month.
+            startMonth: String(normalized.startMonth || monthKey()).slice(0, 7),
         };
         data.categoryBudgets.push(next);
         this._save();
