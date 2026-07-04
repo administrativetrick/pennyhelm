@@ -7,7 +7,6 @@ firebase.initializeApp(firebaseConfig);
 // No-op if APP_CHECK_SITE_KEY is empty.
 activateAppCheck(firebase, APP_CHECK_SITE_KEY);
 const auth = firebase.auth();
-const db = firebase.firestore();
 const functions = firebase.functions();
 
 // DOM elements
@@ -45,6 +44,32 @@ function getTypeLabel(type) {
     return labels[type] || type;
 }
 
+const ROLE_LABELS = {
+    'companion': 'Companion',
+    'advisor': 'Financial Advisor',
+    'viewer': 'Viewer',
+    'partner': 'Partner',
+    'full': 'Full Access'
+};
+
+const ROLE_ACCESS_TEXT = {
+    'companion': 'Budgets & selected account balances',
+    'advisor': 'Read-only financial picture',
+    'viewer': 'View everything',
+    'partner': 'View everything, manage day-to-day',
+    'full': 'View and edit everything'
+};
+
+// Prefer the RBAC role for display; fall back to the legacy type/permissions.
+function getBadgeLabel(invite) {
+    return invite.role ? ROLE_LABELS[invite.role] || invite.role : getTypeLabel(invite.type);
+}
+
+function getAccessText(invite) {
+    if (invite.role && ROLE_ACCESS_TEXT[invite.role]) return ROLE_ACCESS_TEXT[invite.role];
+    return invite.permissions === 'edit' ? 'Edit Access' : 'View Only';
+}
+
 function formatDate(timestamp) {
     if (!timestamp) return 'Recently';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -70,11 +95,11 @@ function populateInviteDetails(invite, container) {
     container.innerHTML = `
         <div class="inviter-name">${esc(invite.inviterName || 'Someone')}</div>
         <div class="inviter-email">${esc(invite.inviterEmail || '')}</div>
-        <span class="invite-type-badge ${typeClass}">${esc(getTypeLabel(invite.type))}</span>
+        <span class="invite-type-badge ${typeClass}">${esc(getBadgeLabel(invite))}</span>
         <div class="invite-info">
             <div class="info-item">
                 <div class="info-label">Access Level</div>
-                <div class="info-value">${invite.permissions === 'edit' ? 'Edit Access' : 'View Only'}</div>
+                <div class="info-value">${esc(getAccessText(invite))}</div>
             </div>
             <div class="info-item">
                 <div class="info-label">Invited</div>
@@ -94,15 +119,13 @@ async function loadInvite() {
     }
 
     try {
-        // Fetch invite details from Firestore
-        const inviteDoc = await db.collection('invites').doc(inviteId).get();
+        // Fetch display-safe invite details via Cloud Function. A direct
+        // Firestore read doesn't work here: security rules (correctly)
+        // require auth, but this page must render for signed-out invitees.
+        const getInvitePreview = functions.httpsCallable('getInvitePreview');
+        const result = await getInvitePreview({ inviteId });
 
-        if (!inviteDoc.exists) {
-            showError('This invitation was not found. It may have been cancelled or expired.');
-            return;
-        }
-
-        const invite = inviteDoc.data();
+        const invite = result.data.invite;
         currentInvite = invite;
 
         // Check invite status
@@ -147,7 +170,11 @@ async function loadInvite() {
 
     } catch (err) {
         console.error('Error loading invite:', err);
-        showError('Unable to load invitation. Please try again later.');
+        if (err && (err.code === 'not-found' || err.code === 'functions/not-found')) {
+            showError('This invitation was not found. It may have been cancelled or expired.');
+        } else {
+            showError('Unable to load invitation. Please try again later.');
+        }
     }
 }
 
@@ -156,16 +183,16 @@ function showInviteDetails(invite) {
     document.getElementById('inviter-email').textContent = invite.inviterEmail || '';
 
     const typeBadge = document.getElementById('invite-type-badge');
-    typeBadge.textContent = getTypeLabel(invite.type);
+    typeBadge.textContent = getBadgeLabel(invite);
     typeBadge.className = 'invite-type-badge';
     if (invite.type === 'cpa') typeBadge.classList.add('cpa');
     if (invite.type === 'financial-planner') typeBadge.classList.add('financial-planner');
 
-    document.getElementById('permissions-text').textContent =
-        invite.permissions === 'edit' ? 'Edit Access' : 'View Only';
+    document.getElementById('permissions-text').textContent = getAccessText(invite);
     document.getElementById('invite-date').textContent = formatDate(invite.createdAt);
     document.getElementById('permissions-description').textContent =
-        invite.permissions === 'edit' ? 'view and edit' : 'view';
+        invite.role ? (ROLE_ACCESS_TEXT[invite.role] || 'view').toLowerCase() :
+        (invite.permissions === 'edit' ? 'view and edit' : 'view');
 
     // Wire up buttons
     document.getElementById('btn-accept').onclick = () => acceptInvite(invite);
