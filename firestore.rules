@@ -55,34 +55,70 @@ service cloud.firestore {
     // which have admin access and can read the JSON. For basic access, we verify via
     // a separate sharedWithUids array stored at the document root level.
     match /userData/{userId} {
-      // Check if current user has been granted access via sharedWithUids array
-      // (This array is maintained by Cloud Functions alongside the JSON sharedWith)
-      function hasSharedAccess() {
-        return request.auth != null
-               && exists(/databases/$(database)/documents/userData/$(userId))
-               && 'sharedWithUids' in get(/databases/$(database)/documents/userData/$(userId)).data
-               && request.auth.uid in get(/databases/$(database)/documents/userData/$(userId)).data.sharedWithUids;
+      // ── RBAC (sharedRoles map, maintained by Cloud Functions + the
+      //    storage adapter alongside the JSON sharedWith entries) ──
+      //
+      // Direct document reads are reserved for roles that may see the whole
+      // dataset: viewer / partner / full (and legacy shares without a role).
+      // Partial-view roles (companion / advisor) get NO direct access — they
+      // read through the getSharedSnapshot Cloud Function, which filters
+      // server-side.
+      function myRole() {
+        return ('sharedRoles' in resource.data
+                && request.auth.uid in resource.data.sharedRoles)
+               ? resource.data.sharedRoles[request.auth.uid].role
+               : null;
       }
 
-      // Check if user has edit permissions via sharedWithEdit array
-      function hasEditAccess() {
-        return request.auth != null
-               && exists(/databases/$(database)/documents/userData/$(userId))
-               && 'sharedWithEdit' in get(/databases/$(database)/documents/userData/$(userId)).data
-               && request.auth.uid in get(/databases/$(database)/documents/userData/$(userId)).data.sharedWithEdit;
+      function hasLegacyShare() {
+        // Shares created before roles existed: full-view by construction.
+        return 'sharedWithUids' in resource.data
+               && request.auth.uid in resource.data.sharedWithUids
+               && !('sharedRoles' in resource.data
+                    && request.auth.uid in resource.data.sharedRoles);
       }
 
-      // Users read own data; admin reads any; invited users with access can read
-      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin() || hasSharedAccess());
+      function hasFullViewAccess() {
+        return myRole() in ['viewer', 'partner', 'full'] || hasLegacyShare();
+      }
 
-      // Users write own data (if not expired); admin writes any; invited users with edit permission can write
+      function hasEditRole() {
+        return myRole() in ['partner', 'full']
+               || ('sharedWithEdit' in resource.data
+                   && request.auth.uid in resource.data.sharedWithEdit
+                   && hasLegacyShare());
+      }
+
+      // A shared editor must never touch the ACL fields — otherwise an
+      // invited editor could grant/revoke access (owner-only capability).
+      function aclFieldsUnchanged() {
+        return request.resource.data.get('sharedWithUids', []) == resource.data.get('sharedWithUids', [])
+               && request.resource.data.get('sharedWithEdit', []) == resource.data.get('sharedWithEdit', [])
+               && request.resource.data.get('sharedRoles', {}) == resource.data.get('sharedRoles', {});
+      }
+
+      // Users read own data; admin reads any; full-view shared roles can read
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin() || hasFullViewAccess());
+
+      // Users write own data (if not expired); admin writes any; shared
+      // editors (partner/full) can write but cannot alter ACLs
       allow write: if request.auth != null && (
                      isAdmin()
                      || (request.auth.uid == userId
                          && (!exists(/databases/$(database)/documents/users/$(userId))
                              || get(/databases/$(database)/documents/users/$(userId)).data.subscriptionStatus != 'expired'))
-                     || (hasSharedAccess() && hasEditAccess())
+                     || (hasEditRole() && aclFieldsUnchanged())
                    );
+    }
+
+    // Reverse index written on invite acceptance — lets a sharee discover
+    // who shared with them without any access to the owner's document.
+    match /shares/{shareId} {
+      allow read: if request.auth != null
+                   && (resource.data.shareeUid == request.auth.uid
+                       || resource.data.ownerUid == request.auth.uid);
+      // Written only by Cloud Functions (admin SDK bypasses rules).
+      allow write: if false;
     }
 
     // Invites collection — stores pending invites indexed by email

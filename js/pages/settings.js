@@ -1,5 +1,5 @@
 import { formatCurrency, escapeHtml, getScoreRating, estimateScoreImpact } from '../utils.js';
-import { openModal, closeModal, refreshPage, updateDependentNav } from '../app.js';
+import { openModal, closeModal, refreshPage, updateDependentNav, navigate } from '../app.js';
 import { openFormModal } from '../services/modal-manager.js';
 import { auth } from '../auth.js';
 import { CATEGORY_COLORS } from '../categories.js';
@@ -350,6 +350,11 @@ export function renderSettings(container, store) {
                     <div id="shared-with-section" style="margin-top:16px;display:none;">
                         <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">PEOPLE WITH ACCESS</div>
                         <div id="shared-with-list"></div>
+                    </div>
+
+                    <div id="shared-with-me-section" style="margin-top:16px;display:none;">
+                        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">SHARED WITH ME</div>
+                        <div id="shared-with-me-list"></div>
                     </div>
 
                     <!-- Clarifying note for new users: the two controls above
@@ -1130,7 +1135,7 @@ export function renderSettings(container, store) {
                                 <div class="setting-label" style="font-size:13px;">${escapeHtml(person.email)}</div>
                                 <div class="setting-desc" style="font-size:11px;">
                                     ${person.type === 'partner' ? '👫 Partner' : person.type === 'cpa' ? '📊 CPA' : '💼 Financial Planner'}
-                                    · ${person.permissions === 'edit' ? 'Can edit' : 'View only'}
+                                    · <strong style="text-transform:capitalize;">${escapeHtml(person.role || (person.permissions === 'edit' ? 'partner' : 'viewer'))}</strong>${person.role === 'companion' && Array.isArray(person.accountIds) ? ` (${person.accountIds.length} account${person.accountIds.length !== 1 ? 's' : ''})` : ''}${person.canEditBudgets ? ' · can adjust budgets' : ''}
                                     · Shared ${new Date(person.sharedAt).toLocaleDateString()}
                                 </div>
                             </div>
@@ -1154,6 +1159,43 @@ export function renderSettings(container, store) {
             };
 
             loadInvitesAndShares();
+
+            // Shared WITH ME — finances other people have shared with this
+            // account. Companion/advisor grants are served by the
+            // getSharedSnapshot gateway; the shared view page handles all roles.
+            if (auth.isCloud()) {
+                (async () => {
+                    try {
+                        const listMyShares = firebase.functions().httpsCallable('listMyShares');
+                        const result = await listMyShares({});
+                        const shares = (result.data && result.data.shares) || [];
+                        const section = container.querySelector('#shared-with-me-section');
+                        const list = container.querySelector('#shared-with-me-list');
+                        if (!section || !list || shares.length === 0) return;
+                        section.style.display = 'block';
+                        list.innerHTML = shares.map(s => `
+                            <div class="settings-row" style="background:var(--bg-secondary);padding:10px 12px;border-radius:var(--radius-sm);margin-bottom:6px;">
+                                <div>
+                                    <div class="setting-label" style="font-size:13px;">${escapeHtml(s.ownerName)}'s finances</div>
+                                    <div class="setting-desc" style="font-size:11px;">Your access: <strong style="text-transform:capitalize;">${escapeHtml(s.role)}</strong>${s.canEditBudgets ? ' · can adjust budgets' : ''}</div>
+                                </div>
+                                <button class="btn btn-primary btn-sm view-shared" data-owner="${escapeHtml(s.ownerUid)}" data-name="${escapeHtml(s.ownerName)}">View</button>
+                            </div>
+                        `).join('');
+                        list.querySelectorAll('.view-shared').forEach(btn => {
+                            btn.addEventListener('click', () => {
+                                sessionStorage.setItem('pennyhelm-shared-view', JSON.stringify({
+                                    ownerUid: btn.dataset.owner,
+                                    ownerName: btn.dataset.name,
+                                }));
+                                navigate('shared');
+                            });
+                        });
+                    } catch (e) {
+                        // listMyShares not deployed yet or offline — section stays hidden
+                    }
+                })();
+            }
 
             // Invite button click
             inviteBtn.addEventListener('click', () => {
@@ -1186,11 +1228,30 @@ export function renderSettings(container, store) {
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>Permissions</label>
-                        <select class="form-select" id="invite-permissions">
-                            <option value="view">View only — can see but not change anything</option>
-                            <option value="edit">Can edit — can make changes to bills, accounts, etc.</option>
+                        <label>Access level</label>
+                        <select class="form-select" id="invite-role">
+                            <option value="companion">Companion — chosen account balances + budgets only</option>
+                            <option value="advisor">Advisor — the financial picture, no individual bills</option>
+                            <option value="viewer">Viewer — sees everything, changes nothing</option>
+                            <option value="partner">Partner — sees everything, manages day-to-day</option>
+                            <option value="full">Full — sees and edits everything</option>
                         </select>
+                        <div id="invite-role-desc" style="font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5;"></div>
+                    </div>
+                    <div class="form-group" id="invite-accounts-group" style="display:none;">
+                        <label>Accounts they can see balances for</label>
+                        <div id="invite-accounts-list" style="max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;">
+                            ${store.getAccounts().map(a => `
+                                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;">
+                                    <input type="checkbox" class="invite-account-cb" value="${escapeHtml(a.id)}"> ${escapeHtml(a.name)} <span style="color:var(--text-muted);font-size:11px;">(${escapeHtml(a.type)})</span>
+                                </label>`).join('') || '<div style="font-size:12px;color:var(--text-muted);">No accounts yet — they\'ll see budgets only.</div>'}
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Leave all unchecked for a budgets-only view.</div>
+                    </div>
+                    <div class="form-group" id="invite-budget-edit-group" style="display:none;">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                            <input type="checkbox" id="invite-can-edit-budgets"> Allow adjusting budget amounts
+                        </label>
                     </div>
                     <div class="modal-actions">
                         <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
@@ -1205,10 +1266,40 @@ export function renderSettings(container, store) {
                 `);
 
                 document.getElementById('modal-cancel').addEventListener('click', closeModal);
+
+                // Role picker: description + conditional companion/advisor options
+                const ROLE_DESCRIPTIONS = {
+                    companion: 'Sees the balance of accounts you pick below, plus each budget\'s limit, spent, and remaining. Never sees individual bills, transactions, debts, or income.',
+                    advisor: 'Read-only financial picture: all accounts, debts, investments, income, savings, and net-worth history. No individual bills or day-to-day activity.',
+                    viewer: 'Read-only access to everything, including bills and the calendar.',
+                    partner: 'Sees everything and can manage day-to-day items: bills, budgets, savings goals, and rules.',
+                    full: 'Sees and edits everything, including accounts, debts, and income. Sharing and data export stay yours alone.',
+                };
+                const roleSelect = document.getElementById('invite-role');
+                const roleDesc = document.getElementById('invite-role-desc');
+                const accountsGroup = document.getElementById('invite-accounts-group');
+                const budgetEditGroup = document.getElementById('invite-budget-edit-group');
+                const syncRoleUi = () => {
+                    const r = roleSelect.value;
+                    roleDesc.textContent = ROLE_DESCRIPTIONS[r];
+                    accountsGroup.style.display = r === 'companion' ? '' : 'none';
+                    budgetEditGroup.style.display = (r === 'companion' || r === 'advisor') ? '' : 'none';
+                };
+                roleSelect.addEventListener('change', syncRoleUi);
+                syncRoleUi();
+
                 document.getElementById('modal-send-invite').addEventListener('click', async () => {
                     const email = document.getElementById('invite-email').value.trim().toLowerCase();
                     const type = document.querySelector('input[name="invite-type"]:checked').value;
-                    const permissions = document.getElementById('invite-permissions').value;
+                    const role = document.getElementById('invite-role').value;
+                    const accountIds = role === 'companion'
+                        ? [...document.querySelectorAll('.invite-account-cb:checked')].map(cb => cb.value)
+                        : null;
+                    const canEditBudgets = (role === 'companion' || role === 'advisor')
+                        ? document.getElementById('invite-can-edit-budgets').checked
+                        : false;
+                    // Legacy field kept for backward compatibility (rules + old clients)
+                    const permissions = (role === 'partner' || role === 'full') ? 'edit' : 'view';
 
                     if (!email || !email.includes('@')) {
                         alert('Please enter a valid email address');
@@ -1237,7 +1328,7 @@ export function renderSettings(container, store) {
                         // Call Cloud Function to send invite email
                         const functions = firebase.functions();
                         const sendInviteFn = functions.httpsCallable('sendInvite');
-                        const result = await sendInviteFn({ email, type, permissions });
+                        const result = await sendInviteFn({ email, type, permissions, role, accountIds, canEditBudgets });
 
                         if (result.data.success) {
                             // Also create invite in local store for UI display
@@ -1245,7 +1336,10 @@ export function renderSettings(container, store) {
                                 id: result.data.inviteId,
                                 email,
                                 type,
-                                permissions
+                                permissions,
+                                role,
+                                accountIds,
+                                canEditBudgets
                             });
 
                             closeModal();
