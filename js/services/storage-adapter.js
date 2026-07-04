@@ -183,9 +183,28 @@ export class StorageAdapter {
                 writeData.sharedWithEdit = data.sharedWith
                     .filter(s => s.permissions === 'edit')
                     .map(s => s.uid);
+                // RBAC role map — must be re-derived on every save (set with
+                // merge would otherwise leave stale grants after a revoke).
+                // Mirrors deriveSharedRoles in functions/shared/shared-access-model.cjs:
+                // entries without a role are legacy (view->viewer, edit->partner).
+                const roles = {};
+                for (const s of data.sharedWith) {
+                    if (!s || !s.uid) continue;
+                    roles[s.uid] = {
+                        role: ['companion', 'advisor', 'viewer', 'partner', 'full'].includes(s.role)
+                            ? s.role
+                            : (s.permissions === 'edit' ? 'partner' : 'viewer'),
+                        accountIds: Array.isArray(s.accountIds) ? s.accountIds : null,
+                        canEditBudgets: s.canEditBudgets === true,
+                    };
+                }
+                writeData.sharedRoles = roles;
             }
 
-            await this._dataDocRef.set(writeData, { merge: true });
+            // mergeFields (not merge:true): merge deep-merges map fields, which
+            // would leave a revoked user's entry lingering inside sharedRoles.
+            // mergeFields replaces each listed field wholesale.
+            await this._dataDocRef.set(writeData, { mergeFields: Object.keys(writeData) });
         } catch (e) {
             console.error('Failed to sync to Firestore:', e);
         }

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Role-based sharing (cloud).** Invites now carry an access level instead of a view/edit binary. Five additive roles: **Companion** (balances of accounts you pick + budget limit/spent/remaining — never individual bills, transactions, debts, or income), **Advisor** (read-only financial picture: accounts, debts, investments, income, savings, net-worth history), **Viewer** (read-only everything), **Partner** (everything + manages day-to-day bills/budgets/savings/rules), **Full** (everything + accounts/debts/income). Sharing management, data export, and bank connections always stay owner-only. Companion and Advisor grants can optionally allow adjusting budget amounts.
+- **A "Shared with me" view.** People you've shared with now have an actual window into your finances: Settings lists finances shared with them and opens a role-scoped, read-only view. Enforcement is server-side — partial-access roles (Companion/Advisor) are served by a Cloud Function that filters your data and computes budget spent/remaining on the server, so bills and transactions never reach their browser at all. Existing shares keep working (view → Viewer, edit → Partner).
+
+### Security
+- **Invited editors can no longer alter sharing grants.** Firestore rules now freeze the access-control fields on any non-owner write, so a shared editor cannot grant or revoke access — that stays owner-only.
+
 ## [0.4.1] — 2026-07-03
 
 ### Added

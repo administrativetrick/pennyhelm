@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const crypto = require("crypto");
+const sharedAccess = require("./shared/shared-access-model.cjs");
 
 module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRateLimit }) {
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = secrets;
@@ -51,7 +52,7 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
 
             const uid = request.auth.uid;
             const inviterEmail = request.auth.token.email;
-            const { email, type, permissions } = request.data || {};
+            const { email, type, permissions, role, accountIds, canEditBudgets } = request.data || {};
 
             if (!email || !type || !permissions) {
                 throw new HttpsError("invalid-argument", "Missing email, type, or permissions.");
@@ -67,6 +68,16 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
             const validPermissions = ['view', 'edit'];
             if (!validPermissions.includes(permissions)) {
                 throw new HttpsError("invalid-argument", "Invalid permissions.");
+            }
+
+            // Validate role (RBAC). Optional for backward compatibility —
+            // legacy clients that only send permissions get viewer/partner.
+            if (role !== undefined && !sharedAccess.isValidRole(role)) {
+                throw new HttpsError("invalid-argument", "Invalid role.");
+            }
+            if (accountIds !== undefined && accountIds !== null &&
+                (!Array.isArray(accountIds) || accountIds.some(a => typeof a !== 'string') || accountIds.length > 200)) {
+                throw new HttpsError("invalid-argument", "accountIds must be an array of ids.");
             }
 
             // Get inviter's name from their user profile
@@ -86,6 +97,9 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
                     inviteeEmail: email.toLowerCase(),
                     type: type,
                     permissions: permissions,
+                    role: sharedAccess.isValidRole(role) ? role : (permissions === 'edit' ? 'partner' : 'viewer'),
+                    accountIds: Array.isArray(accountIds) ? accountIds : null,
+                    canEditBudgets: canEditBudgets === true,
                     status: 'pending',
                     createdAt: admin.firestore.FieldValue.serverTimestamp()
                 };
@@ -224,11 +238,17 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
                     // Add the invitee if not already present
                     const alreadyShared = userData.sharedWith.find(s => s.uid === inviteeUid);
                     if (!alreadyShared) {
+                        const grantRole = sharedAccess.isValidRole(invite.role)
+                            ? invite.role
+                            : (invite.permissions === 'edit' ? 'partner' : 'viewer');
                         userData.sharedWith.push({
                             uid: inviteeUid,
                             email: inviteeEmail,
                             type: invite.type,
                             permissions: invite.permissions,
+                            role: grantRole,
+                            accountIds: Array.isArray(invite.accountIds) ? invite.accountIds : null,
+                            canEditBudgets: invite.canEditBudgets === true,
                             sharedAt: new Date().toISOString()
                         });
 
@@ -248,13 +268,26 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
                         const sharedWithEdit = userData.sharedWith
                             .filter(s => s.permissions === 'edit')
                             .map(s => s.uid);
+                        // Role map for RBAC rules + the snapshot gateway
+                        const sharedRoles = sharedAccess.deriveSharedRoles(userData.sharedWith);
 
                         // Save back to Firestore with both JSON data and rule-accessible arrays
                         await db.collection("userData").doc(invite.inviterUid).set({
                             data: JSON.stringify(userData),
                             sharedWithUids: sharedWithUids,
                             sharedWithEdit: sharedWithEdit,
+                            sharedRoles: sharedRoles,
                             updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        // Reverse index so the sharee can discover shares
+                        // without any access to the owner's doc.
+                        await db.collection("shares").doc(`${inviteeUid}_${invite.inviterUid}`).set({
+                            ownerUid: invite.inviterUid,
+                            ownerName: invite.inviterName,
+                            shareeUid: inviteeUid,
+                            role: grantRole,
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
                         });
                     }
                 }

@@ -111,6 +111,7 @@ const plaidFns     = require("./plaid")(shared);
 const stripeFns    = require("./stripe")(shared);
 const mfaFns       = require("./mfa")(shared);
 const inviteFns    = require("./invites")(shared);
+const sharedAccessFns = require("./shared-access")(shared);
 const scheduledFns = require("./scheduled")(shared);
 const chatbotFns   = require("./chatbot")(shared);
 const apiKeyFns    = require("./api-keys")(shared);
@@ -179,4 +180,4 @@ try {
 delete apiKeyFns._validateApiKey;
 delete inviteFns.trackPaidReferral;
 
-Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, blogSiteFns, aiHealthFns, socialFns, blgFns, internalJobsFns, internalSvcFns);
+Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, sharedAccessFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, blogSiteFns, aiHealthFns, socialFns, blgFns, internalJobsFns, internalSvcFns);

@@ -14,6 +14,7 @@ import { renderInvestments } from './pages/investments.js';
 import { renderRules } from './pages/rules.js';
 import { renderBudgets } from './pages/budgets.js';
 import { renderSavingsGoalsPage } from './pages/savings.js';
+import { renderSharedView } from './pages/shared-view.js';
 import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 import { pingActiveUser } from './active-ping.js';
@@ -30,6 +31,7 @@ const pages = {
     savings: renderSavingsGoalsPage,
     rules: renderRules,
     settings: renderSettings,
+    shared: renderSharedView,
     admin: renderAdmin
 };
 
