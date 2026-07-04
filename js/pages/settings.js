@@ -1368,7 +1368,9 @@ export function renderSettings(container, store) {
                             });
 
                             closeModal();
-                            openModal('Invite Sent', `
+                            const emailSent = result.data.emailSent !== false;
+                            const inviteLink = result.data.inviteLink || `https://pennyhelm.com/accept-invite?id=${result.data.inviteId}`;
+                            openModal(emailSent ? 'Invite Sent' : 'Invite Created', emailSent ? `
                                 <div style="padding:8px 0 16px;font-size:14px;text-align:center;">
                                     <div style="font-size:48px;margin-bottom:12px;">✉️</div>
                                     <p style="color:var(--green);font-weight:600;">Invite sent to ${escapeHtml(email)}!</p>
@@ -1382,7 +1384,31 @@ export function renderSettings(container, store) {
                                 <div class="modal-actions">
                                     <button class="btn btn-primary" id="modal-close">Done</button>
                                 </div>
+                            ` : `
+                                <div style="padding:8px 0 16px;font-size:14px;text-align:center;">
+                                    <div style="font-size:48px;margin-bottom:12px;">🔗</div>
+                                    <p style="color:var(--green);font-weight:600;">Invite created for ${escapeHtml(email)}</p>
+                                    <p style="margin-top:12px;color:var(--text-secondary);font-size:13px;">
+                                        The invite email couldn't be sent right now, but the invite works —
+                                        share this link with them directly (they'll also see it when they sign in):
+                                    </p>
+                                    <div style="display:flex;gap:8px;margin-top:12px;">
+                                        <input type="text" class="form-input" id="invite-link-field" value="${escapeHtml(inviteLink)}" readonly style="font-size:12px;">
+                                        <button class="btn btn-secondary btn-sm" id="copy-invite-link">Copy</button>
+                                    </div>
+                                </div>
+                                <div class="modal-actions">
+                                    <button class="btn btn-primary" id="modal-close">Done</button>
+                                </div>
                             `);
+                            const copyBtn = document.getElementById('copy-invite-link');
+                            if (copyBtn) {
+                                copyBtn.addEventListener('click', () => {
+                                    const field = document.getElementById('invite-link-field');
+                                    field.select();
+                                    navigator.clipboard.writeText(field.value).then(() => { copyBtn.textContent = 'Copied!'; });
+                                });
+                            }
                             document.getElementById('modal-close').addEventListener('click', closeModal);
                             loadInvitesAndShares();
                         }
