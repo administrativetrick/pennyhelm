@@ -15,7 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Budgets can now track a tag as well as a category.** A budget targets either a category (as before) or a tag — e.g. cap everything tagged "discretionary" no matter which category it lands in. Tag budgets count tagged expenses across all categories (bills don't apply, since bills carry no tags), support rollover, appear in the variance report and the dashboard's Budget Health widget as #tag, and flow through shared views — including budget editing by invited users who have that permission.
 
 ### Changed
+- **Rules are now first-match-wins, with drag-and-drop priority.** Rules evaluate in numbered order (1, 2, 3…) and the first rule that matches a transaction applies — the rest are skipped, so specific rules placed above general ones can't be overridden anymore. Drag rows on the Rules page to reorder priorities. (Previously every matching rule applied cumulatively, with later rules overriding earlier ones.)
 - **Rules now pick categories from a searchable dropdown.** The "Set category" field on transaction rules offers every existing category (including your custom ones) with search, plus "+ Create new category" to add one on the spot — no more free-typing category names that silently don't match any budget. Rules with legacy free-typed categories keep working and show as "(legacy)" when edited.
+
+### Fixed
+- **Adding a tag budget no longer replaces other tag budgets.** The one-budget-per-target dedupe compared categories only, so every tag budget (which has no category) collided with every other tag budget.
+- **Budgets created with a full-date start month no longer show as "not started" for their first month.** Start months are normalized to year-month on save and defensively when computing status.
 
 ### Security
 - **Invited editors can no longer alter sharing grants.** Firestore rules now freeze the access-control fields on any non-owner write, so a shared editor cannot grant or revoke access — that stays owner-only.

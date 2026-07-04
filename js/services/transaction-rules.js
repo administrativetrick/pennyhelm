@@ -22,10 +22,10 @@
  *     }
  *   }
  *
- * Rules run in priority order, lowest first. Every matching enabled rule
- * applies its actions in sequence — this means later rules can override
- * earlier ones (by design — lets you have a general rule like "groceries"
- * and a specific override like "wholesale clubs").
+ * Rules run in priority order, lowest first, and the FIRST enabled rule
+ * that matches wins: its actions apply and evaluation stops for that
+ * expense. Put specific rules (e.g. "wholesale clubs") above general ones
+ * (e.g. "groceries") — the Rules page supports drag-and-drop reordering.
  */
 
 export function matchesRule(rule, expense) {
@@ -114,8 +114,10 @@ export function applyActions(actions, expense) {
 }
 
 /**
- * Apply an ordered rule list to a single expense. Returns a new expense
- * object (pure function — does not mutate the input).
+ * Apply an ordered rule list to a single expense: rules are evaluated in
+ * priority order (lowest number first) and the FIRST match wins — its
+ * actions apply and evaluation stops. Returns a new expense object (pure
+ * function — does not mutate the input).
  */
 export function applyRulesToExpense(rules, expense) {
     if (!Array.isArray(rules) || rules.length === 0) return expense;
@@ -125,13 +127,12 @@ export function applyRulesToExpense(rules, expense) {
         (a.priority ?? 0) - (b.priority ?? 0)
     );
 
-    let current = expense;
     for (const rule of sorted) {
-        if (matchesRule(rule, current)) {
-            current = applyActions(rule.actions, current);
+        if (matchesRule(rule, expense)) {
+            return applyActions(rule.actions, expense);
         }
     }
-    return current;
+    return expense;
 }
 
 /**
