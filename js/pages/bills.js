@@ -13,6 +13,10 @@ const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
 let cfPeriodOffset = 0; // For cashflow view pay period navigation
+// Persisted across re-renders — multi-select (ctrl/shift/long-press) triggers a
+// full renderBills, which used to reset the filter chips back to Unpaid
+// mid-selection.
+let billsActiveFilter = 'unpaid';
 let billsSortCol = 'dueDay';
 let billsSortDir = 'asc';
 let selectedBillIds = new Set();
@@ -142,6 +146,13 @@ export function renderBills(container, store) {
     // Get unique categories
     const categories = [...new Set(allBills.map(b => b.category))].sort();
 
+    // Resolve the persisted filter against the chips actually rendered in this
+    // view (a category can disappear, and Frozen only exists in month view).
+    const validFilters = ['unpaid', 'all', ...categories];
+    if (billsViewMode === 'month') validFilters.push('frozen');
+    if (!validFilters.includes(billsActiveFilter)) billsActiveFilter = 'unpaid';
+    const activeFilter = billsActiveFilter;
+
     const viewLabel = billsViewMode === 'paycheck' && periodLabel
         ? `Current Paycheck (${periodLabel})`
         : 'Full Month';
@@ -199,10 +210,10 @@ export function renderBills(container, store) {
         ` : ''}
 
         <div class="filters" id="filters">
-            <button class="filter-chip active" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
-            <button class="filter-chip" data-filter="all">All</button>
-            ${categories.map(c => `<button class="filter-chip" data-filter="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}
-            ${billsViewMode === 'month' ? '<button class="filter-chip" data-filter="frozen" style="border-color:var(--blue);color:var(--blue);">Frozen</button>' : ''}
+            <button class="filter-chip${activeFilter === 'unpaid' ? ' active' : ''}" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
+            <button class="filter-chip${activeFilter === 'all' ? ' active' : ''}" data-filter="all">All</button>
+            ${categories.map(c => `<button class="filter-chip${activeFilter === c ? ' active' : ''}" data-filter="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}
+            ${billsViewMode === 'month' ? `<button class="filter-chip${activeFilter === 'frozen' ? ' active' : ''}" data-filter="frozen" style="border-color:var(--blue);color:var(--blue);">Frozen</button>` : ''}
         </div>
 
         ${overdueBills.length > 0 ? `
@@ -251,7 +262,7 @@ export function renderBills(container, store) {
                     </tr>
                 </thead>
                 <tbody id="bills-tbody">
-                    ${renderBillRows(sortBills(filterBills(bills, 'unpaid', store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
+                    ${renderBillRows(sortBills(filterBills(bills, activeFilter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
                 </tbody>
             </table>
         </div>
@@ -278,7 +289,7 @@ export function renderBills(container, store) {
                         </tr>
                     </thead>
                     <tbody id="periodic-bills-tbody">
-                        ${renderBillRows(sortBills(filterBills(periodicBills, 'unpaid', store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
+                        ${renderBillRows(sortBills(filterBills(periodicBills, activeFilter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
                     </tbody>
                 </table>
             </div>
@@ -385,6 +396,7 @@ export function renderBills(container, store) {
             container.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
             chip.classList.add('active');
             const filter = chip.dataset.filter;
+            billsActiveFilter = filter; // survives the re-renders multi-select triggers
             const tbody = container.querySelector('#bills-tbody');
             tbody.innerHTML = renderBillRows(sortBills(filterBills(bills, filter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName);
             attachRowEvents(tbody, store, allBills, sources, categories, year, month, depEnabled, userName, depName);

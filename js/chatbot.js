@@ -282,13 +282,102 @@ export function initChatbot() {
     loadHistory();
     if (messages.length === 0) addWelcomeMessage();
 
-    // Create bubble
+    // Hidden for this browsing session via the minus button — skip the bubble
+    // entirely (it comes back on the next visit).
+    const sessionHidden = (() => {
+        try { return sessionStorage.getItem('pennyhelm-chat-hidden') === '1'; } catch (e) { return false; }
+    })();
+
+    // Create bubble inside a draggable, hideable FAB container
+    const fab = document.createElement('div');
+    fab.id = 'chatbot-fab';
+    fab.className = 'chatbot-fab';
+
     const bubble = document.createElement('button');
     bubble.id = 'chatbot-bubble';
     bubble.className = 'chatbot-bubble';
     bubble.setAttribute('aria-label', 'Open financial assistant');
     bubble.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
-    bubble.addEventListener('click', togglePanel);
+
+    const hideBtn = document.createElement('button');
+    hideBtn.id = 'chatbot-hide';
+    hideBtn.className = 'chatbot-hide';
+    hideBtn.setAttribute('aria-label', 'Hide assistant until next visit');
+    hideBtn.title = 'Hide (returns next visit)';
+    hideBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+    hideBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closePanel();
+        fab.style.display = 'none';
+        try { sessionStorage.setItem('pennyhelm-chat-hidden', '1'); } catch (err) { /* ignore */ }
+    });
+
+    fab.appendChild(bubble);
+    fab.appendChild(hideBtn);
+
+    // Drag to reposition (pointer events cover mouse + touch). A real click
+    // still opens the panel — only movement past a small threshold counts as
+    // a drag. Position persists across visits and is re-clamped on resize so
+    // the bubble can never be stranded off-screen.
+    const POS_KEY = 'pennyhelm-chat-pos';
+    const clampPos = (left, top) => {
+        const w = fab.offsetWidth || 56;
+        const h = fab.offsetHeight || 56;
+        return {
+            left: Math.min(Math.max(8, left), window.innerWidth - w - 8),
+            top: Math.min(Math.max(8, top), window.innerHeight - h - 8),
+        };
+    };
+    const applyPos = (left, top) => {
+        const p = clampPos(left, top);
+        fab.style.left = p.left + 'px';
+        fab.style.top = p.top + 'px';
+        fab.style.right = 'auto';
+        fab.style.bottom = 'auto';
+    };
+    let dragged = false;
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    bubble.addEventListener('pointerdown', (e) => {
+        dragged = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        const rect = fab.getBoundingClientRect();
+        startLeft = rect.left;
+        startTop = rect.top;
+        const onMove = (ev) => {
+            const dx = ev.clientX - startX;
+            const dy = ev.clientY - startY;
+            if (!dragged && Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+            dragged = true;
+            applyPos(startLeft + dx, startTop + dy);
+        };
+        const onUp = () => {
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            if (dragged) {
+                const rect = fab.getBoundingClientRect();
+                try { localStorage.setItem(POS_KEY, JSON.stringify({ left: rect.left, top: rect.top })); } catch (err) { /* ignore */ }
+            }
+        };
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+    });
+    bubble.addEventListener('click', () => {
+        if (dragged) { dragged = false; return; } // drag release, not a click
+        togglePanel();
+    });
+    // Restore saved position; keep it on-screen if the window shrank
+    try {
+        const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+        if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+            applyPos(saved.left, saved.top);
+        }
+    } catch (err) { /* ignore */ }
+    window.addEventListener('resize', () => {
+        if (fab.style.left) {
+            applyPos(parseFloat(fab.style.left), parseFloat(fab.style.top));
+        }
+    });
 
     // Create panel
     const panel = document.createElement('div');
@@ -319,7 +408,7 @@ export function initChatbot() {
     `;
 
     document.body.appendChild(panel);
-    document.body.appendChild(bubble);
+    if (!sessionHidden) document.body.appendChild(fab);
 
     // Event listeners
     document.getElementById('chatbot-close').addEventListener('click', closePanel);
