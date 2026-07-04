@@ -248,3 +248,58 @@ describe('leak hardening: partial-view roles', () => {
         assert.deepEqual(Object.keys(snap.accounts[0]).sort(), ['balance', 'id', 'name', 'type']);
     });
 });
+
+// ─── Budget visibility allowlist + shared budget updates ────────────
+
+describe('per-budget sharing visibility', () => {
+    const NOW3 = new Date(2026, 6, 15);
+    const BUDGETS = [
+        { id: 'bg', category: 'groceries', monthlyAmount: 600, rollover: false, startMonth: '2026-01' },
+        { id: 'bh', category: 'housing', monthlyAmount: 1900, rollover: false, startMonth: '2026-01' },
+        { id: 'bt', tag: 'discretionary', monthlyAmount: 200, rollover: false, startMonth: '2026-01' },
+    ];
+    // Real store field is categoryBudgets — this fixture pins the field fix.
+    const DATA = { userName: 'James', accounts: [], bills: [], expenses: [], categoryBudgets: BUDGETS, sharedWith: [] };
+
+    test('snapshot reads budgets from categoryBudgets (the real store field)', () => {
+        const snap = model.filterDataForRole(DATA, { role: 'companion', accountIds: [] }, NOW3);
+        assert.equal(snap.budgets.statuses.length, 3, 'categoryBudgets must feed the snapshot');
+    });
+
+    test('null budgetIds means all budgets (default), array restricts', () => {
+        const all = model.filterDataForRole(DATA, { role: 'companion', accountIds: [], budgetIds: null }, NOW3);
+        assert.equal(all.budgets.statuses.length, 3);
+        const some = model.filterDataForRole(DATA, { role: 'companion', accountIds: [], budgetIds: ['bg', 'bt'] }, NOW3);
+        assert.deepEqual(some.budgets.statuses.map(s => s.tag || s.category).sort(), ['discretionary', 'groceries']);
+        const none = model.filterDataForRole(DATA, { role: 'companion', accountIds: [], budgetIds: [] }, NOW3);
+        assert.equal(none.budgets.statuses.length, 0);
+    });
+
+    test('budgetConfigs honor the allowlist too', () => {
+        const snap = model.filterDataForRole(DATA, { role: 'companion', accountIds: [], budgetIds: ['bh'], canEditBudgets: true }, NOW3);
+        assert.deepEqual(snap.budgetConfigs.map(c => c.id), ['bh']);
+    });
+
+    test('mergeSharedBudgetUpdate changes only visible budgets and keeps hidden ones', () => {
+        const grant = { role: 'companion', budgetIds: ['bg'], canEditBudgets: true };
+        const out = model.mergeSharedBudgetUpdate(BUDGETS, [{ id: 'bg', category: 'groceries', monthlyAmount: 750, rollover: false, startMonth: '2026-01' }], grant);
+        assert.ok(!out.error);
+        assert.equal(out.budgets.length, 3, 'hidden budgets must survive');
+        assert.equal(out.budgets.find(b => b.id === 'bg').monthlyAmount, 750);
+        assert.equal(out.budgets.find(b => b.id === 'bh').monthlyAmount, 1900, 'hidden budget untouched');
+    });
+
+    test('mergeSharedBudgetUpdate rejects hidden and unknown budget ids', () => {
+        const grant = { role: 'companion', budgetIds: ['bg'], canEditBudgets: true };
+        assert.ok(model.mergeSharedBudgetUpdate(BUDGETS, [{ id: 'bh', category: 'housing', monthlyAmount: 1 }], grant).error, 'hidden budget must be rejected');
+        assert.ok(model.mergeSharedBudgetUpdate(BUDGETS, [{ id: 'new-budget', category: 'x', monthlyAmount: 1 }], grant).error, 'shared editors cannot add budgets');
+        assert.ok(model.mergeSharedBudgetUpdate(BUDGETS, [{ category: 'x', monthlyAmount: 1 }], grant).error, 'missing id must be rejected');
+    });
+
+    test('deriveSharedRoles carries budgetIds through', () => {
+        const map = model.deriveSharedRoles([{ uid: 'ivy', role: 'companion', budgetIds: ['bg'] }]);
+        assert.deepEqual(map.ivy.budgetIds, ['bg']);
+        const none = model.deriveSharedRoles([{ uid: 'ivy', role: 'companion' }]);
+        assert.equal(none.ivy.budgetIds, null);
+    });
+});

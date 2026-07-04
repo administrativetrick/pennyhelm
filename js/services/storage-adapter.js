@@ -195,6 +195,7 @@ export class StorageAdapter {
                             ? s.role
                             : (s.permissions === 'edit' ? 'partner' : 'viewer'),
                         accountIds: Array.isArray(s.accountIds) ? s.accountIds : null,
+                        budgetIds: Array.isArray(s.budgetIds) ? s.budgetIds : null,
                         canEditBudgets: s.canEditBudgets === true,
                     };
                 }

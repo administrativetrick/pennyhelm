@@ -10,6 +10,7 @@ import { openModal, closeModal, refreshPage } from '../app.js';
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { EXPENSE_CATEGORIES, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 import { monthKey, addMonth } from '../services/budget-service.js';
+import { calculateMonthlyIncome } from '../services/financial-service.js';
 
 // Track the month the page is currently showing. Defaults to the current month
 // on first load; the user can page back/forward to review history.
@@ -56,6 +57,35 @@ export function renderBudgets(container, store) {
     const isCurrentMonth = viewMonth === monthKey();
 
     const showVariance = activeTab === 'variance' && budgets.length > 0;
+
+    // Budget plan vs income: when income is configured, surface whether the
+    // combined monthly limits fit inside monthly income — a budget that plans
+    // more than you earn is a negative-cashflow plan even before overspending.
+    let incomeBannerHtml = '';
+    {
+        const income = store.getIncome();
+        const { totalMonthly } = calculateMonthlyIncome(income, store.getOtherIncome(), store.getPaySchedule());
+        if (totalMonthly > 0 && budgets.length > 0) {
+            const planned = totals.monthlyAmount;
+            const gap = totalMonthly - planned;
+            if (gap < -0.005) {
+                incomeBannerHtml = `
+                    <div style="margin-top:14px;padding:12px 14px;border-radius:var(--radius-sm);background:var(--red-bg);border:1px solid var(--red);font-size:13px;line-height:1.5;">
+                        <strong style="color:var(--red);">Your budget plans a negative cashflow.</strong>
+                        Budget limits total <strong>${formatCurrency(planned)}</strong> against
+                        <strong>${formatCurrency(totalMonthly)}</strong> monthly income —
+                        <strong style="color:var(--red);">${formatCurrency(Math.abs(gap))} more than you earn</strong>
+                        even if every budget is hit exactly.${totals.unlimitedSpent > 0 ? ' No-limit budgets add tracked spending on top of this.' : ''}
+                    </div>`;
+            } else {
+                incomeBannerHtml = `
+                    <div style="margin-top:14px;font-size:12px;color:var(--text-secondary);">
+                        Budget limits total ${formatCurrency(planned)} of ${formatCurrency(totalMonthly)} monthly income
+                        — <span style="color:var(--green);font-weight:600;">${formatCurrency(gap)} unbudgeted headroom</span>.
+                    </div>`;
+            }
+        }
+    }
 
     container.innerHTML = `
         <div class="page-header">
@@ -104,6 +134,7 @@ export function renderBudgets(container, store) {
                             <div style="font-size:22px;font-weight:700;margin-top:4px;color:${totals.remaining >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCurrency(totals.remaining)}</div>
                         </div>
                     </div>
+                    ${incomeBannerHtml}
                 </div>
             </div>
         `}

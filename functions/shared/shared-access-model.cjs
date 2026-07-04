@@ -78,6 +78,7 @@ function deriveSharedRoles(sharedWith) {
         map[s.uid] = {
             role,
             accountIds: Array.isArray(s.accountIds) ? s.accountIds : null,
+            budgetIds: Array.isArray(s.budgetIds) ? s.budgetIds : null,
             canEditBudgets: s.canEditBudgets === true,
         };
     }
@@ -130,10 +131,16 @@ function billSpendForMonth(data, category, mKey) {
     return total;
 }
 
+// The store persists budgets under `categoryBudgets` (legacy name predating
+// tag budgets); `budgets` is accepted as a fallback for older fixtures.
+function budgetsOf(data) {
+    return data.categoryBudgets || data.budgets || [];
+}
+
 function computeBudgetAggregates(data, now = new Date()) {
     const asOf = budgetService.monthKey(now);
     const statuses = budgetService.computeAllBudgetStatuses(
-        data.budgets || [],
+        budgetsOf(data),
         data.expenses || [],
         asOf,
         (category, mKey) => billSpendForMonth(data, category, mKey)
@@ -156,6 +163,34 @@ function computeBudgetAggregates(data, now = new Date()) {
     return { asOfMonth: asOf, statuses, totals };
 }
 
+// Budget allowlist: null means "all budgets, including ones created later"
+// (the default); an array restricts visibility to those budget ids. Only
+// enforceable for gateway-served roles (companion/advisor) — full-view roles
+// read the whole document by design.
+function allowedBudgets(budgets, grant) {
+    if (!grant || !Array.isArray(grant.budgetIds)) return budgets || [];
+    const allow = new Set(grant.budgetIds);
+    return (budgets || []).filter(b => allow.has(b.id));
+}
+
+// Merge a shared editor's budget update into the owner's full budget list:
+// only budgets the grant can SEE may change, hidden budgets pass through
+// untouched, and adding or deleting budgets is not allowed. Returns
+// { budgets } or { error }.
+function mergeSharedBudgetUpdate(existingBudgets, incomingBudgets, grant) {
+    const existing = existingBudgets || [];
+    const visibleIds = new Set(allowedBudgets(existing, grant).map(b => b.id));
+    const incomingById = new Map();
+    for (const b of incomingBudgets || []) {
+        if (!b || !b.id) return { error: 'Every budget update needs an id.' };
+        if (!visibleIds.has(b.id)) return { error: 'You can only change budgets shared with you.' };
+        incomingById.set(b.id, b);
+    }
+    return {
+        budgets: existing.map(b => incomingById.has(b.id) ? { ...b, ...incomingById.get(b.id), id: b.id } : b),
+    };
+}
+
 function filterAccounts(data, grant) {
     const allow = Array.isArray(grant.accountIds) ? new Set(grant.accountIds) : null;
     return (data.accounts || [])
@@ -172,6 +207,9 @@ function filterDataForRole(data, grant, now = new Date()) {
     if (!grant || !isValidRole(grant.role)) return null;
     const role = grant.role;
 
+    // Budget visibility: partial roles may be granted a subset of budgets.
+    const visibleBudgets = allowedBudgets(budgetsOf(data), grant);
+
     const snapshot = {
         _shared: {
             role,
@@ -179,14 +217,14 @@ function filterDataForRole(data, grant, now = new Date()) {
             ownerName: data.userName || 'Owner',
             generatedAt: now.toISOString(),
         },
-        budgets: computeBudgetAggregates(data, now),
+        budgets: computeBudgetAggregates({ ...data, categoryBudgets: visibleBudgets, budgets: undefined }, now),
         accounts: filterAccounts(data, grant),
     };
 
     // Editing budgets requires the raw configs (id/startMonth/rollover) so
-    // the client can send a valid replacement set. Notes stay private.
+    // the client can send valid updates. Notes stay private.
     if (canEditBudgets(grant)) {
-        snapshot.budgetConfigs = (data.budgets || []).map(b => ({
+        snapshot.budgetConfigs = visibleBudgets.map(b => ({
             id: b.id,
             ...(b.tag ? { tag: b.tag } : { category: b.category }),
             monthlyAmount: b.monthlyAmount,
@@ -238,5 +276,7 @@ module.exports = {
     deriveSharedRoles,
     billSpendForMonth,
     computeBudgetAggregates,
+    allowedBudgets,
+    mergeSharedBudgetUpdate,
     filterDataForRole,
 };
