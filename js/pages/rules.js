@@ -9,6 +9,7 @@
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { escapeHtml } from '../utils.js';
 import { renderCategoryOptions, mountSearchableCategoryPicker, getAllExpenseCategories, normalizeCategoryKey } from '../expense-categories.js';
+import { normalizeMatch } from '../services/transaction-rules.js';
 
 const MATCH_FIELDS = [
     { value: 'name',     label: 'Transaction name' },
@@ -41,6 +42,17 @@ function opLabel(op) {
 
 function fieldLabel(field) {
     return MATCH_FIELDS.find(f => f.value === field)?.label || field;
+}
+
+function matchSummary(match) {
+    const { mode, conditions } = normalizeMatch(match);
+    if (conditions.length === 0) return '<em>no conditions</em>';
+    const joiner = mode === 'any'
+        ? ' <strong style="color:var(--orange);">OR</strong> '
+        : ' <strong style="color:var(--accent);">AND</strong> ';
+    return conditions.map(c =>
+        `<code>${escapeHtml(fieldLabel(c.field))}</code> ${escapeHtml(opLabel(c.op))} <code>${escapeHtml(String(c.value))}</code>`
+    ).join(joiner);
 }
 
 function actionSummary(actions) {
@@ -124,11 +136,7 @@ export function renderRules(container, store) {
                                         </span>
                                     </td>
                                     <td><div style="font-weight:600;">${escapeHtml(r.name)}</div></td>
-                                    <td style="font-size:13px;">
-                                        <code>${escapeHtml(fieldLabel(r.match.field))}</code>
-                                        ${escapeHtml(opLabel(r.match.op))}
-                                        <code>${escapeHtml(String(r.match.value))}</code>
-                                    </td>
+                                    <td style="font-size:13px;">${matchSummary(r.match)}</td>
                                     <td style="font-size:13px;">${actionSummary(r.actions)}</td>
                                     <td>
                                         <input type="checkbox" class="rule-enable-toggle" data-rule-id="${r.id}" ${r.enabled ? 'checked' : ''}>
@@ -250,24 +258,14 @@ function showRuleForm(store, existing = null) {
         </div>
 
         <h4 style="margin:16px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">When</h4>
-        <div class="form-row">
-            <div class="form-group">
-                <label>Field</label>
-                <select class="form-select" id="rule-match-field">
-                    ${MATCH_FIELDS.map(f =>
-                        `<option value="${f.value}" ${rule.match.field === f.value ? 'selected' : ''}>${f.label}</option>`
-                    ).join('')}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Operator</label>
-                <select class="form-select" id="rule-match-op"></select>
-            </div>
-        </div>
         <div class="form-group">
-            <label>Value</label>
-            <input type="text" class="form-input" id="rule-match-value" value="${escapeHtml(String(rule.match.value ?? ''))}" placeholder="e.g., STARBUCKS">
+            <select class="form-select" id="rule-match-mode" style="max-width:340px;">
+                <option value="all">Match ALL of the following (AND)</option>
+                <option value="any">Match ANY of the following (OR)</option>
+            </select>
         </div>
+        <div id="rule-conditions"></div>
+        <button type="button" class="btn btn-secondary btn-sm" id="rule-add-condition" style="margin-bottom:8px;">+ Add condition</button>
 
         <h4 style="margin:16px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Then</h4>
         <div class="form-group">
@@ -342,19 +340,53 @@ function showRuleForm(store, existing = null) {
     }
     mountSearchableCategoryPicker(categorySel, store);
 
-    const fieldSel = document.getElementById('rule-match-field');
-    const opSel = document.getElementById('rule-match-op');
+    // ── Condition rows (AND/OR) ──
+    const { mode: initialMode, conditions: initialConditions } = normalizeMatch(rule.match);
+    document.getElementById('rule-match-mode').value = initialMode;
+    const conditionsBox = document.getElementById('rule-conditions');
 
-    function renderOps() {
-        const currentField = fieldSel.value;
-        const ops = opsFor(currentField);
-        const prev = opSel.value;
-        opSel.innerHTML = ops.map(o =>
-            `<option value="${o.value}" ${rule.match.op === o.value || prev === o.value ? 'selected' : ''}>${o.label}</option>`
-        ).join('');
+    function addConditionRow(cond = { field: 'vendor', op: 'contains', value: '' }) {
+        const row = document.createElement('div');
+        row.className = 'form-row rule-condition-row';
+        row.style.cssText = 'align-items:end;gap:8px;';
+        row.innerHTML = `
+            <div class="form-group" style="flex:1;">
+                <label>Field</label>
+                <select class="form-select rule-cond-field">
+                    ${MATCH_FIELDS.map(f => `<option value="${f.value}" ${cond.field === f.value ? 'selected' : ''}>${f.label}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group" style="flex:1;">
+                <label>Operator</label>
+                <select class="form-select rule-cond-op"></select>
+            </div>
+            <div class="form-group" style="flex:1;">
+                <label>Value</label>
+                <input type="text" class="form-input rule-cond-value" value="${escapeHtml(String(cond.value ?? ''))}" placeholder="e.g., STARBUCKS">
+            </div>
+            <div class="form-group" style="flex:0;">
+                <button type="button" class="btn-icon rule-cond-remove" title="Remove condition" style="color:var(--red);margin-bottom:2px;">✕</button>
+            </div>
+        `;
+        const fieldSel = row.querySelector('.rule-cond-field');
+        const opSel = row.querySelector('.rule-cond-op');
+        const renderOps = (selected) => {
+            opSel.innerHTML = opsFor(fieldSel.value).map(o =>
+                `<option value="${o.value}" ${o.value === selected ? 'selected' : ''}>${o.label}</option>`
+            ).join('');
+        };
+        renderOps(cond.op);
+        fieldSel.addEventListener('change', () => renderOps(opSel.value));
+        row.querySelector('.rule-cond-remove').addEventListener('click', () => {
+            if (conditionsBox.querySelectorAll('.rule-condition-row').length > 1) {
+                row.remove();
+            }
+        });
+        conditionsBox.appendChild(row);
     }
-    renderOps();
-    fieldSel.addEventListener('change', renderOps);
+
+    (initialConditions.length > 0 ? initialConditions : [undefined]).forEach(c => addConditionRow(c));
+    document.getElementById('rule-add-condition').addEventListener('click', () => addConditionRow());
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
     document.getElementById('modal-save').addEventListener('click', () => {
@@ -369,14 +401,18 @@ function showRuleForm(store, existing = null) {
         const expenseType = expenseTypeEl ? expenseTypeEl.value : '';
         const businessName = businessNameEl ? businessNameEl.value : '';
 
-        const field = fieldSel.value;
-        const op = opSel.value;
-        let value = document.getElementById('rule-match-value').value.trim();
-        if (field === 'amount') value = Number(value);
+        const conditions = [...conditionsBox.querySelectorAll('.rule-condition-row')].map(row => {
+            const field = row.querySelector('.rule-cond-field').value;
+            const op = row.querySelector('.rule-cond-op').value;
+            let value = row.querySelector('.rule-cond-value').value.trim();
+            if (field === 'amount') value = Number(value);
+            return { field, op, value };
+        });
+        const mode = document.getElementById('rule-match-mode').value;
 
         const payload = {
             name: document.getElementById('rule-name').value.trim(),
-            match: { field, op, value },
+            match: { mode, conditions },
             actions: {
                 category: category || undefined,
                 addTags: tags.length > 0 ? tags : undefined,

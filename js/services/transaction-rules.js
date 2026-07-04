@@ -8,10 +8,15 @@
  *     enabled: boolean,
  *     priority: number,              // lower = higher priority (0 runs first)
  *     match: {
- *       field: 'name' | 'vendor' | 'amount' | 'category',
- *       op:    'contains' | 'equals' | 'regex' | 'gt' | 'lt' | 'gte' | 'lte',
- *       value: string | number
+ *       mode: 'all' | 'any',         // ALL conditions (AND) or ANY condition (OR)
+ *       conditions: [{
+ *         field: 'name' | 'vendor' | 'amount' | 'category',
+ *         op:    'contains' | 'equals' | 'regex' | 'gt' | 'lt' | 'gte' | 'lte',
+ *         value: string | number
+ *       }, ...]
  *     },
+ *     // Legacy single-condition shape { field, op, value } is still accepted
+ *     // everywhere and treated as { mode: 'all', conditions: [it] }.
  *     actions: {
  *       category?: string,        // set category
  *       addTags?: string[],       // append to tags (deduped)
@@ -28,9 +33,25 @@
  * (e.g. "groceries") — the Rules page supports drag-and-drop reordering.
  */
 
-export function matchesRule(rule, expense) {
-    if (!rule || !rule.enabled) return false;
-    const m = rule.match;
+/**
+ * Normalize a match block to { mode, conditions[] }. Accepts the legacy
+ * single-condition shape { field, op, value }.
+ */
+export function normalizeMatch(match) {
+    if (!match) return { mode: 'all', conditions: [] };
+    if (Array.isArray(match.conditions)) {
+        return {
+            mode: match.mode === 'any' ? 'any' : 'all',
+            conditions: match.conditions,
+        };
+    }
+    if (match.field && match.op) {
+        return { mode: 'all', conditions: [match] };
+    }
+    return { mode: 'all', conditions: [] };
+}
+
+export function matchesCondition(m, expense) {
     if (!m || !m.field || !m.op) return false;
 
     const raw = expense[m.field];
@@ -63,6 +84,15 @@ export function matchesRule(rule, expense) {
         case 'lte': return Number(raw) <= Number(target);
         default:    return false;
     }
+}
+
+export function matchesRule(rule, expense) {
+    if (!rule || !rule.enabled) return false;
+    const { mode, conditions } = normalizeMatch(rule.match);
+    if (conditions.length === 0) return false;
+    return mode === 'any'
+        ? conditions.some(c => matchesCondition(c, expense))
+        : conditions.every(c => matchesCondition(c, expense));
 }
 
 export function applyActions(actions, expense) {
@@ -150,19 +180,24 @@ export function applyRulesToExpenses(rules, expenses) {
 export function validateRule(rule) {
     if (!rule || typeof rule !== 'object') return 'Rule must be an object';
     if (!rule.name || String(rule.name).trim() === '') return 'Rule name is required';
-    if (!rule.match || !rule.match.field) return 'Match field is required';
-    if (!['name', 'vendor', 'amount', 'category'].includes(rule.match.field)) {
-        return `Invalid match field: ${rule.match.field}`;
-    }
-    if (!['contains', 'equals', 'regex', 'gt', 'gte', 'lt', 'lte'].includes(rule.match.op)) {
-        return `Invalid match operator: ${rule.match.op}`;
-    }
-    if (rule.match.value == null || rule.match.value === '') {
-        return 'Match value is required';
-    }
-    if (['gt', 'gte', 'lt', 'lte'].includes(rule.match.op)) {
-        if (isNaN(Number(rule.match.value))) {
-            return `Operator ${rule.match.op} requires a numeric value`;
+    const { mode, conditions } = normalizeMatch(rule.match);
+    if (!['all', 'any'].includes(mode)) return `Invalid match mode: ${mode}`;
+    if (conditions.length === 0) return 'At least one condition is required';
+    for (const c of conditions) {
+        if (!c || !c.field) return 'Match field is required';
+        if (!['name', 'vendor', 'amount', 'category'].includes(c.field)) {
+            return `Invalid match field: ${c.field}`;
+        }
+        if (!['contains', 'equals', 'regex', 'gt', 'gte', 'lt', 'lte'].includes(c.op)) {
+            return `Invalid match operator: ${c.op}`;
+        }
+        if (c.value == null || c.value === '') {
+            return 'Match value is required';
+        }
+        if (['gt', 'gte', 'lt', 'lte'].includes(c.op)) {
+            if (isNaN(Number(c.value))) {
+                return `Operator ${c.op} requires a numeric value`;
+            }
         }
     }
     if (!rule.actions || typeof rule.actions !== 'object') {
