@@ -8,6 +8,7 @@ import { getThemePreference, setThemePreference } from '../theme.js';
 import { resetOnboarding, startOnboarding } from '../onboarding.js';
 import { loadQrcodeSdk } from '../cloud-loader.js';
 import { renderPlaidConfigCard, attachPlaidConfigHandlers } from './settings-plaid.js';
+import { enterSharedMode } from '../services/shared-mode.js';
 
 export function renderSettings(container, store) {
     const userName = store.getUserName();
@@ -1182,13 +1183,9 @@ export function renderSettings(container, store) {
                                 <button class="btn btn-primary btn-sm view-shared" data-owner="${escapeHtml(s.ownerUid)}" data-name="${escapeHtml(s.ownerName)}">View</button>
                             </div>
                         `).join('');
-                        list.querySelectorAll('.view-shared').forEach(btn => {
+                        list.querySelectorAll('.view-shared').forEach((btn, i) => {
                             btn.addEventListener('click', () => {
-                                sessionStorage.setItem('pennyhelm-shared-view', JSON.stringify({
-                                    ownerUid: btn.dataset.owner,
-                                    ownerName: btn.dataset.name,
-                                }));
-                                navigate('shared');
+                                enterSharedMode(shares[i]);
                             });
                         });
                     } catch (e) {

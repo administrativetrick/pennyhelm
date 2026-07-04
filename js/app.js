@@ -18,6 +18,7 @@ import { renderSharedView } from './pages/shared-view.js';
 import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 import { pingActiveUser } from './active-ping.js';
+import { primeSharedMode, initSharedMode, isSharedMode, SHARED_MODE_PAGES } from './services/shared-mode.js';
 
 const pages = {
     dashboard: renderDashboard,
@@ -57,6 +58,14 @@ function navigate(page) {
     // Guard: admin page only exists in modes that declare the capability
     if (page === 'admin' && (!capabilities().admin || !auth.isAdmin())) {
         page = 'dashboard';
+    }
+
+    // Guard: while viewing finances shared with you, only the shared
+    // overview and your own settings exist — a Companion's role doesn't
+    // include Bills/Income/etc, so those routes must not render.
+    if (isSharedMode() && !SHARED_MODE_PAGES.includes(page)) {
+        page = 'shared';
+        subTab = null;
     }
 
     currentPage = page;
@@ -104,8 +113,9 @@ function init() {
     if (logo) logo.textContent = userName.charAt(0).toUpperCase() + 'F';
     document.title = userName + ' Finances';
 
-    // Desktop nav clicks
+    // Desktop nav clicks (links without data-page manage their own handlers)
     document.querySelectorAll('.nav-link').forEach(link => {
+        if (!link.dataset.page) return;
         link.addEventListener('click', (e) => {
             e.preventDefault();
             navigate(link.dataset.page);
@@ -258,10 +268,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         await showWelcomeScreen();
     }
 
+    // Seed the shared-view state before the first navigate so a tab
+    // restored into shared mode renders instead of bouncing.
+    primeSharedMode();
+
     init();
 
-    // 7. Onboarding (both modes).
-    if (shouldShowOnboarding()) {
+    // Shared-mode chrome + share discovery (cloud only; async, non-blocking).
+    initSharedMode({ store, auth });
+
+    // 7. Onboarding (both modes; skipped in shared mode — the tour points
+    //    at nav tabs that don't exist there).
+    if (!isSharedMode() && shouldShowOnboarding()) {
         setTimeout(() => startOnboarding(), 400);
     }
 

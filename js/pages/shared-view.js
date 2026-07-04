@@ -12,8 +12,20 @@
 
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { navigate } from '../app.js';
+import { isSharedMode, exitSharedMode } from '../services/shared-mode.js';
 
 const STATE_KEY = 'pennyhelm-shared-view';
+
+// Leaving the shared view: in shared mode the whole chrome must be
+// restored, otherwise just clear the one-off view state.
+function backToMyFinances() {
+    if (isSharedMode()) {
+        exitSharedMode();
+    } else {
+        sessionStorage.removeItem(STATE_KEY);
+        navigate('dashboard');
+    }
+}
 
 function getViewState() {
     try { return JSON.parse(sessionStorage.getItem(STATE_KEY) || 'null'); } catch (e) { return null; }
@@ -46,7 +58,7 @@ export function renderSharedView(container, store) {
                 <h3 class="text-red">Couldn't load shared finances</h3>
                 <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">${escapeHtml(err.message || 'Access may have been revoked.')}</p>
                 <button class="btn btn-secondary btn-sm" style="margin-top:12px;" id="shared-back">Back to my finances</button></div>`;
-            container.querySelector('#shared-back').addEventListener('click', () => navigate('dashboard'));
+            container.querySelector('#shared-back').addEventListener('click', backToMyFinances);
             return;
         }
         if (!snapshot) return;
@@ -151,10 +163,7 @@ function renderSnapshot(container, store, state, snap) {
     }
 
     container.innerHTML = html;
-    container.querySelector('#shared-back').addEventListener('click', () => {
-        sessionStorage.removeItem(STATE_KEY);
-        navigate('dashboard');
-    });
+    container.querySelector('#shared-back').addEventListener('click', backToMyFinances);
 
     // Companion/advisor budget adjustment (requires canEditBudgets grant) —
     // sends the full replacement config set through sharedUpdateBudget.
