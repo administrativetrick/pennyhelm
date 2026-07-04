@@ -119,11 +119,16 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
                 // Build the invite link
                 const inviteLink = `https://pennyhelm.com/accept-invite?id=${inviteId}`;
 
-                // Send email
-                const transporter = getEmailTransporter();
+                // Send email — BEST EFFORT. The invite doc already exists and
+                // is fully functional (the invitee sees it in-app via
+                // getMyInvites and can accept via the link), so a broken SMTP
+                // setup must not fail the whole call. On failure the client
+                // gets the link back to share directly.
                 const permissionText = permissions === 'edit' ? 'view and edit' : 'view';
                 const typeLabel = getInviteTypeLabel(type);
-
+                let emailSent = true;
+                try {
+                const transporter = getEmailTransporter();
                 await transporter.sendMail({
                     from: SMTP_FROM.value(),
                     to: email,
@@ -167,11 +172,19 @@ ${inviteLink}
 If you don't recognize ${inviterName} or didn't expect this invitation, you can safely ignore this email.
                 `
                 });
+                } catch (mailErr) {
+                    console.error("sendInvite email delivery failed (invite still created):", mailErr && mailErr.message);
+                    emailSent = false;
+                }
 
                 return {
                     success: true,
+                    emailSent: emailSent,
                     inviteId: inviteId,
-                    message: `Invitation sent to ${email}`
+                    inviteLink: inviteLink,
+                    message: emailSent
+                        ? `Invitation sent to ${email}`
+                        : `Invite created, but the email could not be sent — share the link directly.`
                 };
 
             } catch (err) {
