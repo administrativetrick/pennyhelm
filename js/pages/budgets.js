@@ -287,6 +287,9 @@ function showBudgetForm(store, existing = null) {
 
     const isTagBudget = !!budget.tag;
     const existingTags = store.getAllExpenseTags();
+    // Budget visibility is only enforceable for gateway-served roles.
+    const partialSharees = (store.getSharedWith() || [])
+        .filter(s => s.role === 'companion' || s.role === 'advisor');
     const html = `
         <div class="form-group">
             <label>Track by</label>
@@ -339,6 +342,19 @@ function showBudgetForm(store, existing = null) {
             <label>Notes (optional)</label>
             <input type="text" class="form-input" id="budget-notes" value="${escapeHtml(budget.notes || '')}">
         </div>
+        ${!isEdit && partialSharees.length > 0 ? `
+        <div class="form-group" id="budget-sharing-group">
+            <label>Who can see this budget</label>
+            ${partialSharees.map(s => `
+                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;">
+                    <input type="checkbox" class="budget-share-cb" value="${escapeHtml(s.uid)}" checked>
+                    ${escapeHtml(s.email || s.uid)} <span style="color:var(--text-muted);font-size:11px;text-transform:capitalize;">(${escapeHtml(s.role)})</span>
+                </label>`).join('')}
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                Applies to people with Companion or Advisor access. Uncheck to keep this budget private from them.
+            </div>
+        </div>
+        ` : ''}
         <div id="budget-form-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none;"></div>
         <div class="modal-actions">
             <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
@@ -393,7 +409,30 @@ function showBudgetForm(store, existing = null) {
                     const dupLabel = payload.tag ? `#${payload.tag}` : (getAllExpenseCategories(store)[payload.category]?.label || payload.category);
                     if (!confirm(`A budget already exists for ${dupLabel}. Replace it?`)) return;
                 }
-                store.addBudget(payload);
+                const created = store.addBudget(payload);
+
+                // Apply per-sharee visibility for the new budget. Semantics:
+                // a null grant means "all budgets incl. future ones", so an
+                // unchecked box converts it to an explicit allowlist of
+                // everything except this budget; a checked box appends to an
+                // existing allowlist (null grants already include it).
+                for (const s of partialSharees) {
+                    const cb = document.querySelector(`.budget-share-cb[value="${CSS.escape(s.uid)}"]`);
+                    if (!cb) continue;
+                    const currentIds = Array.isArray(s.budgetIds) ? s.budgetIds : null;
+                    if (cb.checked) {
+                        if (currentIds && !currentIds.includes(created.id)) {
+                            store.setShareBudgetIds(s.uid, [...currentIds, created.id]);
+                        }
+                    } else {
+                        if (currentIds === null) {
+                            const allOtherIds = store.getBudgets().map(b => b.id).filter(id => id !== created.id);
+                            store.setShareBudgetIds(s.uid, allOtherIds);
+                        } else if (currentIds.includes(created.id)) {
+                            store.setShareBudgetIds(s.uid, currentIds.filter(id => id !== created.id));
+                        }
+                    }
+                }
             }
             closeModal();
             refreshPage();

@@ -1049,7 +1049,17 @@ class Store {
             if (updates && 'category' in updates && updates.category) {
                 updates = { ...updates, category: normalizeCategoryKey(updates.category, this) };
             }
-            data.expenses[idx] = { ...data.expenses[idx], ...updates };
+            // updateExpense is only ever called from user-facing edit paths
+            // (expense modal, inline category picker, business assignment).
+            // If the user touched a field rules also set, mark the expense as
+            // manually overridden so "Re-run on all expenses" leaves it alone.
+            const RULE_FIELDS = ['category', 'name', 'tags', 'ignored', 'expenseType', 'businessName'];
+            const touchesRuleField = updates && RULE_FIELDS.some(f => f in updates);
+            data.expenses[idx] = {
+                ...data.expenses[idx],
+                ...updates,
+                ...(touchesRuleField ? { manualOverride: true } : {}),
+            };
             this._save();
         }
     }
@@ -1264,7 +1274,11 @@ class Store {
         const data = this._load();
         if (!data.expenses || !data.transactionRules) return 0;
         let changed = 0;
+        let skipped = 0;
         for (let i = 0; i < data.expenses.length; i++) {
+            // Manual edits win: an expense the user has hand-edited is theirs.
+            // Rules only reshape untouched (auto-categorized) expenses.
+            if (data.expenses[i].manualOverride) { skipped++; continue; }
             const before = JSON.stringify(data.expenses[i]);
             const after = applyRulesToExpense(data.transactionRules, data.expenses[i]);
             if (JSON.stringify(after) !== before) {
@@ -1273,7 +1287,7 @@ class Store {
             }
         }
         if (changed > 0) this._save();
-        return changed;
+        return { changed, skipped };
     }
 
     // ─── Tags ────────────────────────────────────────────────
@@ -1654,6 +1668,18 @@ class Store {
                 if (i.inviteeUid === uid) i.status = 'revoked';
             });
         }
+        this._save();
+    }
+
+    // Owner-side grant edit: change which budgets a share can see.
+    // null = all budgets (including future ones); array = explicit allowlist.
+    // The storage adapter re-derives the rules-visible sharedRoles map from
+    // sharedWith on save, so this takes effect on the next snapshot fetch.
+    setShareBudgetIds(uid, budgetIds) {
+        const data = this._load();
+        const entry = (data.sharedWith || []).find(s => s.uid === uid);
+        if (!entry) return;
+        entry.budgetIds = Array.isArray(budgetIds) ? budgetIds : null;
         this._save();
     }
 
