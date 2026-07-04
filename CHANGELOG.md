@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-07-03
+
 ### Added
 - **New bill frequencies: "Every 4 Weeks" and "Every Other Month".** Every-4-weeks bills (e.g. daycare billed on a rotating custody cycle) are anchored by any known due date and repeat on a true 28-day cycle; every-other-month bills (common for water/sewer/trash) repeat in alternating months from a chosen month. Both flow through the paycheck view, month view, calendar, dashboard totals, budgets, and the overdue carry-forward.
 - **Missed weekly/biweekly/every-4-weeks payments now carry forward too.** The "Overdue from last month" section previously only covered monthly bills; recurring bills now carry forward per missed occurrence.
@@ -170,7 +172,8 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.1.0...v0.2.0
