@@ -52,7 +52,7 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
 
             const uid = request.auth.uid;
             const inviterEmail = request.auth.token.email;
-            const { email, type, permissions, role, accountIds, canEditBudgets } = request.data || {};
+            const { email, type, permissions, role, accountIds, budgetIds, canEditBudgets } = request.data || {};
 
             if (!email || !type || !permissions) {
                 throw new HttpsError("invalid-argument", "Missing email, type, or permissions.");
@@ -79,6 +79,10 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
                 (!Array.isArray(accountIds) || accountIds.some(a => typeof a !== 'string') || accountIds.length > 200)) {
                 throw new HttpsError("invalid-argument", "accountIds must be an array of ids.");
             }
+            if (budgetIds !== undefined && budgetIds !== null &&
+                (!Array.isArray(budgetIds) || budgetIds.some(b => typeof b !== 'string') || budgetIds.length > 200)) {
+                throw new HttpsError("invalid-argument", "budgetIds must be an array of ids.");
+            }
 
             // Get inviter's name from their user profile
             const userDoc = await db.collection("users").doc(uid).get();
@@ -99,6 +103,7 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
                     permissions: permissions,
                     role: sharedAccess.isValidRole(role) ? role : (permissions === 'edit' ? 'partner' : 'viewer'),
                     accountIds: Array.isArray(accountIds) ? accountIds : null,
+                    budgetIds: Array.isArray(budgetIds) ? budgetIds : null,
                     canEditBudgets: canEditBudgets === true,
                     status: 'pending',
                     createdAt: admin.firestore.FieldValue.serverTimestamp()
@@ -248,6 +253,7 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
                             permissions: invite.permissions,
                             role: grantRole,
                             accountIds: Array.isArray(invite.accountIds) ? invite.accountIds : null,
+                            budgetIds: Array.isArray(invite.budgetIds) ? invite.budgetIds : null,
                             canEditBudgets: invite.canEditBudgets === true,
                             sharedAt: new Date().toISOString()
                         });

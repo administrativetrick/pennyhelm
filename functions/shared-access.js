@@ -112,21 +112,27 @@ module.exports = function({ admin, db, enforceRateLimit }) {
                 throw new HttpsError("permission-denied", "You don't have permission to change budgets.");
             }
 
-            // Validate every budget shape server-side (mirrors validateBudget).
+            // Validate every incoming budget shape server-side.
             const budgetService = require("./shared/budget-service.cjs");
-            for (const b of budgets) {
-                const err = budgetService.validateBudget(b);
-                if (err) throw new HttpsError("invalid-argument", `Invalid budget: ${err}`);
-            }
-
-            userData.budgets = budgets.map(b => ({
+            const sanitized = budgets.map(b => ({
                 id: String(b.id || ''),
                 ...(b.tag ? { tag: String(b.tag) } : { category: String(b.category) }),
                 monthlyAmount: Number(b.monthlyAmount),
                 rollover: b.rollover === true,
                 startMonth: String(b.startMonth),
-                notes: typeof b.notes === 'string' ? b.notes.slice(0, 500) : undefined,
             }));
+            for (const b of sanitized) {
+                const err = budgetService.validateBudget(b);
+                if (err) throw new HttpsError("invalid-argument", `Invalid budget: ${err}`);
+            }
+
+            // Merge by id: only budgets visible to this grant may change,
+            // hidden budgets pass through untouched, and budgets can't be
+            // added or deleted by a shared editor. Budgets live under
+            // categoryBudgets in the blob (getBudgets reads that field).
+            const merged = sharedAccess.mergeSharedBudgetUpdate(userData.categoryBudgets, sanitized, grant);
+            if (merged.error) throw new HttpsError("permission-denied", merged.error);
+            userData.categoryBudgets = merged.budgets;
 
             tx.set(ownerRef, {
                 data: JSON.stringify(userData),

@@ -1248,6 +1248,16 @@ export function renderSettings(container, store) {
                         </div>
                         <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Leave all unchecked for a budgets-only view.</div>
                     </div>
+                    <div class="form-group" id="invite-budgets-group" style="display:none;">
+                        <label>Budgets they can see</label>
+                        <div style="max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;">
+                            ${store.getBudgets().map(b => `
+                                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;">
+                                    <input type="checkbox" class="invite-budget-cb" value="${escapeHtml(b.id)}" checked> ${b.tag ? `#${escapeHtml(b.tag)}` : escapeHtml(b.category)} <span style="color:var(--text-muted);font-size:11px;">(${b.monthlyAmount > 0 ? formatCurrency(b.monthlyAmount) + '/mo' : 'no limit'})</span>
+                                </label>`).join('') || '<div style="font-size:12px;color:var(--text-muted);">No budgets yet.</div>'}
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">All selected by default — uncheck any budget to keep it private. New budgets are visible automatically unless you've unchecked something here.</div>
+                    </div>
                     <div class="form-group" id="invite-budget-edit-group" style="display:none;">
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
                             <input type="checkbox" id="invite-can-edit-budgets"> Allow adjusting budget amounts
@@ -1279,10 +1289,14 @@ export function renderSettings(container, store) {
                 const roleDesc = document.getElementById('invite-role-desc');
                 const accountsGroup = document.getElementById('invite-accounts-group');
                 const budgetEditGroup = document.getElementById('invite-budget-edit-group');
+                const budgetsGroup = document.getElementById('invite-budgets-group');
                 const syncRoleUi = () => {
                     const r = roleSelect.value;
                     roleDesc.textContent = ROLE_DESCRIPTIONS[r];
                     accountsGroup.style.display = r === 'companion' ? '' : 'none';
+                    // Budget selection is only enforceable for gateway-served
+                    // roles; viewer/partner/full see everything by design.
+                    budgetsGroup.style.display = (r === 'companion' || r === 'advisor') ? '' : 'none';
                     budgetEditGroup.style.display = (r === 'companion' || r === 'advisor') ? '' : 'none';
                 };
                 roleSelect.addEventListener('change', syncRoleUi);
@@ -1295,6 +1309,16 @@ export function renderSettings(container, store) {
                     const accountIds = role === 'companion'
                         ? [...document.querySelectorAll('.invite-account-cb:checked')].map(cb => cb.value)
                         : null;
+                    // All budgets checked = null (default-all: future budgets
+                    // included). Any unchecked = explicit allowlist.
+                    let budgetIds = null;
+                    if (role === 'companion' || role === 'advisor') {
+                        const all = [...document.querySelectorAll('.invite-budget-cb')];
+                        const checked = all.filter(cb => cb.checked);
+                        if (all.length > 0 && checked.length < all.length) {
+                            budgetIds = checked.map(cb => cb.value);
+                        }
+                    }
                     const canEditBudgets = (role === 'companion' || role === 'advisor')
                         ? document.getElementById('invite-can-edit-budgets').checked
                         : false;
@@ -1328,7 +1352,7 @@ export function renderSettings(container, store) {
                         // Call Cloud Function to send invite email
                         const functions = firebase.functions();
                         const sendInviteFn = functions.httpsCallable('sendInvite');
-                        const result = await sendInviteFn({ email, type, permissions, role, accountIds, canEditBudgets });
+                        const result = await sendInviteFn({ email, type, permissions, role, accountIds, budgetIds, canEditBudgets });
 
                         if (result.data.success) {
                             // Also create invite in local store for UI display
@@ -1339,6 +1363,7 @@ export function renderSettings(container, store) {
                                 permissions,
                                 role,
                                 accountIds,
+                                budgetIds,
                                 canEditBudgets
                             });
 
