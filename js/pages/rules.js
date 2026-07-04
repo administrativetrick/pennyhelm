@@ -8,6 +8,7 @@
 
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { escapeHtml } from '../utils.js';
+import { renderCategoryOptions, mountSearchableCategoryPicker, getAllExpenseCategories, normalizeCategoryKey } from '../expense-categories.js';
 
 const MATCH_FIELDS = [
     { value: 'name',     label: 'Transaction name' },
@@ -230,7 +231,12 @@ function showRuleForm(store, existing = null) {
         <h4 style="margin:16px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Then</h4>
         <div class="form-group">
             <label>Set category (optional)</label>
-            <input type="text" class="form-input" id="rule-action-category" value="${escapeHtml(rule.actions.category || '')}" placeholder="e.g., coffee">
+            <select class="form-select" id="rule-action-category">
+                ${renderCategoryOptions(normalizeCategoryKey(rule.actions.category || '', store), store)}
+            </select>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                Pick an existing category, or choose "+ Create new category" to add one.
+            </div>
         </div>
         <div class="form-group">
             <label>Add tags (comma-separated, optional)</label>
@@ -280,6 +286,21 @@ function showRuleForm(store, existing = null) {
 
     openModal(isEdit ? 'Edit Rule' : 'Add Rule', html);
 
+    // Searchable category picker with "+ Create new category" (same picker as
+    // the bill modal's budget-category field). A legacy rule whose category
+    // was free-typed and doesn't normalize to a known key gets its raw value
+    // preserved as an extra option so editing never silently drops it.
+    const categorySel = document.getElementById('rule-action-category');
+    const rawCategory = rule.actions.category || '';
+    if (rawCategory && !getAllExpenseCategories(store)[normalizeCategoryKey(rawCategory, store)]) {
+        const opt = document.createElement('option');
+        opt.value = rawCategory;
+        opt.textContent = `${rawCategory} (legacy)`;
+        opt.selected = true;
+        categorySel.appendChild(opt);
+    }
+    mountSearchableCategoryPicker(categorySel, store);
+
     const fieldSel = document.getElementById('rule-match-field');
     const opSel = document.getElementById('rule-match-op');
 
@@ -298,7 +319,8 @@ function showRuleForm(store, existing = null) {
     document.getElementById('modal-save').addEventListener('click', () => {
         const tagsRaw = document.getElementById('rule-action-tags').value;
         const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
-        const category = document.getElementById('rule-action-category').value.trim();
+        let category = document.getElementById('rule-action-category').value.trim();
+        if (category === '__create_new__') category = ''; // unresolved "create new" = no category
         const rename = document.getElementById('rule-action-rename').value.trim();
         const ignore = document.getElementById('rule-action-ignore').checked;
         const expenseTypeEl = document.getElementById('rule-action-expense-type');

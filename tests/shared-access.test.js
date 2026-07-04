@@ -196,3 +196,55 @@ describe('filterDataForRole: advisor and above', () => {
         assert.equal(model.filterDataForRole(OWNER_DATA, null, NOW), null);
     });
 });
+
+// ─── Leak-hardening regression tests ─────────────────────────────────
+// The dashboard-style aggregates a partial role receives must never grow
+// to include data the role wasn't granted. These pin the exact boundary.
+
+describe('leak hardening: partial-view roles', () => {
+    const NOW2 = new Date(2026, 6, 15);
+    const DATA = {
+        ...OWNER_DATA,
+        creditScores: { user: { score: 695 } },
+        paymentSources: ['Amex Platinum', 'Bills Checking'],
+        businessNames: ['Curtis LLC'],
+        invites: [{ id: 'i1', email: 'someone@x.com' }],
+        usageType: 'both',
+        customCategories: [{ id: 'c1', name: 'Secret Hobby' }],
+        dependentEnabled: true,
+        dependentName: 'Ivy',
+    };
+
+    for (const role of ['companion', 'advisor']) {
+        test(`${role} never receives identity/config/PII fields`, () => {
+            const snap = model.filterDataForRole(DATA, { role, accountIds: role === 'companion' ? ['chk'] : undefined }, NOW2);
+            for (const key of ['creditScores', 'paymentSources', 'businessNames', 'invites', 'usageType', 'customCategories', 'dependentEnabled', 'dependentName', 'sharedWith', 'plaidConfig']) {
+                assert.ok(!(key in snap), `${role} snapshot leaked ${key}`);
+            }
+            const raw = JSON.stringify(snap);
+            assert.ok(!raw.includes('Curtis LLC'), `${role} leaked business name`);
+            assert.ok(!raw.includes('Secret Hobby'), `${role} leaked custom category`);
+            assert.ok(!raw.includes('someone@x.com'), `${role} leaked invite email`);
+        });
+    }
+
+    test('companion without an allowlist sees zero accounts (not all)', () => {
+        const snap = model.filterDataForRole(DATA, { role: 'companion' }, NOW2);
+        assert.deepEqual(snap.accounts, []);
+    });
+
+    test('budgetConfigs appear only with canEditBudgets, and never carry notes', () => {
+        const noEdit = model.filterDataForRole(DATA, { role: 'companion', accountIds: [] }, NOW2);
+        assert.ok(!('budgetConfigs' in noEdit));
+        const withEdit = model.filterDataForRole(
+            { ...DATA, budgets: [{ id: 'b9', category: 'groceries', monthlyAmount: 500, rollover: false, startMonth: '2026-01', notes: 'private note' }] },
+            { role: 'companion', accountIds: [], canEditBudgets: true }, NOW2);
+        assert.equal(withEdit.budgetConfigs.length, 1);
+        assert.ok(!('notes' in withEdit.budgetConfigs[0]), 'budget notes must stay private');
+    });
+
+    test('companion account objects carry only id/name/type/balance', () => {
+        const snap = model.filterDataForRole(DATA, { role: 'companion', accountIds: ['chk'] }, NOW2);
+        assert.deepEqual(Object.keys(snap.accounts[0]).sort(), ['balance', 'id', 'name', 'type']);
+    });
+});
