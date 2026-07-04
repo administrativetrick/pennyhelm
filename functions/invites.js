@@ -397,6 +397,7 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
                         inviterName: data.inviterName,
                         inviterEmail: data.inviterEmail,
                         type: data.type,
+                        role: data.role || null,
                         permissions: data.permissions,
                         createdAt: data.createdAt
                     });
