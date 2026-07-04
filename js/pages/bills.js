@@ -143,12 +143,15 @@ export function renderBills(container, store) {
         periodicBills = allPeriodicBills;
     }
 
-    // Get unique categories
-    const categories = [...new Set(allBills.map(b => b.category))].sort();
+    // Get unique categories. Bills with a blank category get an explicit
+    // "Uncategorized" chip instead of rendering an unlabeled empty pill.
+    const categories = [...new Set(allBills.map(b => (b.category || '').trim()).filter(Boolean))].sort();
+    const hasUncategorized = allBills.some(b => !b.category || !String(b.category).trim());
 
     // Resolve the persisted filter against the chips actually rendered in this
     // view (a category can disappear, and Frozen only exists in month view).
     const validFilters = ['unpaid', 'all', ...categories];
+    if (hasUncategorized) validFilters.push('__uncategorized__');
     if (billsViewMode === 'month') validFilters.push('frozen');
     if (!validFilters.includes(billsActiveFilter)) billsActiveFilter = 'unpaid';
     const activeFilter = billsActiveFilter;
@@ -213,6 +216,7 @@ export function renderBills(container, store) {
             <button class="filter-chip${activeFilter === 'unpaid' ? ' active' : ''}" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
             <button class="filter-chip${activeFilter === 'all' ? ' active' : ''}" data-filter="all">All</button>
             ${categories.map(c => `<button class="filter-chip${activeFilter === c ? ' active' : ''}" data-filter="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}
+            ${hasUncategorized ? `<button class="filter-chip${activeFilter === '__uncategorized__' ? ' active' : ''}" data-filter="__uncategorized__" style="color:var(--text-muted);">Uncategorized</button>` : ''}
             ${billsViewMode === 'month' ? `<button class="filter-chip${activeFilter === 'frozen' ? ' active' : ''}" data-filter="frozen" style="border-color:var(--blue);color:var(--blue);">Frozen</button>` : ''}
         </div>
 
@@ -586,7 +590,8 @@ function filterBills(bills, filter, store = null, year = null, month = null) {
             return !b.frozen && !store.isBillPaid(b.id, py, pm, b._occurrenceKey);
         });
     }
-    return bills.filter(b => b.category === filter);
+    if (filter === '__uncategorized__') return bills.filter(b => !b.category || !String(b.category).trim());
+    return bills.filter(b => (b.category || '').trim() === filter);
 }
 
 function sortBills(bills, store, year, month) {
@@ -660,7 +665,7 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
                     ${bill.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(bill.notes)}</div>` : ''}
                 </td>
                 <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every check</div>' : bill.frequency === 'twice-monthly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">2x/month</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : bill.frequency === 'every-4-weeks' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every 4 weeks</div>' : bill.frequency === 'every-2-months' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every 2 months</div>' : ''}</td>
-                <td class="bill-category-cell" data-bill-id="${bill.id}" style="cursor:pointer;" title="Click to change category"><span class="badge ${badgeClass}">${escapeHtml(bill.category)}</span></td>
+                <td class="bill-category-cell" data-bill-id="${bill.id}" style="cursor:pointer;" title="Click to change category"><span class="badge ${badgeClass}"${!bill.category || !String(bill.category).trim() ? ' style="color:var(--text-muted);font-style:italic;"' : ''}>${bill.category && String(bill.category).trim() ? escapeHtml(bill.category) : 'Uncategorized'}</span></td>
                 <td>${bill._overdueFrom ? `<span style="font-size:11px;color:var(--red);font-weight:600;">${MONTH_ABBR[bill._overdueFrom.month]} ${bill._overdueFrom.day}</span>` : bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'every-4-weeks' ? '<span style="font-size:11px;color:var(--blue);">Every 4 weeks</span>' : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual' || bill.frequency === 'every-2-months') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${bill.frequency === 'every-2-months' ? MONTH_ABBR[bill.dueMonth] + '/alt' : MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
                 <td style="font-size:12px;">
                     ${escapeHtml(bill.paymentSource || '-')}
