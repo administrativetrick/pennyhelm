@@ -2477,10 +2477,16 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 /* ===== AI Chatbot ===== */
 
-.chatbot-bubble {
+.chatbot-fab {
     position: fixed;
     bottom: 24px;
     right: 24px;
+    z-index: 150;
+    touch-action: none; /* let pointer events drive dragging on touch */
+}
+
+.chatbot-bubble {
+    position: relative;
     width: 56px;
     height: 56px;
     border-radius: 50%;
@@ -2492,8 +2498,40 @@ tbody tr:hover { background: var(--bg-card-hover); }
     align-items: center;
     justify-content: center;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    z-index: 150;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Small minus badge to hide the assistant for the rest of the session.
+   Revealed on hover/focus; always visible on touch devices (no hover). */
+.chatbot-hide {
+    position: absolute;
+    top: -6px;
+    left: -6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.chatbot-fab:hover .chatbot-hide,
+.chatbot-hide:focus-visible {
+    opacity: 1;
+}
+
+.chatbot-hide:hover {
+    color: var(--text-primary);
+}
+
+@media (hover: none) {
+    .chatbot-hide { opacity: 1; }
 }
 
 .chatbot-bubble:hover {
@@ -2721,9 +2759,12 @@ tbody tr:hover { background: var(--bg-card-hover); }
 
 /* Mobile responsive */
 @media (max-width: 768px) {
-    .chatbot-bubble {
+    .chatbot-fab {
         bottom: 72px;
         right: 16px;
+    }
+
+    .chatbot-bubble {
         width: 48px;
         height: 48px;
     }
