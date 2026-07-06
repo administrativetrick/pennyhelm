@@ -79,6 +79,21 @@ const selfhost = {
     async gateAccess() { return true; },
 
     async finalize({ store }) {
+        // Issue #10: if the self-hoster explicitly disabled authentication
+        // (PENNYHELM_DISABLE_AUTH=1), say so loudly — anyone who can reach
+        // this address can read the data.
+        try {
+            const res = await fetch('/api/config');
+            const config = await res.json();
+            if (config.authDisabled && !document.getElementById('selfhost-noauth-banner')) {
+                const el = document.createElement('div');
+                el.id = 'selfhost-noauth-banner';
+                el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:900;background:var(--red-bg,rgba(240,119,107,0.12));border-top:1px solid var(--red,#f0776b);padding:9px 16px;font-size:12.5px;text-align:center;color:var(--red,#f0776b);font-weight:600;';
+                el.textContent = '⚠ Authentication is disabled — anyone who can reach this address can read your financial data. Remove PENNYHELM_DISABLE_AUTH to protect it with a password.';
+                document.body.appendChild(el);
+            }
+        } catch { /* config check is best-effort */ }
+
         // Plaid auto-sync on selfhost: once per day, only if configured + connected.
         if (!_state.plaidConfigured) return;
         try {

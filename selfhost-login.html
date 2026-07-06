@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PennyHelm — Unlock</title>
+    <style>
+        :root {
+            --bg: #0a0d12; --card: #12161e; --border: #212836;
+            --text: #f1f3f6; --text-2: #98a0af; --muted: #6e7787;
+            --accent: #56d2a0; --accent-dark: #46b98a; --red: #f0776b;
+            --red-bg: rgba(240,119,107,0.12);
+        }
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #f5f6f8; --card: #ffffff; --border: #d5d9e2;
+                --text: #1a1d27; --text-2: #5a6174; --muted: #8890a4;
+                --accent: #0e9f6e; --accent-dark: #0b8a5e; --red: #dc2626;
+                --red-bg: rgba(220,38,38,0.08);
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+        }
+        .card {
+            background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+            padding: 36px 32px; width: 100%; max-width: 400px;
+        }
+        .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+        .logo-mark {
+            width: 36px; height: 36px; border-radius: 9px; background: var(--accent);
+            color: #fff; display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 15px;
+        }
+        .logo-name { font-size: 18px; font-weight: 700; }
+        h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+        .sub { font-size: 13px; color: var(--text-2); line-height: 1.55; margin-bottom: 22px; }
+        label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-2); margin: 14px 0 6px; }
+        input[type="password"] {
+            width: 100%; padding: 11px 14px; font-size: 15px; border-radius: 10px;
+            border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none;
+        }
+        input[type="password"]:focus { border-color: var(--accent); }
+        button {
+            width: 100%; margin-top: 20px; padding: 12px; font-size: 15px; font-weight: 600;
+            color: #fff; background: var(--accent); border: none; border-radius: 10px; cursor: pointer;
+        }
+        button:hover { background: var(--accent-dark); }
+        button:disabled { opacity: 0.6; cursor: default; }
+        .error {
+            display: none; margin-top: 14px; padding: 10px 12px; font-size: 13px;
+            color: var(--red); background: var(--red-bg); border-radius: 8px;
+        }
+        .note { font-size: 11.5px; color: var(--muted); margin-top: 16px; line-height: 1.55; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo"><div class="logo-mark">PH</div><div class="logo-name">PennyHelm</div></div>
+
+        <div id="state-loading">
+            <p class="sub">Checking…</p>
+        </div>
+
+        <div id="state-setup" class="hidden">
+            <h1>Protect this PennyHelm</h1>
+            <p class="sub">Set a password so your financial data isn't readable by
+            anyone who can reach this address on your network. You'll use it to
+            unlock the app on any device.</p>
+            <form id="setup-form">
+                <label for="setup-password">Password (min 8 characters)</label>
+                <input type="password" id="setup-password" autocomplete="new-password" required minlength="8" autofocus>
+                <label for="setup-confirm">Confirm password</label>
+                <input type="password" id="setup-confirm" autocomplete="new-password" required minlength="8">
+                <button type="submit" id="setup-btn">Set Password &amp; Unlock</button>
+            </form>
+            <div class="error" id="setup-error"></div>
+            <p class="note">Stored locally as a salted scrypt hash — it never leaves this
+            machine. There is no reset: if you forget it, delete the
+            <code>selfhost-auth</code> row from <code>data/finances.db</code>'s
+            <code>store</code> table to run setup again (your data is untouched).</p>
+        </div>
+
+        <div id="state-login" class="hidden">
+            <h1>Unlock</h1>
+            <p class="sub">Enter your password to open your finances.</p>
+            <form id="login-form">
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" autocomplete="current-password" required autofocus>
+                <button type="submit" id="login-btn">Unlock</button>
+            </form>
+            <div class="error" id="login-error"></div>
+        </div>
+    </div>
+
+    <script>
+        const show = (id) => {
+            for (const s of ['state-loading', 'state-setup', 'state-login']) {
+                document.getElementById(s).classList.toggle('hidden', s !== id);
+            }
+        };
+        const showError = (id, msg) => {
+            const el = document.getElementById(id);
+            el.textContent = msg;
+            el.style.display = 'block';
+        };
+
+        async function post(url, body) {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Something went wrong');
+            return data;
+        }
+
+        (async () => {
+            try {
+                const res = await fetch('/api/auth/setup-status');
+                const status = await res.json();
+                if (status.authDisabled) { window.location.href = '/app'; return; }
+                show(status.configured ? 'state-login' : 'state-setup');
+            } catch (e) {
+                show('state-login');
+            }
+        })();
+
+        document.getElementById('setup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('setup-password').value;
+            const confirm = document.getElementById('setup-confirm').value;
+            if (password !== confirm) { showError('setup-error', 'Passwords do not match'); return; }
+            const btn = document.getElementById('setup-btn');
+            btn.disabled = true;
+            try {
+                await post('/api/auth/setup', { password });
+                window.location.href = '/app';
+            } catch (err) {
+                showError('setup-error', err.message);
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true;
+            try {
+                await post('/api/auth/login', { password: document.getElementById('login-password').value });
+                window.location.href = '/app';
+            } catch (err) {
+                showError('login-error', err.message);
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

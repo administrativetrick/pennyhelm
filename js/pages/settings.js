@@ -96,6 +96,41 @@ export function renderSettings(container, store) {
         ${renderAccountsSection(store)}
         ${!auth.isCloud() ? renderPlaidConfigCard() : ''}
 
+        ${!auth.isCloud() ? `
+        <!-- ───── Security (selfhost password) ───── -->
+        <div class="settings-section-header">Security</div>
+        <div class="settings-grid">
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>🔐 App Password</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Protects this PennyHelm from anyone else who can reach it on your network.
+                        Changing the password signs out every other device.
+                    </p>
+                    <div class="form-group">
+                        <label>Current password</label>
+                        <input type="password" class="form-input" id="sh-current-password" autocomplete="current-password">
+                    </div>
+                    <div class="form-group">
+                        <label>New password (min 8 characters)</label>
+                        <input type="password" class="form-input" id="sh-new-password" autocomplete="new-password">
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="sh-change-password-btn">Change Password</button>
+                    <div id="sh-password-msg" style="font-size:12px;margin-top:8px;"></div>
+                </div>
+            </div>
+            <div class="card mb-24">
+                <div class="settings-section">
+                    <h3>Lock Now</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
+                        Sign this browser out immediately — you'll need the password to get back in.
+                    </p>
+                    <button class="btn btn-secondary btn-sm" id="sh-lock-btn">Lock App</button>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
         ${auth.isCloud() ? `
         <!-- ───── Security ───── -->
         <div class="settings-section-header">Security</div>
@@ -671,6 +706,42 @@ export function renderSettings(container, store) {
     // Plaid config (selfhost only — card is not rendered in cloud mode)
     if (!auth.isCloud()) {
         attachPlaidConfigHandlers(container).catch(e => console.error('Plaid config handlers:', e));
+
+        // App password (selfhost auth — issue #10)
+        const changeBtn = container.querySelector('#sh-change-password-btn');
+        const lockBtn = container.querySelector('#sh-lock-btn');
+        if (changeBtn) {
+            changeBtn.addEventListener('click', async () => {
+                const msg = container.querySelector('#sh-password-msg');
+                const currentPassword = container.querySelector('#sh-current-password').value;
+                const newPassword = container.querySelector('#sh-new-password').value;
+                changeBtn.disabled = true;
+                try {
+                    const res = await fetch('/api/auth/change-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ currentPassword, newPassword }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || 'Could not change password');
+                    msg.style.color = 'var(--green)';
+                    msg.textContent = 'Password changed. Other devices have been signed out.';
+                    container.querySelector('#sh-current-password').value = '';
+                    container.querySelector('#sh-new-password').value = '';
+                } catch (e) {
+                    msg.style.color = 'var(--red)';
+                    msg.textContent = e.message;
+                } finally {
+                    changeBtn.disabled = false;
+                }
+            });
+        }
+        if (lockBtn) {
+            lockBtn.addEventListener('click', async () => {
+                try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* still redirect */ }
+                window.location.href = '/login';
+            });
+        }
     }
 
     // Subscription status (cloud mode only)
