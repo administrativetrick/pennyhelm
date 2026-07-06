@@ -84,12 +84,25 @@ if (MODE === 'cloud') {
     }
 }
 
+// ===== Self-host authentication (issue #10) =====
+// Password-protects all data and Plaid routes so a self-hosted instance is
+// no longer readable by anyone who can reach the IP:port. First visit sets
+// the password; PENNYHELM_DISABLE_AUTH=1 opts out (e.g. behind a reverse
+// proxy that handles auth) and the app shows a prominent warning instead.
+const createSelfhostAuth = require('./selfhost-auth');
+const selfhostAuth = MODE === 'selfhost' ? createSelfhostAuth(db) : null;
+if (selfhostAuth && selfhostAuth.disabled) {
+    console.warn('⚠ PENNYHELM_DISABLE_AUTH=1 — authentication is OFF. Anyone who can reach this address can read your financial data.');
+}
+
 // ===== Auth Middleware =====
 async function requireAuth(req, res, next) {
     if (MODE === 'selfhost') {
-        req.userId = 'local';
-        req.subscriptionStatus = 'active';
-        return next();
+        return selfhostAuth.requireSelfhostAuth(req, res, () => {
+            req.userId = 'local';
+            req.subscriptionStatus = 'active';
+            next();
+        });
     }
 
     const authHeader = req.headers.authorization;
@@ -167,16 +180,27 @@ app.get('/health', (req, res) => {
     }
 });
 
-// Config endpoint (public — tells the client what mode we're in)
+// Config endpoint (public — tells the client what mode we're in).
+// authDisabled drives the in-app "your data is unprotected" warning.
 app.get('/api/config', (req, res) => {
-    res.json({ mode: MODE, appName: 'PennyHelm' });
+    res.json({
+        mode: MODE,
+        appName: 'PennyHelm',
+        authDisabled: MODE === 'selfhost' ? selfhostAuth.disabled : false,
+    });
 });
+
+// ===== Self-host auth routes (setup / login / logout / change-password) =====
+if (MODE === 'selfhost') {
+    app.use('/api/auth', selfhostAuth.router);
+}
 
 // ===== Plaid (selfhost only — cloud mode uses Firebase Cloud Functions) =====
 if (MODE === 'selfhost') {
     try {
         const createPlaidRouter = require('./plaid-service');
-        app.use('/api/plaid', createPlaidRouter(db));
+        // Behind auth: these routes hold bank credentials and transactions.
+        app.use('/api/plaid', selfhostAuth.requireSelfhostAuth, createPlaidRouter(db));
         console.log('Plaid routes mounted at /api/plaid');
     } catch (e) {
         console.warn('Plaid routes not mounted:', e.message);
@@ -263,10 +287,12 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Login page
+// Login page — selfhost gets the local password page (setup or unlock);
+// cloud keeps the Firebase login.
 app.get('/login', (req, res) => {
     if (MODE === 'selfhost') {
-        return res.redirect('/app');
+        if (selfhostAuth.disabled) return res.redirect('/app');
+        return res.sendFile(path.join(__dirname, 'selfhost-login.html'));
     }
     res.sendFile(path.join(__dirname, 'login.html'));
 });
@@ -282,7 +308,8 @@ app.get('/app/*', (req, res) => {
 
 // Static file serving — block access to sensitive files
 app.use((req, res, next) => {
-    const blocked = ['/server.js', '/package.json', '/package-lock.json',
+    const blocked = ['/server.js', '/selfhost-auth.js', '/plaid-service.js',
+        '/package.json', '/package-lock.json',
         '/firebase-service-account.json', '/firebase.json', '/.firebaserc',
         '/firestore.rules', '/firestore.indexes.json', '/auth_export.json'];
     const lower = req.path.toLowerCase();

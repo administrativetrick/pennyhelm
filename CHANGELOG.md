@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Self-hosted PennyHelm is now password-protected** ([#10](https://github.com/administrativetrick/pennyhelm/issues/10)). Previously anyone who could reach the IP:port could read all financial data. The first visit now sets an app password (salted scrypt hash, stored locally); sessions are 30-day HttpOnly cookies; login is throttled against brute force; and changing the password (Settings → Security) signs out every other device. Self-host Plaid endpoints — which hold bank access tokens — are behind the same authentication. For deployments where a reverse proxy already handles auth, `PENNYHELM_DISABLE_AUTH=1` opts out and the app shows a permanent warning banner that the data is unprotected.
+
 ### Added
 - **Change someone's access level without re-inviting them.** "Edit access" next to each person in Settings → People with access opens the role editor — switch between Companion/Advisor/Viewer/Partner/Full, adjust which accounts and budgets they see, and toggle budget adjusting. Changes apply on their next refresh; no new invite email, no broken link.
 - **Viewing shared finances no longer requires a subscription.** When a trial or subscription expires, an account that holds a share opens straight into the shared view instead of the paywall — viewing what someone shared with you stays free. Setting up or returning to your *own* finances is what asks for the subscription.

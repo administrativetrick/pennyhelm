@@ -71,7 +71,16 @@ npm start
 
 Open [http://localhost:8081](http://localhost:8081) in your browser.
 
-On first launch you'll be prompted to either **load sample data** or **start fresh** with an empty setup.
+On first launch you'll be asked to **set a password**, then to either **load sample data** or **start fresh** with an empty setup.
+
+### Authentication
+
+Self-hosted PennyHelm is password-protected: the first visit sets an app password, and every device needs it to unlock your finances. Without it, anyone who could reach the IP:port (your LAN, a Docker port mapping, a VPN) could read your financial data.
+
+- The password is stored locally as a salted scrypt hash and never leaves your machine. Sessions last 30 days; changing the password (Settings → Security) signs out every other device.
+- **Forgot it?** There's no reset flow by design. Delete the `selfhost-auth` row from the `store` table in `data/finances.db` and reload — you'll be prompted to set a new password. Your data is untouched.
+- **Running behind a reverse proxy that already handles auth?** Set `PENNYHELM_DISABLE_AUTH=1` to skip the built-in login. The app shows a permanent warning banner while auth is disabled — your data is readable by anyone who can reach the port.
+- Without Docker, the server also binds to `127.0.0.1` by default; set `HOST=0.0.0.0` to expose it on your network.
 
 ### App Mode (`APP_MODE`)
 
