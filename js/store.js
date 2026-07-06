@@ -1683,6 +1683,28 @@ class Store {
         this._save();
     }
 
+    // Owner-side grant edit: change a share's role and scoping WITHOUT
+    // revoking + re-inviting. sharedWith is the source of truth; the
+    // storage adapter re-derives sharedWithUids/sharedWithEdit/sharedRoles
+    // on save, so enforcement (Firestore rules + the snapshot gateway)
+    // follows on the next fetch. `permissions` is kept in sync for legacy
+    // readers: partner/full grants imply edit, everything else view.
+    updateShareAccess(uid, { role, accountIds, budgetIds, canEditBudgets }) {
+        const VALID_ROLES = ['companion', 'advisor', 'viewer', 'partner', 'full'];
+        if (!VALID_ROLES.includes(role)) throw new Error('Invalid role');
+        const data = this._load();
+        const entry = (data.sharedWith || []).find(s => s.uid === uid);
+        if (!entry) throw new Error('No share found for that user');
+        entry.role = role;
+        entry.accountIds = Array.isArray(accountIds) ? accountIds : null;
+        entry.budgetIds = Array.isArray(budgetIds) ? budgetIds : null;
+        entry.canEditBudgets = canEditBudgets === true;
+        entry.permissions = (role === 'partner' || role === 'full') ? 'edit' : 'view';
+        entry.roleChangedAt = new Date().toISOString();
+        this._save();
+        return entry;
+    }
+
     // ─── Plaid Helpers ───────────────────────────────────────
 
     getPlaidItemIds() {
