@@ -392,6 +392,96 @@ export function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRang
     return occurrences;
 }
 
+// ─── Month & Period Aggregates ────────────────────
+
+/**
+ * Total bill amount actually due in a specific calendar month, honoring
+ * every frequency (monthly, weekly, biweekly, every-4-weeks, every-2-months,
+ * per-paycheck, twice-monthly, yearly, semi-annual). This is the single
+ * source of truth for "what do bills cost in month X" — the dashboard and
+ * the period aggregates funnel through it.
+ *
+ * @param {Array} bills
+ * @param {number} year
+ * @param {number} month — 0-indexed
+ * @param {Array<Date>} payDatesInMonth — pay dates falling in this month
+ *   (drives per-paycheck / twice-monthly). When empty, those frequencies
+ *   fall back to `fallbackPayChecks` occurrences (default 2, matching the
+ *   long-standing dashboard behavior for users without a pay schedule).
+ */
+export function billTotalForMonth(bills, year, month, payDatesInMonth = [], { fallbackPayChecks = 2 } = {}) {
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+    return (bills || []).reduce((sum, b) => {
+        if (b.frozen || b.excludeFromTotal) return sum;
+        const amt = Number(b.amount) || 0;
+        if (!amt) return sum;
+        const freq = b.frequency || 'monthly';
+        if (freq === 'monthly') return sum + amt;
+        if (freq === 'yearly') return sum + (b.dueMonth === month ? amt : 0);
+        if (freq === 'semi-annual') {
+            const second = ((b.dueMonth || 0) + 6) % 12;
+            return sum + (b.dueMonth === month || second === month ? amt : 0);
+        }
+        if (freq === 'per-paycheck' || freq === 'twice-monthly') {
+            let n = payDatesInMonth.length || fallbackPayChecks;
+            if (freq === 'twice-monthly') n = Math.min(n, 2);
+            return sum + amt * n;
+        }
+        // weekly / biweekly / every-4-weeks / every-2-months: expand to
+        // actual occurrences inside the month.
+        const occ = expandBillOccurrences(b, monthStart, monthEnd, payDatesInMonth);
+        return sum + (occ ? occ.length : 0) * amt;
+    }, 0);
+}
+
+/**
+ * Aggregate income vs. bills over a run of calendar months — the engine
+ * behind the dashboard's This Month / Quarter / Year toggle.
+ *
+ * Bills are computed per month (so an every-2-months bill lands in the
+ * right 1–2 months of a quarter, a yearly bill only in its due month);
+ * income uses the schedule-derived monthly figure × months, since there is
+ * no historical income record to be more precise with.
+ *
+ * @param {object} data
+ * @param {Array}  data.bills — bills counted toward the outflow
+ * @param {Array}  [data.coveredDependentBills] — dependent bills the user covers
+ * @param {object} [data.paySchedule] — drives per-paycheck bill counts
+ * @param {number} data.monthlyIncome — caller-resolved monthly income
+ * @param {number} startYear
+ * @param {number} startMonth — 0-indexed
+ * @param {number} monthCount
+ * @returns {{ income, billsTotal, coverageTotal, outflow, remaining,
+ *             months: Array<{year, month, income, bills, coverage}> }}
+ */
+export function computePeriodSummary(data, startYear, startMonth, monthCount) {
+    const pad = (n) => String(n).padStart(2, '0');
+    const monthlyIncome = Number(data.monthlyIncome) || 0;
+    const months = [];
+    let billsTotal = 0;
+    let coverageTotal = 0;
+    for (let i = 0; i < monthCount; i++) {
+        const d = new Date(startYear, startMonth + i, 1);
+        const y = d.getFullYear();
+        const m = d.getMonth();
+        const lastDay = new Date(y, m + 1, 0).getDate();
+        const payDates = generatePayDates(
+            data.paySchedule,
+            `${y}-${pad(m + 1)}-01`,
+            `${y}-${pad(m + 1)}-${pad(lastDay)}`
+        );
+        const bills = billTotalForMonth(data.bills, y, m, payDates);
+        const coverage = billTotalForMonth(data.coveredDependentBills || [], y, m, payDates);
+        billsTotal += bills;
+        coverageTotal += coverage;
+        months.push({ year: y, month: m, income: monthlyIncome, bills, coverage });
+    }
+    const income = monthlyIncome * monthCount;
+    const outflow = billsTotal + coverageTotal;
+    return { income, billsTotal, coverageTotal, outflow, remaining: income - outflow, months };
+}
+
 // ─── Plaid Payment Matching ──────────────────────
 
 /**

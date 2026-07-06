@@ -12,6 +12,8 @@ import {
     sumDebtMinimums,
     addDays,
     getOverdueCarryForwards,
+    billTotalForMonth,
+    computePeriodSummary,
     HOUSING_BILL_CATEGORIES,
     DEBT_BILL_CATEGORIES,
 } from '../services/financial-service.js';
@@ -46,27 +48,47 @@ const DASHBOARD_WIDGETS = [
 let periodOffset = 0; // 0 = starts at current period
 let dashboardEditMode = false;
 let activeDashboardTab = 'overview';
+let dashboardPeriod = 'month'; // 'month' | 'quarter' | 'year'
+
+// Resolve the toggle selection into a run of calendar months + a label.
+function getPeriodDef(kind, now) {
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    if (kind === 'quarter') {
+        const qStart = Math.floor(m / 3) * 3;
+        return { kind, startYear: y, startMonth: qStart, monthCount: 3,
+                 label: 'Q' + (Math.floor(m / 3) + 1) + ' ' + y, noun: 'this quarter' };
+    }
+    if (kind === 'year') {
+        return { kind, startYear: y, startMonth: 0, monthCount: 12, label: String(y), noun: 'this year' };
+    }
+    return { kind: 'month', startYear: y, startMonth: m, monthCount: 1,
+             label: new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long' }), noun: 'this month' };
+}
 
 // ─────────────────────────────────────────────
 // WIDGET BUILDER FUNCTIONS
 // ─────────────────────────────────────────────
 
 function buildCashflowHeroHtml(ctx) {
-    var income = ctx.userMonthlyIncome;
-    var outflow = ctx.totalBills + ctx.depCoverageTotal;
-    var remaining = ctx.remaining;
+    // Period-aware: the This Month / Quarter / Year toggle swaps in the
+    // aggregate (per-month bill math summed across the period).
+    var income = ctx.periodSummary.income;
+    var outflow = ctx.periodSummary.outflow;
+    var remaining = ctx.periodSummary.remaining;
     var positive = remaining >= 0;
-    var monthLabel = new Date(ctx.year, ctx.month, 1).toLocaleDateString('en-US', { month: 'long' });
+    var monthLabel = ctx.periodDef.label;
+    var periodNoun = ctx.periodDef.noun;
     var pctStr = (income > 0 ? (outflow / income * 100) : 0).toFixed(1) + '%';
 
-    // Plain-English summary of where the month stands.
+    // Plain-English summary of where the period stands.
     var narrative;
     if (income <= 0) {
         narrative = 'Add your income in <strong>Settings</strong> to see how your bills stack up against what you earn.';
     } else if (positive) {
-        narrative = 'Bills are <strong style="color:var(--green);">' + pctStr + '</strong> of income this month — you have <strong>' + formatCurrency(remaining) + '</strong> left to spend.';
+        narrative = 'Bills are <strong style="color:var(--green);">' + pctStr + '</strong> of income ' + periodNoun + ' — you have <strong>' + formatCurrency(remaining) + '</strong> left to spend.';
     } else {
-        narrative = 'Bills are running <strong style="color:var(--red);">' + pctStr + '</strong> of income this month — you\'re <strong style="color:var(--red);">' + formatCurrency(Math.abs(remaining)) + '</strong> over.';
+        narrative = 'Bills are running <strong style="color:var(--red);">' + pctStr + '</strong> of income ' + periodNoun + ' — you\'re <strong style="color:var(--red);">' + formatCurrency(Math.abs(remaining)) + '</strong> over.';
     }
 
     // Income vs. outflow bars, both scaled to whichever is larger.
@@ -88,10 +110,10 @@ function buildCashflowHeroHtml(ctx) {
     html += '<div class="cashflow-hero-value" style="color:' + (positive ? 'var(--green)' : 'var(--red)') + ';">' + formatCurrency(remaining) + '</div>';
     html += '<div class="cashflow-hero-note">' + narrative + '</div>';
     html += '</div>';
-    if (ctx.depEnabled && ctx.depCoverageTotal > 0) {
+    if (ctx.depEnabled && ctx.periodSummary.coverageTotal > 0) {
         html += '<div class="cashflow-hero-aside">';
         html += '<div class="cashflow-hero-aside-label">Covering ' + escapeHtml(ctx.depName) + '</div>';
-        html += '<div class="cashflow-hero-aside-value">' + formatCurrency(ctx.depCoverageTotal) + '</div>';
+        html += '<div class="cashflow-hero-aside-value">' + formatCurrency(ctx.periodSummary.coverageTotal) + '</div>';
         html += '<div class="cashflow-hero-aside-sub">' + ctx.depCoveredBills.length + ' of ' + ctx.dependentBills.length + ' bills</div>';
         html += '</div>';
     }
@@ -210,38 +232,49 @@ function buildStatsGridHtml(ctx) {
     // (swipe on touch, chevrons on desktop) instead of wrapping into a tall
     // grid — see .stat-scroller in styles.css.
     var html = '<div class="stat-scroller-wrap">' + scrollerArrowsHtml() + '<div class="stat-scroller card-grid">';
-    // Monthly Income
+    // The flow cards (income / bills / remaining / coverage) follow the
+    // This Month / Quarter / Year toggle; balance-sheet cards below are
+    // point-in-time and don't.
+    var ps = ctx.periodSummary;
+    var isMonth = ctx.periodDef.kind === 'month';
+    var periodTag = isMonth ? '' : ' &middot; ' + ctx.periodDef.label;
+    // Income
     html += '<div class="stat-card green">';
-    html += '<div class="label">Monthly Income</div>';
-    html += '<div class="value">' + formatCurrency(ctx.userMonthlyIncome) + '</div>';
-    html += '<div class="sub">' + formatCurrency(ctx.userPayMonthly) + ' pay';
-    if (ctx.otherIncomeMonthly > 0) html += ' + ' + formatCurrency(ctx.otherIncomeMonthly) + ' other';
-    if (ctx.depMonthlyPay > 0) html += ' + ' + formatCurrency(ctx.depMonthlyPay) + ' ' + escapeHtml(ctx.depName);
-    html += '</div></div>';
+    html += '<div class="label">' + (isMonth ? 'Monthly Income' : 'Income' + periodTag) + '</div>';
+    html += '<div class="value">' + formatCurrency(ps.income) + '</div>';
+    if (isMonth) {
+        html += '<div class="sub">' + formatCurrency(ctx.userPayMonthly) + ' pay';
+        if (ctx.otherIncomeMonthly > 0) html += ' + ' + formatCurrency(ctx.otherIncomeMonthly) + ' other';
+        if (ctx.depMonthlyPay > 0) html += ' + ' + formatCurrency(ctx.depMonthlyPay) + ' ' + escapeHtml(ctx.depName);
+        html += '</div>';
+    } else {
+        html += '<div class="sub">' + formatCurrency(ctx.userMonthlyIncome) + '/mo &times; ' + ctx.periodDef.monthCount + ' months</div>';
+    }
+    html += '</div>';
     // Total Bills
     html += '<div class="stat-card red">';
-    html += '<div class="label">Total Bills</div>';
-    html += '<div class="value">' + formatCurrency(ctx.totalBills + ctx.depCoverageTotal) + '</div>';
+    html += '<div class="label">Total Bills' + periodTag + '</div>';
+    html += '<div class="value">' + formatCurrency(ps.outflow) + '</div>';
     var billsSub = '';
-    if (ctx.userMonthlyIncome > 0) {
-        billsSub = ((ctx.totalBills + ctx.depCoverageTotal) / ctx.userMonthlyIncome * 100).toFixed(1) + '% of income';
+    if (ps.income > 0) {
+        billsSub = (ps.outflow / ps.income * 100).toFixed(1) + '% of income';
     } else {
         billsSub = ctx.bills.filter(function(b) { return !b.frozen; }).length + ' active bills';
     }
-    if (ctx.depEnabled && ctx.depCoverageTotal > 0) {
+    if (ctx.depEnabled && ps.coverageTotal > 0) {
         billsSub += ' &middot; ' + ctx.depCoveredBills.length + ' covering ' + escapeHtml(ctx.depName);
     }
     html += '<div class="sub">' + billsSub + '</div></div>';
     // Remaining
-    html += '<div class="stat-card ' + (ctx.remaining >= 0 ? 'blue' : 'orange') + '">';
-    html += '<div class="label">Remaining</div>';
-    html += '<div class="value">' + formatCurrency(ctx.remaining) + '</div>';
-    html += '<div class="sub">' + (ctx.userMonthlyIncome > 0 ? (ctx.remaining / ctx.userMonthlyIncome * 100).toFixed(1) + '% of income' : 'After all bills') + '</div></div>';
+    html += '<div class="stat-card ' + (ps.remaining >= 0 ? 'blue' : 'orange') + '">';
+    html += '<div class="label">Remaining' + periodTag + '</div>';
+    html += '<div class="value">' + formatCurrency(ps.remaining) + '</div>';
+    html += '<div class="sub">' + (ps.income > 0 ? (ps.remaining / ps.income * 100).toFixed(1) + '% of income' : 'After all bills') + '</div></div>';
     // Dependent coverage
     if (ctx.depEnabled) {
         html += '<div class="stat-card purple">';
-        html += '<div class="label">Covering ' + escapeHtml(ctx.depName) + '</div>';
-        html += '<div class="value">' + formatCurrency(ctx.depCoverageTotal) + '</div>';
+        html += '<div class="label">Covering ' + escapeHtml(ctx.depName) + periodTag + '</div>';
+        html += '<div class="value">' + formatCurrency(ps.coverageTotal) + '</div>';
         html += '<div class="sub">' + ctx.depCoveredBills.length + ' of ' + ctx.dependentBills.length + ' bills</div></div>';
     }
     // Bank Balance
@@ -627,41 +660,28 @@ export function renderDashboard(container, store, subTab) {
     const payDatesAll = store.getPayDates();
     const payDatesThisMonth = payDatesAll.filter(d => d.getFullYear() === year && d.getMonth() === month).length || 2;
 
-    const totalBills = bills.reduce((sum, b) => {
-        if (b.frozen || b.excludeFromTotal) return sum;
-        if (b.frequency === 'per-paycheck') return sum + b.amount * payDatesThisMonth;
-        if (b.frequency === 'twice-monthly') return sum + b.amount * Math.min(payDatesThisMonth, 2);
-        if (b.frequency === 'weekly') return sum + b.amount * countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month);
-        if (b.frequency === 'biweekly') return sum + b.amount * Math.ceil(countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month) / 2);
-        if (b.frequency === 'every-4-weeks') return sum + b.amount * ((expandBillOccurrences(b, new Date(year, month, 1), new Date(year, month + 1, 0), []) || []).length);
-        if (b.frequency === 'every-2-months') return sum + (((month - (b.dueMonth != null ? b.dueMonth : 0)) % 2 + 2) % 2 === 0 ? b.amount : 0);
-        if (b.frequency === 'yearly') return sum + (b.dueMonth === month ? b.amount : 0);
-        if (b.frequency === 'semi-annual') {
-            const secondMonth = (b.dueMonth + 6) % 12;
-            return sum + (b.dueMonth === month || secondMonth === month ? b.amount : 0);
-        }
-        return sum + b.amount;
-    }, 0);
+    // Actual-month bill totals via the shared engine (billTotalForMonth is
+    // the single source for per-frequency month math — no more inline copy).
+    const payDateObjsThisMonth = payDatesAll.filter(d => d.getFullYear() === year && d.getMonth() === month);
+    const totalBills = billTotalForMonth(bills, year, month, payDateObjsThisMonth);
     const paidBills = bills.filter(b => store.isBillPaid(b.id, year, month) && !b.frozen && !b.excludeFromTotal);
-    const paidTotal = paidBills.reduce((sum, b) => {
-        if (b.frequency === 'per-paycheck') return sum + b.amount * payDatesThisMonth;
-        if (b.frequency === 'twice-monthly') return sum + b.amount * Math.min(payDatesThisMonth, 2);
-        if (b.frequency === 'weekly') return sum + b.amount * countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month);
-        if (b.frequency === 'biweekly') return sum + b.amount * Math.ceil(countDayOfWeekInMonth((b.dueDay || 0) % 7, year, month) / 2);
-        if (b.frequency === 'every-4-weeks') return sum + b.amount * ((expandBillOccurrences(b, new Date(year, month, 1), new Date(year, month + 1, 0), []) || []).length);
-        if (b.frequency === 'every-2-months') return sum + (((month - (b.dueMonth != null ? b.dueMonth : 0)) % 2 + 2) % 2 === 0 ? b.amount : 0);
-        if (b.frequency === 'yearly') return sum + (b.dueMonth === month ? b.amount : 0);
-        if (b.frequency === 'semi-annual') {
-            const secondMonth = (b.dueMonth + 6) % 12;
-            return sum + (b.dueMonth === month || secondMonth === month ? b.amount : 0);
-        }
-        return sum + b.amount;
-    }, 0);
+    const paidTotal = billTotalForMonth(paidBills, year, month, payDateObjsThisMonth);
     const unpaidTotal = totalBills - paidTotal;
 
     const depCoveredBills = depEnabled ? dependentBills.filter(b => b.userCovering) : [];
     const depCoverageTotal = depCoveredBills.reduce((sum, b) => sum + b.amount, 0);
     const remaining = userMonthlyIncome - totalBills - depCoverageTotal;
+
+    // Multi-month aggregate for the This Month / Quarter / Year toggle.
+    // Bills are computed per calendar month (yearly bills land only in
+    // their due month, every-2-months in alternating months, etc).
+    const periodDef = getPeriodDef(dashboardPeriod, now);
+    const periodSummary = computePeriodSummary({
+        bills,
+        coveredDependentBills: depCoveredBills,
+        paySchedule,
+        monthlyIncome: userMonthlyIncome,
+    }, periodDef.startYear, periodDef.startMonth, periodDef.monthCount);
 
     const accounts = store.getAccounts();
     const cashTotal = accounts.filter(a => a.type === 'checking' || a.type === 'savings').reduce((s, a) => s + a.balance, 0);
@@ -706,7 +726,7 @@ export function renderDashboard(container, store, subTab) {
         paidTotal, unpaidTotal, depCoveredBills, depCoverageTotal, remaining, accounts,
         cashTotal, creditOwed, investmentTotal, propertyEquity, vehicleEquity, debts,
         unlinkedDebtBalance, totalDebtBalance, netBalance, creditScores, userScore, userRating,
-        dependentScore, dependentRating, upcoming, payPeriods
+        dependentScore, dependentRating, upcoming, payPeriods, periodDef, periodSummary
     };
 
     // Widget renderers map
@@ -780,9 +800,16 @@ export function renderDashboard(container, store, subTab) {
             '</div>' +
             '<button class="btn-icon" id="dashboard-customize-btn" title="Customize dashboard">' + gearSvg + '</button>' +
         '</div>' +
-        '<div class="filters" style="margin-bottom:20px;">' +
-            '<button class="filter-chip active" data-tab="overview">Overview</button>' +
-            '<button class="filter-chip" data-tab="reports">Reports</button>' +
+        '<div class="filters" style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">' +
+            '<div style="display:flex;gap:8px;">' +
+                '<button class="filter-chip active" data-tab="overview">Overview</button>' +
+                '<button class="filter-chip" data-tab="reports">Reports</button>' +
+            '</div>' +
+            '<div style="display:flex;gap:8px;" id="dashboard-period-toggle">' +
+                '<button class="filter-chip' + (dashboardPeriod === 'month' ? ' active' : '') + '" data-period="month">This Month</button>' +
+                '<button class="filter-chip' + (dashboardPeriod === 'quarter' ? ' active' : '') + '" data-period="quarter">Quarter</button>' +
+                '<button class="filter-chip' + (dashboardPeriod === 'year' ? ' active' : '') + '" data-period="year">Year</button>' +
+            '</div>' +
         '</div>' +
         (dashboardEditMode ? buildEditToolbarHtml(layout) : '') +
         '<div id="dashboard-widgets-container">' + widgetsHtml + '</div>' +
@@ -794,6 +821,16 @@ export function renderDashboard(container, store, subTab) {
     const prevBtn = container.querySelector('#period-prev');
     const nextBtn = container.querySelector('#period-next');
     const todayBtn = container.querySelector('#period-today');
+
+    // Period toggle (This Month / Quarter / Year) — re-renders with the
+    // matching aggregate.
+    container.querySelectorAll('#dashboard-period-toggle [data-period]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (dashboardPeriod === btn.dataset.period) return;
+            dashboardPeriod = btn.dataset.period;
+            renderDashboard(container, store);
+        });
+    });
 
     // Stat carousel — chevrons scroll by ~a viewport, and hide at the ends
     // (or entirely when everything already fits).
