@@ -3170,3 +3170,37 @@ tbody tr:hover { background: var(--bg-card-hover); }
     background: var(--bg-card-hover);
     color: var(--text-primary);
 }
+
+/* ── Dashboard two-column layout (design mock parity) ─────────────────
+   Wide widgets flow down the main column; compact ones (health score,
+   upcoming bills, savings goals…) stack in a right-hand rail. Collapses
+   to a single column on narrow screens. Edit mode bypasses this wrapper
+   entirely (flat drag list). */
+.dashboard-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 20px;
+    align-items: start;
+}
+.dashboard-main,
+.dashboard-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+}
+/* The column gap owns the spacing — neutralize per-widget margins */
+.dashboard-main > *,
+.dashboard-rail > * {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+/* Stat-card grids narrow gracefully inside the main column */
+.dashboard-main .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+@media (max-width: 1100px) {
+    .dashboard-columns {
+        grid-template-columns: 1fr;
+    }
+}

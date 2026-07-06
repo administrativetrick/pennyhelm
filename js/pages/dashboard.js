@@ -717,15 +717,15 @@ export function renderDashboard(container, store, subTab) {
     const layout = store.getDashboardLayout();
 
     // Build widgets HTML in layout order.
-    // In view mode, the first PINNED_COUNT visible widgets render as a vertical
-    // stack and the rest collapse into a horizontal scroll-snap carousel to
-    // reduce scroll length on narrow screens. Edit mode disables the carousel
-    // so users can drag/reorder every widget in one list.
-    var PINNED_COUNT = 3;
-    var pinnedHtml = '';
-    var carouselHtml = '';
-    var carouselCount = 0;
-    var visibleIndex = 0;
+    // View mode arranges widgets into two columns — wide widgets in the main
+    // column, compact ones in a right-hand rail (health score, upcoming
+    // bills, …), collapsing to a single column on narrow screens. Edit mode
+    // keeps one flat list so drag-reordering stays simple; the saved order
+    // controls the sequence within each column.
+    var RAIL_WIDGETS = ['health-score', 'upcoming-bills', 'savings-goals', 'budget-health', 'smart-insights'];
+    var editHtml = '';
+    var mainHtml = '';
+    var railHtml = '';
     layout.order.forEach(function(id) {
         if (layout.hidden.includes(id)) return;
         var renderer = widgetRenderers[id];
@@ -733,33 +733,20 @@ export function renderDashboard(container, store, subTab) {
         var html = renderer();
         if (!html || html.trim() === '') return;
         if (dashboardEditMode) {
-            pinnedHtml += wrapWidgetForEdit(id, html);
-        } else if (visibleIndex < PINNED_COUNT) {
-            pinnedHtml += html;
+            editHtml += wrapWidgetForEdit(id, html);
+        } else if (RAIL_WIDGETS.includes(id)) {
+            railHtml += html;
         } else {
-            carouselHtml += html;
-            carouselCount++;
+            mainHtml += html;
         }
-        visibleIndex++;
     });
 
-    var widgetsHtml = pinnedHtml;
-    if (carouselHtml) {
-        var dotsHtml = '';
-        for (var d = 0; d < carouselCount; d++) {
-            dotsHtml += '<button class="widget-carousel-dot' + (d === 0 ? ' active' : '') +
-                '" data-index="' + d + '" aria-label="Go to widget ' + (d + 1) + '"></button>';
-        }
-        widgetsHtml +=
-            '<div class="widget-carousel-wrapper">' +
-                '<div class="widget-carousel-header">' +
-                    '<span class="widget-carousel-title">More Insights</span>' +
-                    '<span class="widget-carousel-hint">← swipe to explore ' + carouselCount + ' more →</span>' +
-                '</div>' +
-                '<div class="widget-carousel">' + carouselHtml + '</div>' +
-                '<div class="widget-carousel-dots">' + dotsHtml + '</div>' +
-            '</div>';
-    }
+    var widgetsHtml = dashboardEditMode
+        ? editHtml
+        : '<div class="dashboard-columns">' +
+              '<div class="dashboard-main">' + mainHtml + '</div>' +
+              (railHtml ? '<aside class="dashboard-rail">' + railHtml + '</aside>' : '') +
+          '</div>';
 
     // Dependent alert (not a widget, always shown when applicable)
     var depAlertHtml = buildDependentAlertHtml(ctx);
@@ -769,11 +756,16 @@ export function renderDashboard(container, store, subTab) {
         '<circle cx="12" cy="12" r="3"/>' +
         '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
 
+    // Time-of-day greeting (matches the design mock: date above, greeting as title)
+    var hour = now.getHours();
+    var greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    var firstName = String(userName || '').trim().split(' ')[0] || 'there';
+
     container.innerHTML =
         '<div class="page-header">' +
             '<div>' +
-                '<h2>Dashboard</h2>' +
-                '<div class="subtitle">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + '</div>' +
+                '<div class="subtitle" style="margin-bottom:2px;">' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + '</div>' +
+                '<h2>' + greeting + ', ' + escapeHtml(firstName) + '</h2>' +
             '</div>' +
             '<button class="btn-icon" id="dashboard-customize-btn" title="Customize dashboard">' + gearSvg + '</button>' +
         '</div>' +
