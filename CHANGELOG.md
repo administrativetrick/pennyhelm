@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-06
+
 ### Security
 - **Self-hosted PennyHelm is now password-protected** ([#10](https://github.com/administrativetrick/pennyhelm/issues/10)). Previously anyone who could reach the IP:port could read all financial data. The first visit now sets an app password (salted scrypt hash, stored locally); sessions are 30-day HttpOnly cookies; login is throttled against brute force; and changing the password (Settings → Security) signs out every other device. Self-host Plaid endpoints — which hold bank access tokens — are behind the same authentication. For deployments where a reverse proxy already handles auth, `PENNYHELM_DISABLE_AUTH=1` opts out and the app shows a permanent warning banner that the data is unprotected.
 
@@ -208,7 +210,8 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.3.0...v0.4.0
