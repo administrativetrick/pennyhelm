@@ -1,8 +1,9 @@
 name: test
 
 # Runs the unit test suite on every push to master and every pull request.
-# Uses Node's built-in test runner — no dependencies to install.
-# See tests/financial-service.test.js and tests/recurring-service.test.js.
+# Uses Node's built-in test runner. Dependencies ARE installed now:
+# tests/selfhost-auth.test.js exercises the real SQLite-backed auth module
+# (better-sqlite3 ships prebuilt binaries, so npm ci stays fast).
 
 on:
   push:
@@ -22,6 +23,10 @@ jobs:
           # Node 22 LTS — `node --test` gained glob-pattern support in v21,
           # which the test script relies on (`tests/**/*.test.js`).
           node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run tests
         run: npm test
