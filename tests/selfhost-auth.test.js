@@ -8,8 +8,17 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const Database = require('better-sqlite3');
+// better-sqlite3 is a runtime dependency of the selfhost server; skip this
+// suite (instead of crashing the whole run) when node_modules is absent.
+let Database = null;
+try { Database = require('better-sqlite3'); } catch (e) { /* not installed */ }
 const createSelfhostAuth = require('../selfhost-auth.js');
+
+if (!Database) {
+    test('selfhost-auth suite skipped — better-sqlite3 not installed (run npm ci)', (t) => {
+        t.skip('better-sqlite3 not installed');
+    });
+}
 
 function makeDb() {
     const db = new Database(':memory:');
@@ -32,6 +41,9 @@ function mockRes() {
 function reqWithCookie(token) {
     return { headers: token ? { cookie: `ph_session=${token}` } : {}, socket: { remoteAddress: '10.0.0.9' } };
 }
+
+// eslint-disable-next-line no-lone-blocks — everything below needs the driver
+if (Database) {
 
 describe('selfhost-auth: password hashing', () => {
     const auth = createSelfhostAuth(makeDb(), { disabled: false });
@@ -141,3 +153,5 @@ describe('selfhost-auth: login throttle', () => {
         assert.equal(isThrottled('10.9.9.9', now), false, 'other IPs unaffected');
     });
 });
+
+} // if (Database)
