@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-04
+
 ### Added
 - **Shared mode: the app itself now scopes to your granted role.** When someone views finances shared with them, the sidebar collapses to just the shared overview plus their own Settings — a Companion no longer sees Bills, Calendar, Income, or any other tab their role doesn't include, and typing those URLs redirects to the overview. Everyone with shares gets a "Shared with you" section in the sidebar; "My finances" switches back at any time, and the viewing context is remembered across visits.
 - **Invited accounts default to the shared view until they set up their own finances.** A new account with a share skips the first-run screen entirely and signs straight in to the finances shared with it. Pressing "My finances" for the first time starts their own setup — the welcome screen (for brand-new accounts) and the guided tour — and from then on the app defaults to their own finances.
@@ -199,7 +201,8 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.2.0...v0.3.0
