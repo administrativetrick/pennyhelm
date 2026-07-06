@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Change someone's access level without re-inviting them.** "Edit access" next to each person in Settings → People with access opens the role editor — switch between Companion/Advisor/Viewer/Partner/Full, adjust which accounts and budgets they see, and toggle budget adjusting. Changes apply on their next refresh; no new invite email, no broken link.
+- **Viewing shared finances no longer requires a subscription.** When a trial or subscription expires, an account that holds a share opens straight into the shared view instead of the paywall — viewing what someone shared with you stays free. Setting up or returning to your *own* finances is what asks for the subscription.
+
 ## [0.5.0] — 2026-07-04
 
 ### Added

@@ -109,7 +109,43 @@ export function enterSharedMode(share) {
     navigate('shared');
 }
 
+// When set, the account's subscription has expired: share-viewing stays
+// free, but leaving shared mode opens the subscribe flow instead.
+let expiredSubscribeCb = null;
+
+/**
+ * Called by the cloud access gate when an EXPIRED account holds shares:
+ * share-viewing stays free, so instead of the paywall the app opens in
+ * shared mode. "My finances" triggers the subscribe flow rather than
+ * exiting, and a banner explains the state.
+ */
+export function forceSharedModeForExpired(shares, onSubscribe) {
+    expiredSubscribeCb = onSubscribe || (() => {});
+    const persisted = getSharedModeState();
+    const match = persisted && shares.find(s => s.ownerUid === persisted.ownerUid);
+    const s = match || shares[0];
+    const state = { ownerUid: s.ownerUid, ownerName: s.ownerName, role: s.role };
+    localStorage.setItem(MODE_KEY, JSON.stringify(state));
+    sessionStorage.setItem(VIEW_KEY, JSON.stringify(state));
+
+    if (!document.getElementById('shared-expired-banner')) {
+        const el = document.createElement('div');
+        el.id = 'shared-expired-banner';
+        el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:900;background:var(--bg-card);border-top:1px solid var(--border);padding:10px 16px;font-size:12.5px;display:flex;justify-content:center;align-items:center;gap:14px;';
+        el.innerHTML = `<span style="color:var(--text-secondary);">Your trial has ended — viewing finances shared with you stays free. Subscribe to manage your own finances.</span>
+            <button class="btn btn-primary btn-sm" id="shared-expired-subscribe">Subscribe</button>`;
+        document.body.appendChild(el);
+        el.querySelector('#shared-expired-subscribe').addEventListener('click', () => expiredSubscribeCb && expiredSubscribeCb());
+    }
+}
+
 export function exitSharedMode() {
+    // Expired accounts view shares for free but need a subscription for
+    // finances of their own — "My finances" opens the subscribe flow.
+    if (expiredSubscribeCb) {
+        expiredSubscribeCb();
+        return;
+    }
     localStorage.removeItem(MODE_KEY);
     sessionStorage.removeItem(VIEW_KEY);
     // An explicit "My finances" means: stop defaulting to the shared view.

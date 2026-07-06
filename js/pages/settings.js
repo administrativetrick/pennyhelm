@@ -1081,6 +1081,106 @@ export function renderSettings(container, store) {
         // Sharing & Invites functionality
         const inviteBtn = container.querySelector('#invite-person-btn');
         if (inviteBtn) {
+            // Owner-side role change — edits the sharedWith entry in place;
+            // the storage adapter re-derives the enforcement fields on save,
+            // so no revoke + re-invite is needed. Takes effect on the
+            // person's next load/snapshot fetch.
+            const openEditAccessModal = (uid, onSaved) => {
+                const person = store.getSharedWith().find(s => s.uid === uid);
+                if (!person) return;
+                const currentRole = person.role || (person.permissions === 'edit' ? 'partner' : 'viewer');
+                const hasAccountAllowlist = Array.isArray(person.accountIds);
+                const hasBudgetAllowlist = Array.isArray(person.budgetIds);
+
+                openModal(`Edit access — ${person.email}`, `
+                    <div class="form-group">
+                        <label>Access level</label>
+                        <select class="form-select" id="edit-role">
+                            <option value="companion">Companion — chosen account balances + budgets only</option>
+                            <option value="advisor">Advisor — the financial picture, no individual bills</option>
+                            <option value="viewer">Viewer — sees everything, changes nothing</option>
+                            <option value="partner">Partner — sees everything, manages day-to-day</option>
+                            <option value="full">Full — sees and edits everything</option>
+                        </select>
+                        <div id="edit-role-desc" style="font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5;"></div>
+                    </div>
+                    <div class="form-group" id="edit-accounts-group" style="display:none;">
+                        <label>Accounts they can see balances for</label>
+                        <div style="max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;">
+                            ${store.getAccounts().map(a => `
+                                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;">
+                                    <input type="checkbox" class="edit-account-cb" value="${escapeHtml(a.id)}" ${(!hasAccountAllowlist || person.accountIds.includes(a.id)) && currentRole === 'companion' ? 'checked' : ''}> ${escapeHtml(a.name)} <span style="color:var(--text-muted);font-size:11px;">(${escapeHtml(a.type)})</span>
+                                </label>`).join('') || '<div style="font-size:12px;color:var(--text-muted);">No accounts yet — they\'ll see budgets only.</div>'}
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Leave all unchecked for a budgets-only view.</div>
+                    </div>
+                    <div class="form-group" id="edit-budgets-group" style="display:none;">
+                        <label>Budgets they can see</label>
+                        <div style="max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;">
+                            ${store.getBudgets().map(b => `
+                                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;">
+                                    <input type="checkbox" class="edit-budget-cb" value="${escapeHtml(b.id)}" ${!hasBudgetAllowlist || person.budgetIds.includes(b.id) ? 'checked' : ''}> ${b.tag ? `#${escapeHtml(b.tag)}` : escapeHtml(b.category)} <span style="color:var(--text-muted);font-size:11px;">(${b.monthlyAmount > 0 ? formatCurrency(b.monthlyAmount) + '/mo' : 'no limit'})</span>
+                                </label>`).join('') || '<div style="font-size:12px;color:var(--text-muted);">No budgets yet.</div>'}
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">All selected = new budgets stay visible automatically. Uncheck any to keep it private.</div>
+                    </div>
+                    <div class="form-group" id="edit-budget-edit-group" style="display:none;">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+                            <input type="checkbox" id="edit-can-edit-budgets" ${person.canEditBudgets ? 'checked' : ''}> Allow adjusting budget amounts
+                        </label>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" id="edit-access-cancel">Cancel</button>
+                        <button class="btn btn-primary" id="edit-access-save">Save Changes</button>
+                    </div>
+                `);
+
+                const ROLE_DESCRIPTIONS = {
+                    companion: 'Sees the balance of accounts you pick below, plus each budget\'s limit, spent, and remaining. Never sees individual bills, transactions, debts, or income.',
+                    advisor: 'Read-only financial picture: all accounts, debts, investments, income, savings, and net-worth history. No individual bills or day-to-day activity.',
+                    viewer: 'Read-only access to everything, including bills and the calendar.',
+                    partner: 'Sees everything and can manage day-to-day items: bills, budgets, savings goals, and rules.',
+                    full: 'Sees and edits everything, including accounts, debts, and income. Sharing and data export stay yours alone.',
+                };
+                const roleSelect = document.getElementById('edit-role');
+                roleSelect.value = currentRole;
+                const syncRoleUi = () => {
+                    const r = roleSelect.value;
+                    document.getElementById('edit-role-desc').textContent = ROLE_DESCRIPTIONS[r];
+                    document.getElementById('edit-accounts-group').style.display = r === 'companion' ? '' : 'none';
+                    document.getElementById('edit-budgets-group').style.display = (r === 'companion' || r === 'advisor') ? '' : 'none';
+                    document.getElementById('edit-budget-edit-group').style.display = (r === 'companion' || r === 'advisor') ? '' : 'none';
+                };
+                roleSelect.addEventListener('change', syncRoleUi);
+                syncRoleUi();
+
+                document.getElementById('edit-access-cancel').addEventListener('click', closeModal);
+                document.getElementById('edit-access-save').addEventListener('click', () => {
+                    const role = roleSelect.value;
+                    const accountIds = role === 'companion'
+                        ? [...document.querySelectorAll('.edit-account-cb:checked')].map(cb => cb.value)
+                        : null;
+                    let budgetIds = null;
+                    if (role === 'companion' || role === 'advisor') {
+                        const all = [...document.querySelectorAll('.edit-budget-cb')];
+                        const checked = all.filter(cb => cb.checked);
+                        if (all.length > 0 && checked.length < all.length) {
+                            budgetIds = checked.map(cb => cb.value);
+                        }
+                    }
+                    const canEditBudgets = (role === 'companion' || role === 'advisor')
+                        ? document.getElementById('edit-can-edit-budgets').checked
+                        : false;
+                    try {
+                        store.updateShareAccess(uid, { role, accountIds, budgetIds, canEditBudgets });
+                        closeModal();
+                        if (onSaved) onSaved();
+                    } catch (e) {
+                        alert(e.message || 'Could not update access.');
+                    }
+                });
+            };
+
             // Load and display existing invites/shares
             const loadInvitesAndShares = () => {
                 const invites = store.getInvites();
@@ -1140,7 +1240,10 @@ export function renderSettings(container, store) {
                                     · Shared ${new Date(person.sharedAt).toLocaleDateString()}
                                 </div>
                             </div>
-                            <button class="btn btn-secondary btn-sm revoke-access" data-uid="${person.uid}" style="color:var(--red);">Revoke</button>
+                            <div style="display:flex;gap:6px;">
+                                <button class="btn btn-secondary btn-sm edit-access" data-uid="${person.uid}">Edit access</button>
+                                <button class="btn btn-secondary btn-sm revoke-access" data-uid="${person.uid}" style="color:var(--red);">Revoke</button>
+                            </div>
                         </div>
                     `).join('');
 
@@ -1152,6 +1255,13 @@ export function renderSettings(container, store) {
                                 store.revokeAccess(uid);
                                 loadInvitesAndShares();
                             }
+                        });
+                    });
+
+                    // Edit access handlers — change role/scoping without revoke+re-invite
+                    sharedList.querySelectorAll('.edit-access').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            openEditAccessModal(btn.dataset.uid, loadInvitesAndShares);
                         });
                     });
                 } else {

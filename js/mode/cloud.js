@@ -59,6 +59,22 @@ const cloud = Object.freeze({
             }
 
             if (status.status === 'expired') {
+                // Share-viewing stays free: an expired account that holds
+                // shares opens in shared mode instead of the paywall. Their
+                // OWN finances stay locked behind the subscription — the
+                // shared-mode router guard plus the locked "My finances"
+                // exit enforce that.
+                try {
+                    const listMyShares = firebase.functions().httpsCallable('listMyShares');
+                    const result = await listMyShares({});
+                    const shares = (result.data && result.data.shares) || [];
+                    if (shares.length > 0) {
+                        const { forceSharedModeForExpired } = await import('../services/shared-mode.js');
+                        forceSharedModeForExpired(shares, () => showSubscriptionModal(auth));
+                        return true;
+                    }
+                } catch (e) { /* can't check shares — fall through to the paywall */ }
+
                 showTrialExpiredScreen(
                     auth,
                     () => showSubscriptionModal(auth),
