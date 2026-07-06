@@ -197,8 +197,19 @@ function buildNetWorthTrendHtml(ctx) {
     return html;
 }
 
+// Chevron buttons for horizontal stat scrollers (shared by any carousel row)
+function scrollerArrowsHtml() {
+    return '<button class="stat-scroll-btn" data-dir="-1" aria-label="Scroll left">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>' +
+        '<button class="stat-scroll-btn stat-scroll-btn-right" data-dir="1" aria-label="Scroll right">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>';
+}
+
 function buildStatsGridHtml(ctx) {
-    var html = '<div class="card-grid">';
+    // Single-row carousel: cards keep a fixed width and scroll horizontally
+    // (swipe on touch, chevrons on desktop) instead of wrapping into a tall
+    // grid — see .stat-scroller in styles.css.
+    var html = '<div class="stat-scroller-wrap">' + scrollerArrowsHtml() + '<div class="stat-scroller card-grid">';
     // Monthly Income
     html += '<div class="stat-card green">';
     html += '<div class="label">Monthly Income</div>';
@@ -290,7 +301,7 @@ function buildStatsGridHtml(ctx) {
         html += '<div class="value" style="color:' + ctx.dependentRating.color + ';">' + ctx.dependentScore + '</div>';
         html += '<div class="sub">' + ctx.dependentRating.label + '</div></div>';
     }
-    html += '</div>';
+    html += '</div></div>';
     return html;
 }
 
@@ -783,6 +794,27 @@ export function renderDashboard(container, store, subTab) {
     const prevBtn = container.querySelector('#period-prev');
     const nextBtn = container.querySelector('#period-next');
     const todayBtn = container.querySelector('#period-today');
+
+    // Stat carousel — chevrons scroll by ~a viewport, and hide at the ends
+    // (or entirely when everything already fits).
+    container.querySelectorAll('.stat-scroller-wrap').forEach(function(wrap) {
+        var scroller = wrap.querySelector('.stat-scroller');
+        var leftBtn = wrap.querySelector('[data-dir="-1"]');
+        var rightBtn = wrap.querySelector('[data-dir="1"]');
+        var update = function() {
+            var atStart = scroller.scrollLeft <= 4;
+            var atEnd = scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 4;
+            leftBtn.style.display = atStart ? 'none' : '';
+            rightBtn.style.display = atEnd ? 'none' : '';
+        };
+        [leftBtn, rightBtn].forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                scroller.scrollBy({ left: parseInt(btn.dataset.dir, 10) * scroller.clientWidth * 0.8, behavior: 'smooth' });
+            });
+        });
+        scroller.addEventListener('scroll', update, { passive: true });
+        window.requestAnimationFrame(update);
+    });
 
     // Savings Goals event handlers
     setupSavingsGoalHandlers(container, store);
