@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { GEMINI_MODEL } = require("./gemini-config");
 
-module.exports = function({ secrets }) {
+module.exports = function({ secrets, db, enforceRateLimit }) {
     const { GEMINI_API_KEY } = secrets;
     const exports = {};
 
@@ -32,6 +32,17 @@ ${financialSummary}`;
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");
             }
+
+            // Rate limit each caller by UID and by IP so a script can't spam the
+            // assistant and run up Gemini costs. Admins are exempt.
+            await enforceRateLimit({ db, request, name: "askFinancialQuestion", limit: 20, windowSec: 60 });
+            const rawReq = request.rawRequest;
+            const xff = rawReq?.headers?.["x-forwarded-for"];
+            const ip = (typeof xff === "string" ? xff.split(",")[0] : rawReq?.ip) || "unknown";
+            await enforceRateLimit({
+                db, request, name: "askFinancialQuestion", limit: 40, windowSec: 60,
+                identity: `ip:${ip.trim()}`,
+            });
 
             const { message, conversationHistory, financialSummary } = request.data;
 
