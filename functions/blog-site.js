@@ -160,11 +160,11 @@ module.exports = ({ db }) => {
 
     // Optional page extras present only in private builds; absent in the
     // open-source repo, in which case this returns "".
-    function blogExtras() {
-        try { return require("./blog-extras").bannerHtml(); } catch { return ""; }
+    function blogExtras(ctx) {
+        try { return require("./blog-extras").bannerHtml(ctx || {}); } catch { return ""; }
     }
 
-    function layout({ title, description, canonical, ogImage, ogType, jsonLd, body }) {
+    function layout({ title, description, canonical, ogImage, ogType, jsonLd, body, slug }) {
         const desc = escapeHtml(description || "Personal finance tips and guides from PennyHelm.");
         const img = escapeHtml(ogImage || DEFAULT_OG);
         const url = escapeHtml(canonical);
@@ -209,7 +209,7 @@ ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
   </div>
 </nav>
 ${body}
-${blogExtras()}
+${blogExtras({ slug })}
 <footer class="blog-footer">
   <span>&copy; ${new Date().getUTCFullYear()} PennyHelm</span>
   <a href="/">Home</a>
@@ -277,6 +277,7 @@ ${blogExtras()}
             title: `${post.title || "Post"} — PennyHelm`,
             description: post.metaDescription || "",
             canonical,
+            slug: post.slug,
             ogType: "article",
             ogImage,
             jsonLd,
