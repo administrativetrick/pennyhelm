@@ -48,20 +48,23 @@ function getIdentity(request) {
  * @param {number} opts.limit  — max calls allowed per window
  * @param {number} opts.windowSec — window length in seconds
  * @param {string} [opts.message] — custom user-facing message
+ * @param {string} [opts.identity] — force a specific bucket (e.g. an explicit
+ *   `ip:x.x.x.x`) instead of the auto-derived UID/IP. Lets a caller be limited
+ *   on more than one dimension by calling this twice.
  */
-async function enforceRateLimit({ db, request, name, limit, windowSec, message }) {
+async function enforceRateLimit({ db, request, name, limit, windowSec, message, identity }) {
     // Admins are never throttled — leaves us headroom during incident response.
     if (request.auth?.token?.admin === true) return;
 
-    const identity = getIdentity(request);
+    const bucket = identity || getIdentity(request);
     const windowStart = Math.floor(Date.now() / 1000 / windowSec) * windowSec;
-    const docId = `${name}__${identity}__${windowStart}`.replace(/[^\w:.-]/g, '_');
+    const docId = `${name}__${bucket}__${windowStart}`.replace(/[^\w:.-]/g, '_');
     const ref = db.collection('rateLimits').doc(docId);
 
     // Single write + read. Firestore's `increment` is atomic per-doc.
     await ref.set({
         fn: name,
-        identity,
+        identity: bucket,
         windowStart,
         expiresAt: new Date((windowStart + windowSec + 60) * 1000), // +60s slack for TTL
         count: require('firebase-admin').firestore.FieldValue.increment(1),
