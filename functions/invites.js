@@ -473,6 +473,13 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
     //   3 paid  → 3 months total          (tier 3 grants +2 months)
     //   5 paid  → 6 months total          (tier 5 grants +3 months)
     //  10 paid  → 12 months total         (tier 10 grants +6 months)
+    // Revenue-share program: flat payout owed per converted referral (a
+    // signup via someone's link whose subscription becomes active). Recorded
+    // in the referralConversions ledger; settled manually from the admin
+    // panel. Change the amount here to adjust the program going forward —
+    // existing ledger entries keep the amount they were recorded with.
+    const REVSHARE_PAYOUT_CENTS = 2000; // $20
+
     const REFERRAL_TIERS = [
         { threshold: 1,  totalMonths: 1  },
         { threshold: 3,  totalMonths: 3  },
@@ -555,6 +562,28 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
         // Prevent double-counting: check if this subscriber was already tracked
         if (referrerData._trackedReferrals && referrerData._trackedReferrals.includes(subscriberUid)) {
             return;
+        }
+
+        // Revenue-share ledger: one record per converted subscriber, written
+        // the moment their subscription first becomes active. Idempotent —
+        // the doc id is the subscriber's uid and the dedupe above ensures a
+        // single pass. Written BEFORE the tier logic so a Stripe credit
+        // failure can never lose the payout record. Payouts are settled
+        // manually from the admin panel (getReferralLedger /
+        // markReferralPayout).
+        try {
+            await db.collection("referralConversions").doc(subscriberUid).set({
+                referrerUid: referrerDoc.id,
+                referrerEmail: referrerData.email || null,
+                referrerCode: referredBy,
+                subscriberUid: subscriberUid,
+                subscriberEmail: subscriberDoc.data().email || null,
+                convertedAt: admin.firestore.FieldValue.serverTimestamp(),
+                payoutCents: REVSHARE_PAYOUT_CENTS,
+                payoutStatus: "unpaid",
+            });
+        } catch (ledgerErr) {
+            console.error(`Referral ledger write failed for ${subscriberUid}:`, ledgerErr);
         }
 
         const newCount = (referrerData.paidReferralCount || 0) + 1;
@@ -681,6 +710,73 @@ If you don't recognize ${inviterName} or didn't expect this invitation, you can 
             // Legacy field retained so older clients don't break
             rewardEarned: !!data.referralRewardApplied || tiers.every(t => t.rewarded),
         };
+    });
+
+    // ─────────────────────────────────────────────
+    // REVENUE-SHARE PAYOUTS (admin)
+    // ─────────────────────────────────────────────
+
+    // getReferralLedger — every conversion with its payout state, newest
+    // first. The admin panel groups these by referrer and totals owed/paid.
+    exports.getReferralLedger = onCall(async (request) => {
+        if (!request.auth || request.auth.token.admin !== true) {
+            throw new HttpsError("permission-denied", "Admin only.");
+        }
+        const snap = await db.collection("referralConversions")
+            .orderBy("convertedAt", "desc")
+            .limit(1000)
+            .get();
+        const toMillis = (t) => (t && t.toMillis ? t.toMillis() : null);
+        const conversions = snap.docs.map(d => {
+            const v = d.data();
+            return {
+                subscriberUid: v.subscriberUid,
+                subscriberEmail: v.subscriberEmail,
+                referrerUid: v.referrerUid,
+                referrerEmail: v.referrerEmail,
+                referrerCode: v.referrerCode,
+                convertedAt: toMillis(v.convertedAt),
+                payoutCents: v.payoutCents || 0,
+                payoutStatus: v.payoutStatus || "unpaid",
+                paidAt: toMillis(v.paidAt),
+                payoutNote: v.payoutNote || null,
+            };
+        });
+        return { conversions };
+    });
+
+    // markReferralPayout — settle (or void, or reopen) ledger entries.
+    // status: 'paid' | 'unpaid' | 'void'; note is free text (e.g. "PayPal
+    // batch 2026-07-15"). Audit stays in the doc: paidAt + note.
+    exports.markReferralPayout = onCall(async (request) => {
+        if (!request.auth || request.auth.token.admin !== true) {
+            throw new HttpsError("permission-denied", "Admin only.");
+        }
+        const { subscriberUids, status, note } = request.data || {};
+        if (!Array.isArray(subscriberUids) || subscriberUids.length === 0 || subscriberUids.length > 200 ||
+            subscriberUids.some(u => typeof u !== "string")) {
+            throw new HttpsError("invalid-argument", "subscriberUids must be an array of 1-200 ids.");
+        }
+        if (!["paid", "unpaid", "void"].includes(status)) {
+            throw new HttpsError("invalid-argument", "status must be paid, unpaid, or void.");
+        }
+        const batch = db.batch();
+        let updated = 0;
+        for (const uid of subscriberUids) {
+            const ref = db.collection("referralConversions").doc(uid);
+            const doc = await ref.get();
+            if (!doc.exists) continue;
+            batch.update(ref, {
+                payoutStatus: status,
+                payoutNote: typeof note === "string" && note.trim() ? note.trim().slice(0, 300) : null,
+                paidAt: status === "paid" ? admin.firestore.FieldValue.serverTimestamp() : null,
+                payoutUpdatedBy: request.auth.uid,
+                payoutUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            updated++;
+        }
+        if (updated > 0) await batch.commit();
+        return { updated };
     });
 
     return exports;
