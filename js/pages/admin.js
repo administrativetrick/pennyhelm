@@ -158,6 +158,20 @@ export async function renderAdmin(container, store) {
             </div>
         </div>
 
+        <!-- Referral Payouts (revenue share) -->
+        <div class="card mb-24">
+            <div class="settings-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h3>Referral Payouts</h3>
+                    <button class="btn btn-secondary btn-sm" id="refpay-refresh">Refresh</button>
+                </div>
+                <div id="refpay-summary" style="color:var(--text-secondary);font-size:12px;margin-bottom:12px;">
+                    Loading...
+                </div>
+                <div id="refpay-content"></div>
+            </div>
+        </div>
+
         <!-- Test Users -->
         <div class="card mb-24">
             <div class="settings-section">
@@ -414,6 +428,14 @@ export async function renderAdmin(container, store) {
         });
     }
 
+    // === Referral Payouts Handlers ===
+
+    const refpayRefresh = document.getElementById('refpay-refresh');
+    if (refpayRefresh) {
+        loadReferralPayouts();
+        refpayRefresh.addEventListener('click', loadReferralPayouts);
+    }
+
     // === User Lookup Handlers ===
 
     document.getElementById('user-lookup-btn').addEventListener('click', () => {
@@ -665,6 +687,118 @@ async function loadBacklinks(daysBack) {
         console.error('getBacklinkStats failed:', err);
         summaryEl.textContent = '';
         contentEl.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px;">Failed to load backlinks: ${escapeHtml(err.message || 'unknown error')}</p>`;
+    }
+}
+
+// ─── Referral Payouts (revenue share: $20 per converted referral) ───
+
+async function loadReferralPayouts() {
+    const summaryEl = document.getElementById('refpay-summary');
+    const contentEl = document.getElementById('refpay-content');
+    if (!summaryEl || !contentEl) return;
+    summaryEl.textContent = 'Loading...';
+
+    const fmt = (cents) => '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtDate = (ms) => ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+
+    try {
+        const fn = firebase.app().functions().httpsCallable('getReferralLedger');
+        const result = await fn({});
+        const conversions = (result.data && result.data.conversions) || [];
+
+        if (conversions.length === 0) {
+            summaryEl.textContent = '';
+            contentEl.innerHTML = `<p style="color:var(--text-secondary);font-size:12px;">
+                No conversions yet. A conversion is recorded the moment a referred signup's
+                subscription first becomes active — each one is worth $20 to its referrer.</p>`;
+            return;
+        }
+
+        // Group by referrer
+        const byReferrer = new Map();
+        for (const c of conversions) {
+            if (!byReferrer.has(c.referrerUid)) {
+                byReferrer.set(c.referrerUid, { email: c.referrerEmail, code: c.referrerCode, rows: [] });
+            }
+            byReferrer.get(c.referrerUid).rows.push(c);
+        }
+
+        const totalOwed = conversions.filter(c => c.payoutStatus === 'unpaid').reduce((s, c) => s + c.payoutCents, 0);
+        const totalPaid = conversions.filter(c => c.payoutStatus === 'paid').reduce((s, c) => s + c.payoutCents, 0);
+        summaryEl.innerHTML = `<strong>${conversions.length}</strong> conversion${conversions.length !== 1 ? 's' : ''} across ` +
+            `<strong>${byReferrer.size}</strong> referrer${byReferrer.size !== 1 ? 's' : ''} &middot; ` +
+            `<strong style="color:var(--orange);">${fmt(totalOwed)} owed</strong> &middot; ` +
+            `<span style="color:var(--green);">${fmt(totalPaid)} paid out</span>`;
+
+        const STATUS_STYLE = {
+            unpaid: 'color:var(--orange);',
+            paid: 'color:var(--green);',
+            void: 'color:var(--text-muted);text-decoration:line-through;',
+        };
+
+        let html = '';
+        for (const [referrerUid, group] of byReferrer) {
+            const owed = group.rows.filter(r => r.payoutStatus === 'unpaid').reduce((s, r) => s + r.payoutCents, 0);
+            const paid = group.rows.filter(r => r.payoutStatus === 'paid').reduce((s, r) => s + r.payoutCents, 0);
+            const unpaidUids = group.rows.filter(r => r.payoutStatus === 'unpaid').map(r => r.subscriberUid);
+            html += `<div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <div>
+                        <strong style="font-size:13px;">${escapeHtml(group.email || referrerUid)}</strong>
+                        <code style="background:var(--bg-input);padding:1px 5px;border-radius:3px;font-size:11px;margin-left:6px;">${escapeHtml(group.code || '')}</code>
+                        <span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">
+                            ${group.rows.length} conversion${group.rows.length !== 1 ? 's' : ''} &middot;
+                            <strong style="color:var(--orange);">${fmt(owed)} owed</strong> &middot; ${fmt(paid)} paid
+                        </span>
+                    </div>
+                    ${unpaidUids.length > 0 ? `<button class="btn btn-primary btn-sm refpay-payall" data-uids="${escapeHtml(unpaidUids.join(','))}">Mark ${unpaidUids.length} paid (${fmt(owed)})</button>` : ''}
+                </div>
+                <div style="margin-top:8px;">` +
+                group.rows.map(r => `
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border);font-size:12px;">
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.subscriberEmail || r.subscriberUid)}</span>
+                        <span style="color:var(--text-secondary);white-space:nowrap;">${fmtDate(r.convertedAt)}</span>
+                        <span style="${STATUS_STYLE[r.payoutStatus] || ''}white-space:nowrap;font-weight:600;">${fmt(r.payoutCents)} ${escapeHtml(r.payoutStatus)}${r.payoutStatus === 'paid' && r.paidAt ? ' ' + fmtDate(r.paidAt) : ''}</span>
+                        ${r.payoutNote ? `<span title="${escapeHtml(r.payoutNote)}" style="cursor:help;">📝</span>` : ''}
+                        <select class="form-select refpay-status" data-uid="${escapeHtml(r.subscriberUid)}" style="max-width:92px;font-size:11px;padding:2px 4px;">
+                            ${['unpaid', 'paid', 'void'].map(s => `<option value="${s}"${s === r.payoutStatus ? ' selected' : ''}>${s}</option>`).join('')}
+                        </select>
+                    </div>`).join('') +
+                `</div></div>`;
+        }
+        contentEl.innerHTML = html;
+
+        const markPayout = async (uids, status) => {
+            let note = null;
+            if (status === 'paid') {
+                note = prompt('Payout note (optional — e.g. "PayPal 2026-07-15"):') || null;
+            }
+            try {
+                const mark = firebase.app().functions().httpsCallable('markReferralPayout');
+                await mark({ subscriberUids: uids, status, note });
+                loadReferralPayouts();
+            } catch (err) {
+                alert('Failed to update payout: ' + (err.message || 'unknown error'));
+            }
+        };
+
+        contentEl.querySelectorAll('.refpay-payall').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const uids = btn.dataset.uids.split(',').filter(Boolean);
+                if (confirm(`Mark ${uids.length} conversion${uids.length !== 1 ? 's' : ''} as paid?`)) {
+                    markPayout(uids, 'paid');
+                }
+            });
+        });
+        contentEl.querySelectorAll('.refpay-status').forEach(sel => {
+            sel.addEventListener('change', () => {
+                markPayout([sel.dataset.uid], sel.value);
+            });
+        });
+    } catch (err) {
+        console.error('getReferralLedger failed:', err);
+        summaryEl.textContent = '';
+        contentEl.innerHTML = `<p style="color:var(--danger,#e53e3e);font-size:13px;">Failed to load referral payouts: ${escapeHtml(err.message || 'unknown error')}</p>`;
     }
 }
 
