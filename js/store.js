@@ -1067,6 +1067,12 @@ class Store {
     deleteExpense(id) {
         const data = this._load();
         if (!data.expenses) return;
+        // Tell the storage adapter about deleted Plaid transactions so its
+        // stale-tab merge doesn't resurrect them on the next save.
+        const victim = data.expenses.find(e => e.id === id);
+        if (victim && victim.plaidTransactionId) {
+            this._storage.noteDeletedPlaidTransaction(victim.plaidTransactionId);
+        }
         data.expenses = data.expenses.filter(e => e.id !== id);
         this._save();
     }

@@ -7,6 +7,43 @@
 
 const STORAGE_KEY = 'personal_finances_data';
 
+/**
+ * Stale-tab guard for Plaid-synced expenses.
+ *
+ * Cloud saves write the whole data blob (last-write-wins). A tab that
+ * loaded before a server-side Plaid sync therefore used to CLOBBER the
+ * newer synced transactions on its next save — this destroyed a week of
+ * fuel transactions in production (gas budget "showing /usr/bin/bash spent").
+ *
+ * Before every Firestore write, the current server blob is read and any
+ * Plaid transaction (plaidTransactionId) the outgoing blob has never seen
+ * is grafted in — unless the user deleted it in this session. Manual
+ * expenses are untouched (the client owns those), and the sync watermark
+ * never regresses. Returns how many expenses were rescued.
+ */
+export function mergeServerPlaidExpenses(outgoing, server, deletedPlaidIds = new Set()) {
+    if (!server) return 0;
+    // Watermark first — it must advance even when there are no expenses to
+    // rescue, so a stale tab can't regress lastTransactionSync.
+    if (server.lastTransactionSync &&
+        (!outgoing.lastTransactionSync || server.lastTransactionSync > outgoing.lastTransactionSync)) {
+        outgoing.lastTransactionSync = server.lastTransactionSync;
+    }
+    const serverExpenses = Array.isArray(server.expenses) ? server.expenses : [];
+    if (serverExpenses.length === 0) return 0;
+    if (!Array.isArray(outgoing.expenses)) outgoing.expenses = [];
+    const have = new Set(outgoing.expenses.map(e => e && e.plaidTransactionId).filter(Boolean));
+    let rescued = 0;
+    for (const e of serverExpenses) {
+        if (!e || !e.plaidTransactionId) continue;          // manual expense — client wins
+        if (have.has(e.plaidTransactionId)) continue;       // client already has it
+        if (deletedPlaidIds.has(e.plaidTransactionId)) continue; // deleted on purpose this session
+        outgoing.expenses.push(e);
+        rescued++;
+    }
+    return rescued;
+}
+
 export class StorageAdapter {
     constructor() {
         this._mode = 'selfhost'; // 'selfhost' or 'cloud'
@@ -16,9 +53,19 @@ export class StorageAdapter {
         this._serverAvailable = false;
         this._syncTimer = null;
 
+        // Plaid transactions the user deleted THIS session — the stale-tab
+        // merge must not resurrect them (session-scoped by design: a fresh
+        // load starts from server truth anyway).
+        this._deletedPlaidTxnIds = new Set();
+
         // Impersonation state (admin only)
         this._impersonatingUid = null;
         this._realUid = null;
+    }
+
+    /** Store calls this when the user deletes a Plaid-imported expense. */
+    noteDeletedPlaidTransaction(plaidTransactionId) {
+        if (plaidTransactionId) this._deletedPlaidTxnIds.add(plaidTransactionId);
     }
 
     // ─── Configuration ────────────────────────────
@@ -173,6 +220,20 @@ export class StorageAdapter {
 
     async _saveToFirestore(data) {
         try {
+            // Stale-tab guard: rescue server-side Plaid syncs this client
+            // hasn't seen before overwriting the blob (see
+            // mergeServerPlaidExpenses above).
+            try {
+                const snap = await this._dataDocRef.get();
+                if (snap.exists) {
+                    const server = JSON.parse(snap.data().data || '{}');
+                    const rescued = mergeServerPlaidExpenses(data, server, this._deletedPlaidTxnIds);
+                    if (rescued > 0) console.log('Stale-tab guard: preserved ' + rescued + ' server-synced transaction(s)');
+                }
+            } catch (mergeErr) {
+                // Pre-write read failed (offline?) — proceed with what we have.
+            }
+
             const writeData = {
                 data: JSON.stringify(data),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
