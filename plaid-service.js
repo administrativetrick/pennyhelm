@@ -291,6 +291,7 @@ module.exports = function createPlaidRouter(db) {
                         name: t.name,
                         merchantName: t.merchant_name || null,
                         category: (t.personal_finance_category?.primary) || (t.category?.[0]) || null,
+                        plaidPfc: (t.personal_finance_category?.detailed) || (t.personal_finance_category?.primary) || null,
                         pending: !!t.pending,
                         institutionName: item.institution_name,
                     });

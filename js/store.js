@@ -1,7 +1,7 @@
 import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys, migrateBillCategoriesToUnifiedSet } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates, reconciledBillSpendForMonth } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates, reconciledBillSpendForMonth, spendingExpenses } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey, getAllExpenseCategories } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
@@ -1220,6 +1220,7 @@ class Store {
                 businessName: null,
                 plaidTransactionId: txn.plaidTransactionId,
                 plaidAccountId: txn.plaidAccountId,
+                plaidPfc: txn.plaidPfc || null,
                 source: 'plaid',
                 tags: [],
                 ignored: false,
@@ -1465,7 +1466,9 @@ class Store {
     /** Returns per-budget status array for a given 'YYYY-MM' (defaults to current). */
     getBudgetStatuses(asOfMonth = monthKey()) {
         const getBillSpend = (cat, mKey, monthExpenses) => this._billSpendForMonth(cat, mKey, monthExpenses);
-        return computeAllBudgetStatuses(this.getBudgets(), this.getExpenses(), asOfMonth, getBillSpend);
+        // Transfers (card payments, account moves) never count as spending;
+        // interest charges count under the 'interest' category.
+        return computeAllBudgetStatuses(this.getBudgets(), spendingExpenses(this.getExpenses()), asOfMonth, getBillSpend);
     }
 
     /** Top-line totals across all active budgets for the given month. */
