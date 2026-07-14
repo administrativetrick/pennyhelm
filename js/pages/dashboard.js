@@ -1645,19 +1645,41 @@ function setupSmartInsightsHandlers(container, store, ctx) {
             html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
             html += '<div class="form-group"><label>Due Day of Month</label>';
             html += '<input type="number" class="form-input" id="insight-bill-dueday" value="' + suggestion.dueDay + '" min="1" max="31"></div>';
+            // Category: dropdown of every existing category (incl. custom
+            // ones) via datalist — still free-typeable for new categories.
+            const allCats = getAllExpenseCategories(store);
             html += '<div class="form-group"><label>Category</label>';
-            html += '<input type="text" class="form-input" id="insight-bill-category" value="' + escapeHtml(suggestion.category) + '"></div></div>';
+            html += '<input type="text" class="form-input" id="insight-bill-category" list="insight-category-list" value="' + escapeHtml(suggestion.category) + '" placeholder="Pick or type a category">';
+            html += '<datalist id="insight-category-list">';
+            Object.entries(allCats).forEach(([key, cat]) => {
+                html += '<option value="' + escapeHtml(key) + '">' + escapeHtml(cat.label || key) + '</option>';
+            });
+            html += '</datalist></div></div>';
             html += '<div style="background:var(--accent-bg);padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);margin-top:8px;">';
             html += '💡 Detected from ' + match.occurrences + ' transactions over your recent history.</div>';
+            html += '<div class="modal-actions">';
+            html += '<button class="btn btn-secondary" id="insight-bill-cancel">Cancel</button>';
+            html += '<button class="btn btn-primary" id="insight-bill-save">Add Bill</button>';
+            html += '</div>';
 
-            openModal('Add Detected Bill', html, () => {
+            // openModal takes (title, contentHtml) — actions are part of the
+            // content and bound below. (A third callback argument used to be
+            // silently ignored here, which shipped this modal with no Add
+            // button at all.)
+            openModal('Add Detected Bill', html);
+
+            document.getElementById('insight-bill-cancel').addEventListener('click', closeModal);
+            document.getElementById('insight-bill-save').addEventListener('click', () => {
                 const name = document.getElementById('insight-bill-name').value.trim();
                 const amount = parseFloat(document.getElementById('insight-bill-amount').value);
                 const frequency = document.getElementById('insight-bill-freq').value;
                 const dueDay = parseInt(document.getElementById('insight-bill-dueday').value) || 1;
                 const category = document.getElementById('insight-bill-category').value.trim();
 
-                if (!name || isNaN(amount) || amount <= 0) return;
+                if (!name || isNaN(amount) || amount <= 0) {
+                    alert('Please enter a bill name and a positive amount.');
+                    return;
+                }
 
                 store.addBill({
                     name, amount, frequency, dueDay, category,
