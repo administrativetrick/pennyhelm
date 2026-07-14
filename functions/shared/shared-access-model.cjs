@@ -99,8 +99,13 @@ function billSpendForMonth(data, category, mKey) {
     const month = m - 1;
 
     const needle = String(category || '').toLowerCase();
+    // A bill counts toward the budget matching its own category unless
+    // expenseCategory overrides it ('none' opts the bill out entirely).
+    // Mirrors store._billSpendForMonth — keep the three copies in agreement
+    // (web store, this file, mobile BudgetsScreen).
+    const budgetCatOf = (b) => b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || '');
     const bills = (data.bills || []).filter(b =>
-        !b.frozen && String(b.expenseCategory || '').toLowerCase() === needle
+        !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
     );
     if (bills.length === 0) return 0;
 

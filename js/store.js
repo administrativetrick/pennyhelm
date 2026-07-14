@@ -1,9 +1,9 @@
 import { StorageAdapter } from './services/storage-adapter.js';
-import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys } from './services/migration-manager.js';
+import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys, migrateBillCategoriesToUnifiedSet } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
 import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
-import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey } from './expense-categories.js';
+import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey, getAllExpenseCategories } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
 
 const defaultData = {
@@ -136,6 +136,17 @@ class Store {
             (value) => normalizeCategoryKey(value, this),
         );
         if (categoriesMigrated) this._syncToServer();
+
+        // One-shot: unify the legacy bill category taxonomy into the expense
+        // category set (bills/budgets/rules share one list). Labels with no
+        // matching expense category become custom expense categories so
+        // nothing is lost — e.g. a bill categorized "Insurance" makes
+        // 'insurance' available to Budgets and Rules.
+        const unified = migrateBillCategoriesToUnifiedSet(this._data, (label) => {
+            const key = normalizeCategoryKey(label, this);
+            return key && getAllExpenseCategories(this)[key] ? key : null;
+        });
+        if (unified) this._syncToServer();
 
         return this._data;
     }
@@ -1479,8 +1490,11 @@ class Store {
         // migration normalizes expenseCategory to the canonical key, but we
         // lowercase here too so mixed-casing data never yields a silent 0.
         const needle = String(category || '').toLowerCase();
+        // A bill counts toward the budget matching its own category unless
+        // expenseCategory overrides it ('none' opts the bill out entirely).
+        const budgetCatOf = (b) => b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || '');
         const bills = (data.bills || []).filter(b =>
-            !b.frozen && String(b.expenseCategory || '').toLowerCase() === needle
+            !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
         );
         if (bills.length === 0) return 0;
 

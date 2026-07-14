@@ -182,3 +182,71 @@ export function migrateBalanceHistory(balanceHistory) {
 
     return changed;
 }
+
+/**
+ * One-shot unification of the bill category taxonomy into the expense
+ * category set (issue: "bills, Budgets, and Rules categories should all be
+ * one category set").
+ *
+ * Bills historically used their own label taxonomy ("Insurance", "Rent",
+ * custom bill categories) while expenses/budgets/rules share canonical
+ * expense-category keys ('rent', 'car-insurance', custom keys). This walks
+ * every bill:
+ *
+ *  - If the label normalizes to an existing expense category (built-in or
+ *    custom), the bill's category becomes that key.
+ *  - Otherwise a custom expense category is created preserving the label
+ *    (e.g. "Insurance" → key 'insurance'), so nothing is ever lost and the
+ *    category immediately becomes usable in Budgets and Rules.
+ *
+ * Legacy custom bill categories (data.customCategories) are folded into
+ * customExpenseCategories the same way. Runs once, guarded by
+ * data.billCategoriesUnified. Returns true when anything changed.
+ *
+ * @param {object} data — the store blob (mutated in place)
+ * @param {(label: string) => string|null} normalizeFn — maps a label to an
+ *   existing expense-category key, or null when there is none
+ */
+export function migrateBillCategoriesToUnifiedSet(data, normalizeFn) {
+    if (!data || typeof normalizeFn !== 'function') return false;
+    if (data.billCategoriesUnified) return false;
+
+    if (!data.customExpenseCategories) data.customExpenseCategories = [];
+
+    const slugify = (name) => String(name).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const customByKey = new Map(data.customExpenseCategories.map(c => [c.key || slugify(c.name), c]));
+
+    const resolveKey = (label, color) => {
+        const trimmed = String(label || '').trim();
+        if (!trimmed) return '';
+        const existing = normalizeFn(trimmed);
+        if (existing) return existing;
+        const key = slugify(trimmed);
+        if (!key) return '';
+        if (!customByKey.has(key)) {
+            const created = {
+                id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'cat-' + key,
+                key,
+                name: trimmed,
+                color: color || '#94a3b8',
+            };
+            data.customExpenseCategories.push(created);
+            customByKey.set(key, created);
+        }
+        return key;
+    };
+
+    // Fold legacy custom bill categories in first so their colors carry over.
+    for (const c of data.customCategories || []) {
+        if (c && c.name) resolveKey(c.name, c.colorHex || null);
+    }
+
+    for (const bill of data.bills || []) {
+        if (!bill || bill.category == null || bill.category === '') continue;
+        const key = resolveKey(bill.category, null);
+        if (key && key !== bill.category) bill.category = key;
+    }
+
+    data.billCategoriesUnified = true;
+    return true;
+}

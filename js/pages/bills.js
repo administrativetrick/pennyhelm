@@ -1,7 +1,7 @@
-import { formatCurrency, getCategoryBadgeClass, escapeHtml, getOrdinal } from '../utils.js';
+import { formatCurrency, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
-import { DEFAULT_CATEGORIES, CATEGORY_GROUPS, CATEGORY_COLORS, getCategoriesByGroup, getCategoryColor } from '../categories.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
+import { getAllExpenseCategories, getCategoryLabel, getCategoryColor as getExpenseCategoryHex, normalizeCategoryKey } from '../expense-categories.js';
 import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills, addDays, getOverdueCarryForwards } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
@@ -215,7 +215,7 @@ export function renderBills(container, store) {
         <div class="filters" id="filters">
             <button class="filter-chip${activeFilter === 'unpaid' ? ' active' : ''}" data-filter="unpaid" style="border-color:var(--red);color:var(--red);">Unpaid</button>
             <button class="filter-chip${activeFilter === 'all' ? ' active' : ''}" data-filter="all">All</button>
-            ${categories.map(c => `<button class="filter-chip${activeFilter === c ? ' active' : ''}" data-filter="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}
+            ${categories.map(c => `<button class="filter-chip${activeFilter === c ? ' active' : ''}" data-filter="${escapeHtml(c)}">${escapeHtml(getCategoryLabel(c, store))}</button>`).join('')}
             ${hasUncategorized ? `<button class="filter-chip${activeFilter === '__uncategorized__' ? ' active' : ''}" data-filter="__uncategorized__" style="color:var(--text-muted);">Uncategorized</button>` : ''}
             ${billsViewMode === 'month' ? `<button class="filter-chip${activeFilter === 'frozen' ? ' active' : ''}" data-filter="frozen" style="border-color:var(--blue);color:var(--blue);">Frozen</button>` : ''}
         </div>
@@ -635,7 +635,6 @@ function sortBills(bills, store, year, month) {
 }
 
 function renderBillRows(bills, store, year, month, depEnabled = false, userName = 'User', depName = 'Dependent') {
-    const customCategories = store.getCustomCategories();
     return bills.map(bill => {
         const [paidYear, paidMonth] = getBillPaidBucket(bill, year, month);
         const isPaid = store.isBillPaid(bill.id, paidYear, paidMonth, bill._occurrenceKey);
@@ -644,7 +643,9 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
         const isLinked = !!bill.linkedDebtId;
         const isDepBill = bill.owner === 'dependent';
         const isCovering = isDepBill && bill.userCovering;
-        const badgeClass = getCategoryBadgeClass(bill.category, customCategories);
+        // Unified category set: bill.category is an expense-category key
+        const catLabel = bill.category && String(bill.category).trim() ? getCategoryLabel(bill.category, store) : '';
+        const catHex = catLabel ? getExpenseCategoryHex(bill.category, store) : null;
 
         return `
             <tr data-bill-id="${bill.id}" data-occurrence-key="${bill._occurrenceKey || ''}" style="${isPaid ? 'opacity:0.6;' : ''}${bill.frozen ? 'opacity:0.5;' : ''}" class="${selectedBillIds.has(bill.id) ? 'bill-selected' : ''}">
@@ -665,7 +666,7 @@ function renderBillRows(bills, store, year, month, depEnabled = false, userName 
                     ${bill.notes ? `<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(bill.notes)}</div>` : ''}
                 </td>
                 <td class="font-bold">${bill.amount > 0 ? formatCurrency(bill.amount) : '-'}${bill.frequency === 'per-paycheck' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every check</div>' : bill.frequency === 'twice-monthly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">2x/month</div>' : bill.frequency === 'weekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">weekly</div>' : bill.frequency === 'biweekly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">biweekly</div>' : bill.frequency === 'yearly' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">yearly</div>' : bill.frequency === 'semi-annual' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">semi-annual</div>' : bill.frequency === 'every-4-weeks' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every 4 weeks</div>' : bill.frequency === 'every-2-months' ? '<div style="font-size:10px;color:var(--text-muted);font-weight:400;">every 2 months</div>' : ''}</td>
-                <td class="bill-category-cell" data-bill-id="${bill.id}" style="cursor:pointer;" title="Click to change category"><span class="badge ${badgeClass}"${!bill.category || !String(bill.category).trim() ? ' style="color:var(--text-muted);font-style:italic;"' : ''}>${bill.category && String(bill.category).trim() ? escapeHtml(bill.category) : 'Uncategorized'}</span></td>
+                <td class="bill-category-cell" data-bill-id="${bill.id}" style="cursor:pointer;" title="Click to change category"><span class="badge"${catHex ? ` style="background:color-mix(in oklab, ${catHex} 18%, transparent);color:${catHex};"` : ' style="color:var(--text-muted);font-style:italic;"'}>${catLabel ? escapeHtml(catLabel) : 'Uncategorized'}</span></td>
                 <td>${bill._overdueFrom ? `<span style="font-size:11px;color:var(--red);font-weight:600;">${MONTH_ABBR[bill._overdueFrom.month]} ${bill._overdueFrom.day}</span>` : bill._occurrenceDate ? `<span style="font-size:11px;color:var(--blue);">${DAYS_OF_WEEK[bill._occurrenceDate.getDay()]} ${MONTH_ABBR[bill._occurrenceDate.getMonth()]} ${bill._occurrenceDate.getDate()}</span>` : bill.frequency === 'per-paycheck' ? '<span style="font-size:11px;color:var(--accent);">Every check</span>' : bill.frequency === 'twice-monthly' ? '<span style="font-size:11px;color:var(--accent);">1st &amp; last check</span>' : bill.frequency === 'weekly' ? `<span style="font-size:11px;color:var(--blue);">Every ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'biweekly' ? `<span style="font-size:11px;color:var(--blue);">Every other ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][bill.dueDay % 7] || 'week'}</span>` : bill.frequency === 'every-4-weeks' ? '<span style="font-size:11px;color:var(--blue);">Every 4 weeks</span>' : `${bill.dueDay}${getOrdinal(bill.dueDay)}${(bill.frequency === 'yearly' || bill.frequency === 'semi-annual' || bill.frequency === 'every-2-months') && bill.dueMonth != null ? ` <span style="font-size:10px;color:var(--text-muted);">${bill.frequency === 'every-2-months' ? MONTH_ABBR[bill.dueMonth] + '/alt' : MONTH_ABBR[bill.dueMonth]}${bill.frequency === 'semi-annual' ? '/' + MONTH_ABBR[(bill.dueMonth + 6) % 12] : ''}</span>` : ''}`}</td>
                 <td style="font-size:12px;">
                     ${escapeHtml(bill.paymentSource || '-')}
@@ -726,24 +727,13 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month, 
 
     // Inline category picker — click a bill's category cell to get a
     // floating searchable picker. Reuses the same helper as Expenses.
-    const customCategories = store.getCustomCategories();
-    const billItems = (() => {
-        const items = DEFAULT_CATEGORIES.map(c => ({
-            key: c.name,
-            label: c.name,
-            group: c.group,
-            color: getCategoryColor(c.name, customCategories),
-        }));
-        for (const c of customCategories) {
-            items.push({
-                key: c.name,
-                label: c.name,
-                group: 'Custom',
-                color: getCategoryColor(c.name, customCategories),
-            });
-        }
-        return items;
-    })();
+    // Unified set: the same expense categories Budgets and Rules use.
+    const billItems = Object.entries(getAllExpenseCategories(store)).map(([key, c]) => ({
+        key,
+        label: c.label,
+        group: c.group || 'Custom',
+        color: c.color,
+    }));
 
     tbody.querySelectorAll('.bill-category-cell').forEach(cell => {
         cell.addEventListener('click', (e) => {
@@ -768,28 +758,42 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month, 
     });
 }
 
-// Render grouped category dropdown HTML
-function renderCategoryDropdown(customCategories = []) {
-    const grouped = getCategoriesByGroup(customCategories);
-    const groups = [...CATEGORY_GROUPS];
-    if (customCategories.length > 0) groups.push('Custom');
-
-    return groups.map(group => {
-        const cats = grouped[group];
-        if (!cats || cats.length === 0) return '';
-
-        return `
+// Render grouped category dropdown HTML — the UNIFIED expense-category set
+// (same list Budgets and Rules use). Options carry display labels; the save
+// path resolves labels back to canonical keys.
+function renderCategoryDropdown(store) {
+    const groups = {};
+    for (const [key, cat] of Object.entries(getAllExpenseCategories(store))) {
+        const group = cat.group || 'Custom';
+        if (!groups[group]) groups[group] = [];
+        groups[group].push({ key, label: cat.label || key, color: cat.color || '#94a3b8' });
+    }
+    return Object.entries(groups).map(([group, cats]) => `
             <div class="category-group">
                 <div class="category-group-header">${escapeHtml(group)}</div>
                 ${cats.map(cat => `
-                    <div class="category-option" data-category="${escapeHtml(cat.name)}" data-color="${cat.color}">
-                        <span class="category-dot" style="background:var(--${cat.color === 'pink' ? 'pink' : cat.color})"></span>
-                        ${escapeHtml(cat.name)}
+                    <div class="category-option" data-category="${escapeHtml(cat.label)}" data-color="${cat.color}">
+                        <span class="category-dot" style="background:${cat.color}"></span>
+                        ${escapeHtml(cat.label)}
                     </div>
                 `).join('')}
             </div>
-        `;
-    }).join('');
+        `).join('');
+}
+
+// Resolve a typed/picked category label to its canonical key, creating a
+// custom expense category for brand-new labels so Budgets and Rules can use
+// them immediately.
+function ensureCategoryKey(store, value) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    const key = normalizeCategoryKey(trimmed, store);
+    if (getAllExpenseCategories(store)[key]) return key;
+    try {
+        return store.addCustomExpenseCategory({ name: trimmed, color: '#94a3b8' }).key;
+    } catch (e) {
+        return key;
+    }
 }
 
 // Setup category picker event handlers
@@ -947,11 +951,11 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
                 <label>Category</label>
                 <div class="category-picker-wrapper">
                     <input type="text" class="form-input" id="bill-category" placeholder="Search or select..."
-                           value="${escapeHtml(bill.category)}" autocomplete="off">
+                           value="${escapeHtml(bill.category ? getCategoryLabel(bill.category, store) : '')}" autocomplete="off">
                     <button type="button" class="category-picker-btn" id="category-picker-toggle">▼</button>
                 </div>
                 <div class="category-dropdown" id="category-dropdown">
-                    ${renderCategoryDropdown(store.getCustomCategories())}
+                    ${renderCategoryDropdown(store)}
                 </div>
             </div>
             <div class="form-group">
@@ -990,13 +994,14 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             </div>
         </div>
         <div class="form-group">
-            <label>Budget Category (optional)</label>
+            <label>Budget override (optional)</label>
             <select class="form-select" id="bill-expense-category">
-                <option value="">— none (don't count toward a budget) —</option>
-                ${renderCategoryOptions(bill.expenseCategory, store)}
+                <option value=""${!bill.expenseCategory ? ' selected' : ''}>Same as category (default)</option>
+                <option value="none"${bill.expenseCategory === 'none' ? ' selected' : ''}>— don't count toward any budget —</option>
+                ${renderCategoryOptions(bill.expenseCategory === 'none' ? null : bill.expenseCategory, store)}
             </select>
             <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                Tag this bill with a budget category to have it counted toward the matching Category Budget each month.
+                By default this bill counts toward the budget matching its category. Override to count it toward a different budget, or exclude it.
             </div>
         </div>
         <div class="form-group">
@@ -1063,7 +1068,7 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             dueDay: isWeeklyType
                 ? parseInt(document.getElementById('bill-dayofweek').value) || 1
                 : parseInt(document.getElementById('bill-due').value) || 1,
-            category: document.getElementById('bill-category').value.trim(),
+            category: ensureCategoryKey(store, document.getElementById('bill-category').value),
             paymentSource: document.getElementById('bill-source').value,
             frequency: freq,
             dueMonth: (freq === 'yearly' || freq === 'semi-annual' || freq === 'every-2-months') ? parseInt(document.getElementById('bill-duemonth').value) : null,
