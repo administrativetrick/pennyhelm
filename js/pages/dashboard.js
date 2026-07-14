@@ -1657,6 +1657,10 @@ function setupSmartInsightsHandlers(container, store, ctx) {
             html += '</datalist></div></div>';
             html += '<div style="background:var(--accent-bg);padding:10px 14px;border-radius:var(--radius-sm);font-size:12px;color:var(--accent);margin-top:8px;">';
             html += '💡 Detected from ' + match.occurrences + ' transactions over your recent history.</div>';
+            html += '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-top:12px;cursor:pointer;color:var(--text-secondary);">';
+            html += '<input type="checkbox" id="insight-bill-make-rule" checked> ';
+            html += 'Also create a rule so <strong>' + escapeHtml(suggestion.name) + '</strong> transactions always get this category (past ones too — your manual edits are left alone)';
+            html += '</label>';
             html += '<div class="modal-actions">';
             html += '<button class="btn btn-secondary" id="insight-bill-cancel">Cancel</button>';
             html += '<button class="btn btn-primary" id="insight-bill-save">Add Bill</button>';
@@ -1690,6 +1694,36 @@ function setupSmartInsightsHandlers(container, store, ctx) {
                     autoPay: false, frozen: false,
                     notes: 'Auto-detected from transactions'
                 });
+
+                // Optionally create a categorization rule for this merchant
+                // so future (and past) transactions land in the same
+                // category. Appended at the lowest priority — it can never
+                // override an existing, more specific rule — and the re-run
+                // preserves manual edits (manualOverride).
+                const makeRule = document.getElementById('insight-bill-make-rule');
+                if (makeRule && makeRule.checked && category) {
+                    const merchantNeedle = suggestion.name.trim();
+                    const alreadyCovered = store.getRules().some(r => {
+                        if (r.enabled === false || !r.actions || !r.actions.category) return false;
+                        const conditions = (r.match && Array.isArray(r.match.conditions))
+                            ? r.match.conditions
+                            : (r.match && r.match.field ? [r.match] : []);
+                        return conditions.some(c => c.field === 'name' && c.op === 'contains' &&
+                            String(c.value).toLowerCase() === merchantNeedle.toLowerCase());
+                    });
+                    if (!alreadyCovered) {
+                        try {
+                            store.addRule({
+                                name: merchantNeedle + ' → ' + category,
+                                match: { mode: 'all', conditions: [{ field: 'name', op: 'contains', value: merchantNeedle }] },
+                                actions: { category },
+                            });
+                            store.reapplyRulesToAllExpenses();
+                        } catch (ruleErr) {
+                            console.error('Could not create categorization rule:', ruleErr);
+                        }
+                    }
+                }
 
                 // Dismiss so it doesn't show again
                 store.dismissRecurringSuggestion(merchantKey);
