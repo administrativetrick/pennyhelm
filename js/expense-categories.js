@@ -459,19 +459,11 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
                 e.preventDefault(); // prevent input blur
                 const key = item.dataset.key;
                 if (key === '__create_new__') {
-                    dropdown.style.display = 'none';
                     if (opts.onCreateNew) {
+                        dropdown.style.display = 'none';
                         opts.onCreateNew(input, selectEl);
                     } else {
-                        const name = prompt('New category name:');
-                        if (name && name.trim() && store && store.addCustomExpenseCategory) {
-                            try {
-                                const created = store.addCustomExpenseCategory({ name: name.trim(), color: '#94a3b8' });
-                                selectEl.innerHTML = renderCategoryOptions(created.key, store);
-                                selectEl.value = created.key;
-                                input.value = created.name;
-                            } catch (err) { alert(err.message); }
-                        }
+                        showCreateForm();
                     }
                 } else {
                     selectEl.value = key;
@@ -480,6 +472,69 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
                     selectEl.dispatchEvent(new Event('change'));
                 }
             });
+        });
+    }
+
+    // Inline create-category form (replaces the old window.prompt — native
+    // dialogs look broken next to the app's styled modals).
+    let creating = false;
+
+    function showCreateForm() {
+        creating = true;
+        const prefill = userTyping ? input.value.trim() : '';
+        dropdown.innerHTML =
+            '<div style="padding:12px;">' +
+                '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:6px;">New category</div>' +
+                '<input type="text" class="form-input cat-create-input" placeholder="e.g. House Cleaner" style="width:100%;font-size:13px;">' +
+                '<div class="cat-create-error" style="display:none;color:var(--red);font-size:11.5px;margin-top:6px;"></div>' +
+                '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">' +
+                    '<button type="button" class="btn btn-secondary btn-sm cat-create-cancel">Cancel</button>' +
+                    '<button type="button" class="btn btn-primary btn-sm cat-create-add">Add Category</button>' +
+                '</div>' +
+            '</div>';
+        dropdown.style.display = '';
+
+        const createInput = dropdown.querySelector('.cat-create-input');
+        const errorEl = dropdown.querySelector('.cat-create-error');
+        createInput.value = prefill;
+        setTimeout(() => createInput.focus(), 0);
+
+        const done = () => {
+            creating = false;
+            dropdown.style.display = 'none';
+        };
+        const backToList = () => {
+            creating = false;
+            renderDropdown('');
+            dropdown.style.display = '';
+            input.focus();
+        };
+        const submit = () => {
+            const name = createInput.value.trim();
+            if (!name) {
+                errorEl.textContent = 'Enter a category name.';
+                errorEl.style.display = '';
+                return;
+            }
+            if (!store || !store.addCustomExpenseCategory) { done(); return; }
+            try {
+                const created = store.addCustomExpenseCategory({ name, color: '#94a3b8' });
+                selectEl.innerHTML = renderCategoryOptions(created.key, store);
+                selectEl.value = created.key;
+                input.value = created.name;
+                done();
+                selectEl.dispatchEvent(new Event('change'));
+            } catch (err) {
+                errorEl.textContent = err.message || 'Could not create category.';
+                errorEl.style.display = '';
+            }
+        };
+
+        dropdown.querySelector('.cat-create-add').addEventListener('click', submit);
+        dropdown.querySelector('.cat-create-cancel').addEventListener('click', backToList);
+        createInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); submit(); }
+            if (e.key === 'Escape') { e.stopPropagation(); backToList(); }
         });
     }
 
@@ -501,8 +556,10 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
     });
 
     input.addEventListener('blur', () => {
-        // Small delay so mousedown on item fires first
-        setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+        // Small delay so mousedown on item fires first. While the inline
+        // create-category form is open, focus legitimately lives inside the
+        // dropdown — don't hide it.
+        setTimeout(() => { if (!creating) dropdown.style.display = 'none'; }, 150);
     });
 
     // Clear input restores default
