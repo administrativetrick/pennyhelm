@@ -8,6 +8,8 @@
  * those are merged into the lookup at runtime via getAllExpenseCategories().
  */
 
+import { escapeHtml } from './utils.js';
+
 // ─── Group colors ─────────────────────────────────
 
 const G = {
@@ -305,7 +307,10 @@ export function getAllExpenseCategories(store) {
     for (const c of customs) {
         const key = c.key || c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         if (!merged[key]) {
-            merged[key] = { label: c.name, group: 'Custom', color: c.color || '#94a3b8' };
+            // Color is interpolated into style="" attributes — whitelist to a
+            // hex literal so a crafted value can't break out of the attribute.
+            const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(c.color || '') ? c.color : '#94a3b8';
+            merged[key] = { label: c.name, group: 'Custom', color: safeColor };
         }
     }
     return merged;
@@ -324,7 +329,7 @@ export function getCategoryColor(key, store) {
 export function getExpenseCategoryBadge(category, store) {
     const all = store ? getAllExpenseCategories(store) : EXPENSE_CATEGORIES;
     const cat = all[category] || all['other'];
-    return `<span class="badge" style="background:${cat.color}20;color:${cat.color};border:1px solid ${cat.color}40;">${cat.label}</span>`;
+    return `<span class="badge" style="background:${cat.color}20;color:${cat.color};border:1px solid ${cat.color}40;">${escapeHtml(cat.label)}</span>`;
 }
 
 /**
@@ -344,7 +349,7 @@ export function renderCategoryOptions(selectedKey, store) {
     for (const [groupName, cats] of Object.entries(groups)) {
         html += `<optgroup label="${groupName}">`;
         for (const c of cats) {
-            html += `<option value="${c.key}" ${c.key === selectedKey ? 'selected' : ''}>${c.label}</option>`;
+            html += `<option value="${c.key}" ${c.key === selectedKey ? 'selected' : ''}>${escapeHtml(c.label)}</option>`;
         }
         html += '</optgroup>';
     }
@@ -430,7 +435,7 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
                 for (const c of common) {
                     html += `<div class="cat-pick-item" data-key="${c.key}" style="padding:7px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">`;
                     html += `<span style="width:8px;height:8px;border-radius:2px;background:${c.color};flex-shrink:0;"></span>`;
-                    html += `${c.label}</div>`;
+                    html += `${escapeHtml(c.label)}</div>`;
                 }
                 html += `<div style="border-top:1px solid var(--border);margin:4px 0;"></div>`;
             }
@@ -441,7 +446,7 @@ export function mountSearchableCategoryPicker(selectEl, store, opts = {}) {
             for (const c of cats) {
                 html += `<div class="cat-pick-item" data-key="${c.key}" style="padding:7px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background=''">`;
                 html += `<span style="width:8px;height:8px;border-radius:2px;background:${c.color};flex-shrink:0;"></span>`;
-                html += `${c.label}</div>`;
+                html += `${escapeHtml(c.label)}</div>`;
             }
         }
         // "Create new" always visible

@@ -351,8 +351,11 @@ function generatePayDates(schedule, rangeStartStr, rangeEndStr) {
         let curYear = rangeStart.getFullYear();
         let curMonth = rangeStart.getMonth();
         while (true) {
-            const d1 = new Date(curYear, curMonth, Math.min(day1, 28));
-            const d2 = new Date(curYear, curMonth, Math.min(day2, 28));
+            // Clamp to the month's real last day (a payday on the 31st lands
+            // on Feb 28/29, Apr 30, ... — not pulled back to the 28th year-round).
+            const lastDay = new Date(curYear, curMonth + 1, 0).getDate();
+            const d1 = new Date(curYear, curMonth, Math.min(day1, lastDay));
+            const d2 = new Date(curYear, curMonth, Math.min(day2, lastDay));
             if (d1 > rangeEnd && d2 > rangeEnd) break;
             if (d1 >= rangeStart && d1 <= rangeEnd) dates.push(d1);
             if (d2 >= rangeStart && d2 <= rangeEnd) dates.push(d2);
@@ -365,7 +368,8 @@ function generatePayDates(schedule, rangeStartStr, rangeEndStr) {
         let curYear = rangeStart.getFullYear();
         let curMonth = rangeStart.getMonth();
         while (true) {
-            const d = new Date(curYear, curMonth, Math.min(day, 28));
+            const lastDay = new Date(curYear, curMonth + 1, 0).getDate();
+            const d = new Date(curYear, curMonth, Math.min(day, lastDay));
             if (d > rangeEnd) break;
             if (d >= rangeStart) dates.push(d);
             curMonth++;
@@ -580,6 +584,14 @@ function billOccurrenceDatesForMonth(bill, year, month, payDatesInMonth = [], { 
  * the budget's expenseSpent, so this is what makes "bills follow their
  * category" safe: no double counting once the payment posts, no invisible
  * upcoming bills before it does.
+ *
+ * INVARIANT: monthExpenses MUST be the same pre-filtered spending set that
+ * feeds expenseSpent (i.e. spendingExpenses() output — transfers/ignored/
+ * split-parents removed). A bill whose payment classifies as a transfer is
+ * therefore never in the pool and never reconciles — its forecast stands in
+ * for the excluded payment, which keeps the budget total right. Passing a
+ * RAW expense list here instead would reconcile against payments that
+ * expenseSpent doesn't contain, under-counting the budget.
  *
  * @param {Array} bills — pre-filtered to this budget's category (not frozen)
  * @param {Array} monthExpenses — the month's qualifying expenses for the

@@ -1,4 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { spendingExpenses } = require("./shared/financial-service.cjs");
 
 /**
  * Public REST API — authenticated via API key (Bearer token).
@@ -188,7 +189,9 @@ module.exports = function ({ admin, db }, validateApiKey) {
                     .reduce((s, a) => s + (a.balance || 0), 0);
 
                 const currentMonth = new Date().toISOString().slice(0, 7);
-                const monthlyExpenses = expenses
+                // Spending view only: transfers/card payments, ignored rows,
+                // and split parents excluded — matches every in-app total.
+                const monthlyExpenses = spendingExpenses(expenses)
                     .filter((e) => e.date && e.date.startsWith(currentMonth))
                     .reduce((s, e) => s + (e.amount || 0), 0);
 
