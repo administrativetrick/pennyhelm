@@ -116,6 +116,7 @@ export function renderAssetsTab(container, store) {
                                 <div class="setting-label">
                                     ${escapeHtml(a.name)}
                                     ${isLinked ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--accent)15;color:var(--accent);border:1px solid var(--accent)40;border-radius:4px;vertical-align:middle;">&#128279; Linked</span>' : ''}
+                                    ${a.investmentProperty ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:rgba(139,92,246,0.12);color:#8b5cf6;border:1px solid rgba(139,92,246,0.4);border-radius:4px;vertical-align:middle;" title="Shown on the Investments tab">&#128200; Investment</span>' : ''}
                                     ${a.plaidAccountId ? '<span style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;background:var(--green-bg);color:var(--green);border:1px solid var(--green);border-radius:4px;vertical-align:middle;">&#127974;</span>' : ''}
                                 </div>
                                 <div class="setting-desc">
