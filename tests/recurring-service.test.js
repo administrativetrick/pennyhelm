@@ -241,6 +241,33 @@ describe('detectRecurringTransactions', () => {
     });
 });
 
+describe('majority category', () => {
+    test('one recategorized transaction does not flip the suggested category', () => {
+        // 3× subscriptions, most-recent one shopping — majority must win.
+        const expenses = [
+            { id: '1', name: 'Google One', amount: 19.99, date: '2026-03-25', category: 'subscriptions', source: 'plaid' },
+            { id: '2', name: 'Google One', amount: 19.99, date: '2026-04-25', category: 'subscriptions', source: 'plaid' },
+            { id: '3', name: 'Google One', amount: 19.99, date: '2026-05-25', category: 'subscriptions', source: 'plaid' },
+            { id: '4', name: 'Google One', amount: 19.99, date: '2026-06-25', category: 'shopping', source: 'plaid' },
+        ];
+        const { recurring } = detectRecurringTransactions(expenses, [], []);
+        assert.equal(recurring.length, 1);
+        assert.equal(recurring[0].category, 'subscriptions');
+    });
+
+    test('true ties break toward the most recent transaction', () => {
+        const expenses = [
+            { id: '1', name: 'Acme', amount: 10, date: '2026-04-01', category: 'shopping', source: 'plaid' },
+            { id: '2', name: 'Acme', amount: 10, date: '2026-05-01', category: 'shopping', source: 'plaid' },
+            { id: '3', name: 'Acme', amount: 10, date: '2026-06-01', category: 'subscriptions', source: 'plaid' },
+            { id: '4', name: 'Acme', amount: 10, date: '2026-07-01', category: 'subscriptions', source: 'plaid' },
+        ];
+        const { recurring } = detectRecurringTransactions(expenses, [], []);
+        assert.equal(recurring.length, 1);
+        assert.equal(recurring[0].category, 'subscriptions');
+    });
+});
+
 // ─── buildBillSuggestion ──────────────────────────────────────────────
 
 describe('buildBillSuggestion', () => {
@@ -279,23 +306,15 @@ describe('buildBillSuggestion', () => {
         assert.equal(suggestion.amount, 120.50);
     });
 
-    test('maps expense category to bill category', () => {
+    test('keeps the auto-identified expense category verbatim (incl. custom)', () => {
         const base = {
             merchantName: 'Foo', averageAmount: 50, lastAmount: 50,
             frequency: 'monthly', estimatedDueDay: 1, amountVariance: 0, occurrences: 3,
         };
-        assert.equal(buildBillSuggestion({ ...base, category: 'utilities' }).category, 'Utilities');
-        assert.equal(buildBillSuggestion({ ...base, category: 'subscriptions' }).category, 'Subscriptions');
-        assert.equal(buildBillSuggestion({ ...base, category: 'groceries' }).category, 'Groceries');
-    });
-
-    test('unknown expense category falls back to "Other"', () => {
-        const recurring = {
-            merchantName: 'Mystery', averageAmount: 10, lastAmount: 10,
-            frequency: 'monthly', estimatedDueDay: 1,
-            category: 'made-up-category', amountVariance: 0, occurrences: 3,
-        };
-        assert.equal(buildBillSuggestion(recurring).category, 'Other');
+        assert.equal(buildBillSuggestion({ ...base, category: 'utilities' }).category, 'utilities');
+        assert.equal(buildBillSuggestion({ ...base, category: 'subscriptions' }).category, 'subscriptions');
+        assert.equal(buildBillSuggestion({ ...base, category: 'my-custom-cat' }).category, 'my-custom-cat');
+        assert.equal(buildBillSuggestion({ ...base, category: undefined }).category, 'other');
     });
 
     test('notes field documents how many occurrences were detected', () => {
