@@ -647,12 +647,78 @@ function renderEmptyState(canUsePlaid) {
     `;
 }
 
+// ─── Investment properties (real estate) ─────────────────────────
+//
+// Property accounts flagged `investmentProperty` — real estate held as an
+// investment rather than a residence. Equity = estimated value − amount owed.
+
+function renderInvestmentProperties(properties) {
+    if (!properties.length) return '';
+    const totalValue = properties.reduce((s, p) => s + (p.balance || 0), 0);
+    const totalOwed = properties.reduce((s, p) => s + (p.amountOwed || 0), 0);
+    const totalEquity = totalValue - totalOwed;
+    return `
+        <div class="card mb-24">
+            <div class="flex-between mb-16">
+                <div>
+                    <h3>Real Estate</h3>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                        ${properties.length} investment propert${properties.length === 1 ? 'y' : 'ies'} &middot; Equity ${formatCurrency(totalEquity)}
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:20px;font-weight:700;color:${totalEquity >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCurrency(totalEquity)}</div>
+                    <div style="font-size:11px;color:var(--text-muted);">total equity</div>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr><th>Property</th><th>Est. Value</th><th>Owed</th><th>Equity</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        ${properties.map(p => {
+                            const equity = (p.balance || 0) - (p.amountOwed || 0);
+                            return `
+                            <tr>
+                                <td style="font-weight:600;">&#127968; ${escapeHtml(p.name)}</td>
+                                <td>${formatCurrency(p.balance || 0)}</td>
+                                <td style="color:var(--text-secondary);">${formatCurrency(p.amountOwed || 0)}</td>
+                                <td class="font-bold" style="color:${equity >= 0 ? 'var(--green)' : 'var(--red)'};">${formatCurrency(equity)}</td>
+                                <td style="text-align:right;">
+                                    <button class="btn-icon edit-investment-property" data-account-id="${p.id}" title="Edit">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    </button>
+                                </td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function wireInvestmentPropertyRows(container, store) {
+    container.querySelectorAll('.edit-investment-property').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const account = store.getAccounts().find(a => a.id === btn.getAttribute('data-account-id'));
+            if (!account) return;
+            const { showAccountForm } = await import('./accounts.js');
+            showAccountForm(store, account);
+        });
+    });
+}
+
 export function renderInvestments(container, store) {
     const accounts = store.getAccounts();
     const invAccounts = accounts.filter(a => a.type === 'investment' || a.type === 'retirement');
     const allHoldings = collectHoldings(accounts);
     const canUsePlaid = capabilities().plaid;
     const hasPlaid = hasPlaidConnections(store);
+    // Properties tagged "Investment property" (Income → Assets, or the
+    // account form) show up here alongside the securities portfolio.
+    const investmentProperties = accounts.filter(a => a.type === 'property' && a.investmentProperty);
 
     const header = `
         <div class="page-header">
@@ -667,8 +733,10 @@ export function renderInvestments(container, store) {
     if (allHoldings.length === 0) {
         container.innerHTML = `
             ${header}
+            ${renderInvestmentProperties(investmentProperties)}
             ${renderEmptyState(canUsePlaid)}
         `;
+        wireInvestmentPropertyRows(container, store);
         return;
     }
 
@@ -689,9 +757,11 @@ export function renderInvestments(container, store) {
         ${header}
         ${renderSummaryCards(totalValue, totalCostBasis, costBasisKnown, invAccounts.length, allHoldings.length)}
         ${renderAllocationChart(buckets, totalValue)}
+        ${renderInvestmentProperties(investmentProperties)}
         ${renderHoldingsTable(tickers, totalValue)}
         ${renderPerAccount(accounts)}
     `;
+    wireInvestmentPropertyRows(container, store);
 
     const refreshBtn = container.querySelector('#refresh-holdings-btn');
     if (refreshBtn) {

@@ -342,14 +342,19 @@ function showBudgetForm(store, existing = null) {
             <label>Notes (optional)</label>
             <input type="text" class="form-input" id="budget-notes" value="${escapeHtml(budget.notes || '')}">
         </div>
-        ${!isEdit && partialSharees.length > 0 ? `
+        ${partialSharees.length > 0 ? `
         <div class="form-group" id="budget-sharing-group">
             <label>Who can see this budget</label>
-            ${partialSharees.map(s => `
+            ${partialSharees.map(s => {
+                // A null/absent budgetIds grant means "all budgets, incl. future
+                // ones" — so on edit, checked = null grant OR id in the allowlist.
+                const visible = !isEdit || !Array.isArray(s.budgetIds) || s.budgetIds.includes(budget.id);
+                return `
                 <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:13px;">
-                    <input type="checkbox" class="budget-share-cb" value="${escapeHtml(s.uid)}" checked>
+                    <input type="checkbox" class="budget-share-cb" value="${escapeHtml(s.uid)}" ${visible ? 'checked' : ''}>
                     ${escapeHtml(s.email || s.uid)} <span style="color:var(--text-muted);font-size:11px;text-transform:capitalize;">(${escapeHtml(s.role)})</span>
-                </label>`).join('')}
+                </label>`;
+            }).join('')}
             <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
                 Applies to people with Companion or Advisor access. Uncheck to keep this budget private from them.
             </div>
@@ -398,8 +403,10 @@ function showBudgetForm(store, existing = null) {
 
         const err = document.getElementById('budget-form-error');
         try {
+            let budgetId;
             if (isEdit) {
                 store.updateBudget(existing.id, payload);
+                budgetId = existing.id;
             } else {
                 // Guard against duplicates (store.addBudget replaces, but surface the intent)
                 const dup = store.getBudgets().find(b => payload.tag
@@ -409,28 +416,28 @@ function showBudgetForm(store, existing = null) {
                     const dupLabel = payload.tag ? `#${payload.tag}` : (getAllExpenseCategories(store)[payload.category]?.label || payload.category);
                     if (!confirm(`A budget already exists for ${dupLabel}. Replace it?`)) return;
                 }
-                const created = store.addBudget(payload);
+                budgetId = store.addBudget(payload).id;
+            }
 
-                // Apply per-sharee visibility for the new budget. Semantics:
-                // a null grant means "all budgets incl. future ones", so an
-                // unchecked box converts it to an explicit allowlist of
-                // everything except this budget; a checked box appends to an
-                // existing allowlist (null grants already include it).
-                for (const s of partialSharees) {
-                    const cb = document.querySelector(`.budget-share-cb[value="${CSS.escape(s.uid)}"]`);
-                    if (!cb) continue;
-                    const currentIds = Array.isArray(s.budgetIds) ? s.budgetIds : null;
-                    if (cb.checked) {
-                        if (currentIds && !currentIds.includes(created.id)) {
-                            store.setShareBudgetIds(s.uid, [...currentIds, created.id]);
-                        }
-                    } else {
-                        if (currentIds === null) {
-                            const allOtherIds = store.getBudgets().map(b => b.id).filter(id => id !== created.id);
-                            store.setShareBudgetIds(s.uid, allOtherIds);
-                        } else if (currentIds.includes(created.id)) {
-                            store.setShareBudgetIds(s.uid, currentIds.filter(id => id !== created.id));
-                        }
+            // Apply per-sharee visibility (create AND edit). Semantics: a null
+            // grant means "all budgets incl. future ones", so an unchecked box
+            // converts it to an explicit allowlist of everything except this
+            // budget; a checked box appends to an existing allowlist (null
+            // grants already include it).
+            for (const s of partialSharees) {
+                const cb = document.querySelector(`.budget-share-cb[value="${CSS.escape(s.uid)}"]`);
+                if (!cb) continue;
+                const currentIds = Array.isArray(s.budgetIds) ? s.budgetIds : null;
+                if (cb.checked) {
+                    if (currentIds && !currentIds.includes(budgetId)) {
+                        store.setShareBudgetIds(s.uid, [...currentIds, budgetId]);
+                    }
+                } else {
+                    if (currentIds === null) {
+                        const allOtherIds = store.getBudgets().map(b => b.id).filter(id => id !== budgetId);
+                        store.setShareBudgetIds(s.uid, allOtherIds);
+                    } else if (currentIds.includes(budgetId)) {
+                        store.setShareBudgetIds(s.uid, currentIds.filter(id => id !== budgetId));
                     }
                 }
             }

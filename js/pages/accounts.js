@@ -446,6 +446,15 @@ export function showAccountForm(store, existingAccount = null) {
             <label id="amount-owed-label">${isVehicle ? 'Amount Owed (Auto Loan)' : isEquipment ? 'Amount Owed (Equipment Loan)' : isOtherAsset ? 'Amount Owed' : 'Amount Owed (Mortgage)'}</label>
             <input type="number" class="form-input" id="account-amount-owed" step="0.01" value="${account.amountOwed || 0}">
         </div>
+        <div class="form-group" id="investment-property-group" style="display:${isProperty ? '' : 'none'};">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400;">
+                <input type="checkbox" id="account-investment-property" ${account.investmentProperty ? 'checked' : ''}>
+                <span>Investment property (rental, flip, land held for appreciation)</span>
+            </label>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                Shows up on the Investments tab alongside your portfolio, with its equity counted.
+            </div>
+        </div>
         <div id="credit-fields-group" style="display:${isCredit ? '' : 'none'};">
             <div class="form-row">
                 <div class="form-group">
@@ -483,6 +492,7 @@ export function showAccountForm(store, existingAccount = null) {
         const isAssetType = isProp || isVeh || isEquip || isOther;
         const isCred = typeSelect.value === 'credit';
         amountOwedGroup.style.display = isAssetType ? '' : 'none';
+        document.getElementById('investment-property-group').style.display = isProp ? '' : 'none';
         creditFieldsGroup.style.display = isCred ? '' : 'none';
         balanceLabel.textContent = isAssetType ? 'Estimated Value' : 'Current Balance';
         amountOwedLabel.textContent = isVeh ? 'Amount Owed (Auto Loan)' : isEquip ? 'Amount Owed (Equipment Loan)' : isOther ? 'Amount Owed' : 'Amount Owed (Mortgage)';
@@ -499,6 +509,8 @@ export function showAccountForm(store, existingAccount = null) {
         if (data.type === 'property' || data.type === 'vehicle' || data.type === 'equipment' || data.type === 'other-asset') {
             data.amountOwed = parseFloat(document.getElementById('account-amount-owed').value) || 0;
         }
+        data.investmentProperty = data.type === 'property'
+            && document.getElementById('account-investment-property').checked;
 
         if (data.type === 'credit') {
             // Pass APR + min payment as transient fields for the sync engine
