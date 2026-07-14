@@ -6,6 +6,7 @@ import { capabilities } from '../mode/mode.js';
 import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
 import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
+import { spendingExpenses, classifyExpenseFlow } from '../services/financial-service.js';
 
 let activeDebtsTab = 'debts';
 
@@ -649,13 +650,11 @@ function renderExpensesTab(container, store) {
     const showTypeColumn = usageType === 'business' || usageType === 'both';
     const showPlaidSync = capabilities().plaid && hasPlaidConnections(store);
 
-    // For totals, exclude:
-    //   - ignored expenses (rule-flagged exclude-from-reports)
-    //   - split parents (their children are the actual counted amounts; counting
-    //     both would double-count the total)
-    const countableExpenses = expenses.filter(e =>
-        !e.ignored && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0)
-    );
+    // For totals, exclude ignored expenses, split parents (their children are
+    // the counted amounts), and transfers/card payments (the card's own
+    // purchases already count — the payment would double them). Interest
+    // charges are remapped to the 'interest' category.
+    const countableExpenses = spendingExpenses(expenses);
 
     // Summary calculations
     const now = new Date();
@@ -760,11 +759,12 @@ function renderExpensesTab(container, store) {
                                 const hasSplits = Array.isArray(exp.splitChildren) && exp.splitChildren.length > 0;
                                 const isSplitChild = !!exp.splitOf;
                                 const isIgnored = !!exp.ignored;
-                                const rowStyle = isIgnored ? 'opacity:0.4;' : (hasSplits ? 'background:var(--bg-input);' : '');
+                                const isTransfer = classifyExpenseFlow(exp) === 'transfer';
+                                const rowStyle = isIgnored ? 'opacity:0.4;' : (isTransfer ? 'opacity:0.6;' : (hasSplits ? 'background:var(--bg-input);' : ''));
                                 const tagsHtml = Array.isArray(exp.tags) && exp.tags.length > 0
                                     ? `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">${exp.tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>`
                                     : '';
-                                const badges = `${getSourceBadge(exp)}${hasSplits ? ' <span class="tag-pill" style="background:var(--bg-card);">split</span>' : ''}${isSplitChild ? ' <span class="tag-pill" style="background:var(--bg-card);">part of split</span>' : ''}${isIgnored ? ' <span class="tag-pill" style="background:var(--bg-card);color:var(--text-muted);">ignored</span>' : ''}`;
+                                const badges = `${getSourceBadge(exp)}${hasSplits ? ' <span class="tag-pill" style="background:var(--bg-card);">split</span>' : ''}${isSplitChild ? ' <span class="tag-pill" style="background:var(--bg-card);">part of split</span>' : ''}${isIgnored ? ' <span class="tag-pill" style="background:var(--bg-card);color:var(--text-muted);">ignored</span>' : ''}${isTransfer ? ' <span class="tag-pill" style="background:rgba(245,158,11,0.15);color:#f59e0b;" title="Card payment or account transfer — excluded from spending totals. Edit the expense to change this.">transfer</span>' : ''}`;
                                 return `
                                 <tr style="${rowStyle}">
                                     <td style="white-space:nowrap;">${exp.date ? new Date(exp.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</td>
@@ -1024,6 +1024,15 @@ function showExpenseForm(store, existingExpense = null) {
             <label>Notes (optional)</label>
             <input type="text" class="form-input" id="expense-notes" value="${escapeHtml(expense.notes || '')}">
         </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400;">
+                <input type="checkbox" id="expense-is-transfer" ${classifyExpenseFlow(expense) === 'transfer' ? 'checked' : ''}>
+                <span>Transfer / card payment — exclude from spending totals</span>
+            </label>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                Credit-card payments and moves between your own accounts aren't spending — the purchases behind them already count on their own.
+            </div>
+        </div>
         <div class="modal-actions">
             <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
             <button class="btn btn-primary" id="modal-save">${isEdit ? 'Update' : 'Add'} Expense</button>
@@ -1067,6 +1076,17 @@ function showExpenseForm(store, existingExpense = null) {
             } else {
                 data.businessName = null;
             }
+        }
+
+        // Transfer toggle: only store an explicit flow when the user's answer
+        // differs from what auto-detection says about the SAVED values — so
+        // untouched expenses keep benefiting from future detection updates.
+        const transferChecked = document.getElementById('expense-is-transfer').checked;
+        const autoFlow = classifyExpenseFlow({ ...expense, ...data, flow: undefined });
+        if (transferChecked !== (autoFlow === 'transfer')) {
+            data.flow = transferChecked ? 'transfer' : 'spending';
+        } else if (expense.flow) {
+            data.flow = null; // back in agreement with auto-detection — drop the override
         }
 
         if (!data.name) {

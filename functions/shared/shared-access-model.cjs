@@ -128,7 +128,9 @@ function computeBudgetAggregates(data, now = new Date()) {
     const asOf = budgetService.monthKey(now);
     const statuses = budgetService.computeAllBudgetStatuses(
         budgetsOf(data),
-        data.expenses || [],
+        // Transfers/card payments excluded, interest remapped — mirrors
+        // store.getBudgetStatuses on the web client.
+        financialService.spendingExpenses(data.expenses || []),
         asOf,
         (category, mKey, monthExpenses) => billSpendForMonth(data, category, mKey, monthExpenses)
     ).map(s => ({

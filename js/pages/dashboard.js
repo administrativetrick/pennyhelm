@@ -14,6 +14,7 @@ import {
     getOverdueCarryForwards,
     billTotalForMonth,
     computePeriodSummary,
+    spendingExpenses,
     HOUSING_BILL_CATEGORIES,
     DEBT_BILL_CATEGORIES,
 } from '../services/financial-service.js';
@@ -2363,8 +2364,10 @@ function buildCashflowPdfContent(store, dateLabel) {
         if (m > 0) incomeSources.push({ name: src.name || 'Other income', amount: m });
     });
 
-    // Expense categories — prefer 30-day transactions, fall back to bills
-    var allExpenses = (store.getExpenses ? store.getExpenses() : []) || [];
+    // Expense categories — prefer 30-day transactions, fall back to bills.
+    // spendingExpenses drops transfers/card payments (double counting) and
+    // ignored/split-parent rows, and remaps interest charges to 'interest'.
+    var allExpenses = spendingExpenses((store.getExpenses ? store.getExpenses() : []) || []);
     var thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     var recentExpenses = allExpenses.filter(function(e) {
         if (!e || !e.date) return false;
@@ -2391,7 +2394,7 @@ function buildCashflowPdfContent(store, dateLabel) {
     var netCashflow = totalMonthlyIncome - totalOutflow;
     var savingsRate = totalMonthlyIncome > 0 ? (netCashflow / totalMonthlyIncome * 100) : 0;
 
-    var periodLabel = source === 'transactions' ? 'Based on actual spending (last 30 days, ' + recentExpenses.length + ' transactions)' : 'Based on recurring bills (monthly equivalent)';
+    var periodLabel = source === 'transactions' ? 'Based on actual spending (last 30 days, ' + recentExpenses.length + ' transactions; transfers &amp; card payments excluded)' : 'Based on recurring bills (monthly equivalent)';
 
     // Summary
     var html = '<p style="font-size:12px;color:#666;margin-bottom:16px;">' + periodLabel + '</p>';

@@ -2,7 +2,7 @@ import { formatCurrency, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
 import { getAllExpenseCategories, getCategoryLabel, getCategoryColor as getExpenseCategoryHex, normalizeCategoryKey } from '../expense-categories.js';
-import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills, addDays, getOverdueCarryForwards } from '../services/financial-service.js';
+import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills, addDays, getOverdueCarryForwards, spendingExpenses } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
 import { capabilities } from '../mode/mode.js';
@@ -1173,7 +1173,9 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
 
     // ─── Sankey data: prefer actual transactions (last 30 days) when available ───
     // Falls back to recurring bills if the user has no imported transactions yet.
-    const allExpenses = (store.getExpenses ? store.getExpenses() : []) || [];
+    // spendingExpenses drops transfers/card payments (they'd double the card's
+    // own purchases) and remaps interest charges to the 'interest' category.
+    const allExpenses = spendingExpenses((store.getExpenses ? store.getExpenses() : []) || []);
     const today = new Date();
     const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
     const recentExpenses = allExpenses.filter(e => {
@@ -1256,7 +1258,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
                 <div>
                     <h3>Cashflow Sankey</h3>
                     <p style="font-size:12px;color:var(--text-muted);margin-top:2px;">
-                        Interactive view — how income flows through ${sankeySource === 'transactions' ? 'your actual spending (last 30 days)' : 'your recurring bills'} to ${sankeyNet >= 0 ? 'savings' : 'shortfall'}
+                        Interactive view — how income flows through ${sankeySource === 'transactions' ? 'your actual spending (last 30 days; transfers &amp; card payments excluded)' : 'your recurring bills'} to ${sankeyNet >= 0 ? 'savings' : 'shortfall'}
                         ${sankeySource === 'transactions' ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(99,102,241,0.15);color:#818cf8;border-radius:10px;font-size:10px;font-weight:600;">${recentExpenses.length} transactions</span>` : ''}
                     </p>
                 </div>

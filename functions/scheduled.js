@@ -26,15 +26,25 @@ function mapPlaidCategory(plaidCategory) {
             if (detailed.includes("UTILITIES")) return "utilities";
             return "home";
         case "EDUCATION": return "education";
+        case "BANK_FEES":
+            if (detailed.includes("INTEREST")) return "interest";
+            return "bank-fees";
         case "GOVERNMENT_AND_NON_PROFIT":
         case "TRANSFER_IN":
         case "TRANSFER_OUT":
         case "LOAN_PAYMENTS":
-        case "BANK_FEES":
             return "other";
         default:
             return "other";
     }
+}
+
+// The Plaid personal-finance-category string stamped onto each expense so
+// the shared flow classifier (financial-service classifyExpenseFlow) can
+// recognize transfers and credit-card payments without guessing from names.
+function plaidPfcOf(txn) {
+    const pfc = txn.personal_finance_category;
+    return (pfc && (pfc.detailed || pfc.primary)) || null;
 }
 
 module.exports = function({ admin, db, getPlaidClient, secrets }) {
@@ -406,6 +416,7 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
                                         businessName: null,
                                         plaidTransactionId: txn.transaction_id,
                                         plaidAccountId: txn.account_id,
+                                        plaidPfc: plaidPfcOf(txn),
                                         source: "plaid",
                                     };
 
@@ -650,6 +661,7 @@ module.exports = function({ admin, db, getPlaidClient, secrets }) {
                             amount: Math.abs(txn.amount),
                             date: txn.date,
                             category: mapPlaidCategory(txn.personal_finance_category),
+                            plaidPfc: plaidPfcOf(txn),
                             institutionName: itemData.institutionName,
                         });
                     }

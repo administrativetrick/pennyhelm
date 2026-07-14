@@ -28,6 +28,117 @@ const DEBT_BILL_CATEGORIES = new Set([
     'Credit Card', 'Loan', 'Debt Payment'
 ]);
 
+// ─── Expense flow classification ──────────────────
+//
+// A synced transaction isn't always spending. Credit-card payments and
+// account transfers move money between the user's own pockets — the card's
+// underlying purchases already arrive as their own transactions, so counting
+// the payment too doubles every number it touches. Interest charges ARE real
+// spending (the cost of borrowed money) and get surfaced as the 'interest'
+// category instead of drowning in 'other'.
+//
+// Precedence: explicit `expense.flow` (user toggle or sync stamp) > a
+// deliberately-assigned category (user edit, rule, or Plaid mapping to a
+// real category) > Plaid personal-finance-category (`plaidPfc`, stamped at
+// sync time) > name patterns. Pattern matching only runs on expenses still
+// sitting in the catch-all categories, so a rule that files "CHASE AUTOPAY"
+// under car-payment keeps winning.
+
+const UNCLASSIFIED_CATEGORIES = new Set(['', 'other', 'uncategorized', 'miscellaneous']);
+
+const INTEREST_NAME_PATTERNS = [
+    /\binterest charge\b/i,          // "PURCHASE INTEREST CHARGE", "Interest Charge on Purchases"
+];
+
+const TRANSFER_NAME_PATTERNS = [
+    /\bach pmt\b/i,                  // "AMERICAN EXPRESS ACH PMT ..."
+    /autopay/i,                      // "CHASE CREDIT CRD AUTOPAY"
+    /crcardpmt/i,                    // "CAPITAL ONE CRCARDPMT"
+    /\be-?payment\b/i,               // "DISCOVER E-PAYMENT"
+    /discover\s+payments?\b/i,       // "DISCOVER PAYMENTS 2545 TEL ID"
+    /online transfer/i,              // "Online Transfer to CHK ...1234"
+    /\bepay\b/i,
+    /\bcard pmt\b/i,
+    /\bdirectpay\b/i,
+    /payment[\s-]*thank you/i,       // card-side view of a payment
+    /\bxfr\b/i,                      // "P2PEXT XFR", "ONLINE XFR"
+    /\btransfer (to|from)\b/i,
+    // Brokerage / robo-investor deposits — money moved, not spent
+    /\brobinhood\b/i,
+    /\bcoinbase\b/i,
+    /\bwebull\b/i,
+    /\bwealthfront\b/i,
+    /\bbetterment\b/i,
+    /\bacorns\b/i,
+];
+
+function matchesAny(patterns, text) {
+    return !!text && patterns.some(p => p.test(text));
+}
+
+/**
+ * Classify an expense's cash flow.
+ *
+ * @param {object} e — expense record
+ * @returns {'spending'|'transfer'|'interest'}
+ */
+function classifyExpenseFlow(e) {
+    if (!e) return 'spending';
+    if (e.flow === 'transfer' || e.flow === 'interest' || e.flow === 'spending') return e.flow;
+
+    const cat = String(e.category || '').toLowerCase();
+    if (cat === 'interest') return 'interest';
+    if (!UNCLASSIFIED_CATEGORIES.has(cat)) return 'spending';
+
+    const text = `${e.name || ''} ${e.vendor || ''}`;
+    if (matchesAny(INTEREST_NAME_PATTERNS, text)) return 'interest';
+
+    // Plaid personal-finance-category, stamped on the expense at sync time.
+    const pfc = String(e.plaidPfc || '').toUpperCase();
+    if (pfc) {
+        if (pfc.includes('INTEREST')) return 'interest';
+        if (pfc.includes('TRANSFER_OUT')) return 'transfer';
+        // Credit-card payments are transfers (the purchases already count);
+        // mortgage/auto/student loan payments are real debt service.
+        if (pfc.includes('CREDIT_CARD_PAYMENT')) return 'transfer';
+    }
+
+    if (matchesAny(TRANSFER_NAME_PATTERNS, text)) return 'transfer';
+    return 'spending';
+}
+
+function isTransferExpense(e) {
+    return classifyExpenseFlow(e) === 'transfer';
+}
+
+/**
+ * The category an expense should count under, once flow is considered:
+ * interest charges stuck in a catch-all category report as 'interest'.
+ */
+function effectiveExpenseCategory(e) {
+    const cat = String((e && e.category) || '').toLowerCase();
+    if (UNCLASSIFIED_CATEGORIES.has(cat) && classifyExpenseFlow(e) === 'interest') return 'interest';
+    return (e && e.category) || '';
+}
+
+/**
+ * The canonical "spending" view of an expense list: transfers, ignored
+ * rows, and split parents excluded; interest remapped to its category.
+ * Every spending aggregate (budgets, Sankey, cashflow, expense summaries)
+ * should start from this so the numbers agree across pages.
+ */
+function spendingExpenses(expenses) {
+    return (expenses || [])
+        .filter(e => e
+            && !e.ignored
+            && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0)
+            && classifyExpenseFlow(e) !== 'transfer')
+        .map(e => {
+            const effective = effectiveExpenseCategory(e);
+            return effective === (e.category || '') ? e : { ...e, category: effective };
+        });
+}
+
 // ─── Net Worth ────────────────────────────────────
 
 function calculateNetWorth(accounts, debts) {
@@ -1215,4 +1326,4 @@ function computeAutoTickUpdates(bills, isBillPaid, now = new Date()) {
     return updates;
 }
 
-module.exports = { calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };
+module.exports = { classifyExpenseFlow, isTransferExpense, effectiveExpenseCategory, spendingExpenses, calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };
