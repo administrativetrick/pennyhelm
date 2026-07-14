@@ -500,10 +500,11 @@ export function renderSettings(container, store) {
                 <div class="settings-section">
                     <h3>Custom Categories</h3>
                     <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">
-                        Create custom categories for organizing your bills. These appear alongside the default categories.
+                        One category set shared by bills, expenses, budgets, and rules.
+                        Custom categories appear alongside the built-in ones everywhere.
                     </p>
                     <div id="custom-categories-list">
-                        ${renderCustomCategoriesList(store.getCustomCategories(), bills)}
+                        ${renderCustomCategoriesList(store)}
                     </div>
                     <div style="margin-top:12px;">
                         <button class="btn btn-primary btn-sm" id="add-custom-category-btn">+ Add Category</button>
@@ -2015,48 +2016,17 @@ export function renderSettings(container, store) {
 
     // Add custom category
     container.querySelector('#add-custom-category-btn')?.addEventListener('click', () => {
-        openModal('Add Custom Category', `
-            <div class="form-group">
-                <label>Category Name</label>
-                <input type="text" class="form-input" id="category-name" placeholder="e.g., Pet Supplies">
-            </div>
-            <div class="form-group">
-                <label>Color</label>
-                <div class="color-picker" id="color-picker">
-                    ${renderColorPicker('purple')}
-                </div>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                <button class="btn btn-primary" id="modal-save">Add Category</button>
-            </div>
-        `);
-
-        // Color picker selection
-        document.querySelectorAll('.color-option').forEach(opt => {
-            opt.addEventListener('click', () => {
-                document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
-                opt.classList.add('selected');
-            });
-        });
-
-        document.getElementById('modal-cancel').addEventListener('click', closeModal);
-        document.getElementById('modal-save').addEventListener('click', () => {
-            const name = document.getElementById('category-name').value.trim();
-            const color = document.querySelector('.color-option.selected')?.dataset.color || 'purple';
-
-            if (!name) {
-                alert('Please enter a category name');
-                return;
-            }
-
-            try {
-                store.addCustomCategory({ name, color });
-                closeModal();
-                refreshPage();
-            } catch (err) {
-                alert(err.message);
-            }
+        openFormModal({
+            title: 'Add Custom Category',
+            saveLabel: 'Add Category',
+            refreshPage,
+            fields: [
+                { type: 'text', id: 'unified-cat-name', label: 'Category name', placeholder: 'e.g., House Cleaner', required: true, autofocus: true },
+                { type: 'hint', label: 'Available immediately in bills, budgets, and rules.' },
+            ],
+            onSave: (values) => {
+                store.addCustomExpenseCategory({ name: values['unified-cat-name'], color: '#94a3b8' });
+            },
         });
     });
 
@@ -2116,8 +2086,12 @@ export function renderSettings(container, store) {
     // Delete custom category
     container.querySelectorAll('.delete-category').forEach(btn => {
         btn.addEventListener('click', () => {
-            if (confirm(`Delete category "${btn.dataset.name}"? Bills using this category will keep their category text.`)) {
-                store.deleteCustomCategory(btn.dataset.id);
+            const inUse = parseInt(btn.dataset.inuse || '0', 10);
+            const warning = inUse > 0
+                ? ` ${inUse} item${inUse !== 1 ? 's' : ''} still use${inUse === 1 ? 's' : ''} it and will show the raw key until recategorized.`
+                : '';
+            if (confirm(`Delete category "${btn.dataset.name}"?${warning}`)) {
+                store.deleteCustomExpenseCategory(btn.dataset.id);
                 refreshPage();
             }
         });
@@ -2276,26 +2250,31 @@ export function renderSettings(container, store) {
 }
 
 // Render custom categories list
-function renderCustomCategoriesList(customCategories, bills) {
-    if (customCategories.length === 0) {
-        return '<p style="color:var(--text-secondary);font-size:13px;">No custom categories yet.</p>';
+function renderCustomCategoriesList(store) {
+    const cats = store.getCustomExpenseCategories();
+    if (cats.length === 0) {
+        return '<p style="color:var(--text-secondary);font-size:13px;">No custom categories yet. They can also be created inline from the bill form, the budget picker, and rules.</p>';
     }
 
-    return customCategories.map(cat => {
-        const billCount = bills.filter(b => b.category?.toLowerCase() === cat.name.toLowerCase()).length;
-        const colorHex = CATEGORY_COLORS.find(c => c.name === cat.color)?.hex || '#a78bfa';
+    const bills = store.getBills();
+    const expenses = store.getExpenses();
+    const budgets = store.getBudgets();
+    return cats.map(cat => {
+        const key = cat.key;
+        const usage =
+            bills.filter(b => (b.category || '') === key).length +
+            expenses.filter(e => (e.category || '') === key).length +
+            budgets.filter(b => (b.category || '') === key).length;
         return `
             <div class="settings-row">
                 <div style="display:flex;align-items:center;gap:10px;">
-                    <span style="width:12px;height:12px;border-radius:50%;background:${colorHex};"></span>
+                    <span style="width:12px;height:12px;border-radius:50%;background:${cat.color || '#94a3b8'};"></span>
                     <span class="setting-label">${escapeHtml(cat.name)}</span>
+                    <code style="font-size:10px;color:var(--text-muted);background:var(--bg-input);padding:1px 5px;border-radius:3px;">${escapeHtml(key)}</code>
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;">
-                    <span class="text-muted" style="font-size:12px;">${billCount} bill${billCount !== 1 ? 's' : ''}</span>
-                    <button class="btn-icon edit-category" data-id="${cat.id}" title="Edit">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button class="btn-icon delete-category" data-id="${cat.id}" data-name="${escapeHtml(cat.name)}" title="Delete" style="color:var(--red);">
+                    <span class="text-muted" style="font-size:12px;">${usage} item${usage !== 1 ? 's' : ''}</span>
+                    <button class="btn-icon delete-category" data-id="${cat.id}" data-name="${escapeHtml(cat.name)}" data-inuse="${usage}" title="Delete" style="color:var(--red);">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                 </div>

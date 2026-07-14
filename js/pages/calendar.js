@@ -1,4 +1,5 @@
 import { getMonthName, getDaysInMonth, getFirstDayOfMonth, formatCurrency, getCategoryBadgeClass, escapeHtml } from '../utils.js';
+import { getCategoryColor as getExpenseCategoryHex } from '../expense-categories.js';
 import { expandBillOccurrences } from '../services/financial-service.js';
 
 let viewYear, viewMonth;
@@ -209,7 +210,7 @@ function renderCalendarDays(firstDay, daysInMonth, dayData, isCurrentMonth, toda
 
         data.bills.slice(0, 3).forEach(bill => {
             const isPaid = store.isBillPaid(bill.id, year, month, bill._occurrenceKey);
-            const bgColor = getBillColor(bill.category);
+            const bgColor = getBillColor(bill.category, store);
             html += `<div class="calendar-bill-dot" style="background:${bgColor};${isPaid ? 'text-decoration:line-through;opacity:0.5;' : ''}">${escapeHtml(bill.name.length > 12 ? bill.name.slice(0, 12) + '...' : bill.name)}</div>`;
         });
 
@@ -237,34 +238,12 @@ function renderCalendarDays(firstDay, daysInMonth, dayData, isCurrentMonth, toda
     return html;
 }
 
-function getBillColor(category) {
+function getBillColor(category, store) {
     if (!category) return 'var(--bg-secondary)';
-    const map = {
-        'housing': 'var(--green-bg)',
-        'mortgage': 'var(--green-bg)',
-        'rent': 'var(--green-bg)',
-        'car': 'var(--orange-bg)',
-        'auto loan': 'var(--orange-bg)',
-        'car insurance': 'var(--orange-bg)',
-        'subscription': 'var(--blue-bg)',
-        'internet': 'var(--blue-bg)',
-        'streaming': 'var(--blue-bg)',
-        'phone': 'var(--blue-bg)',
-        'necessity': 'var(--purple-bg)',
-        'credit card': 'var(--red-bg)',
-        'loan': 'var(--red-bg)',
-        'debt payment': 'var(--red-bg)',
-        'utilities': 'var(--yellow-bg)',
-        'electric': 'var(--yellow-bg)',
-        'gas': 'var(--yellow-bg)',
-        'water': 'var(--yellow-bg)',
-        'storage': 'var(--cyan-bg)',
-        'insurance': 'var(--pink-bg)',
-        'health insurance': 'var(--pink-bg)',
-        'medical': 'var(--red-bg)',
-        'healthcare': 'var(--red-bg)',
-    };
-    return map[category.toLowerCase()] || 'var(--bg-secondary)';
+    // Unified category set: tint from the category's canonical color.
+    const hex = getExpenseCategoryHex(category, store);
+    if (hex) return 'color-mix(in oklab, ' + hex + ' 22%, transparent)';
+    return 'var(--bg-secondary)';
 }
 
 function showDayDetail(container, day, data, store, year, month) {
