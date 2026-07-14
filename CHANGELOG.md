@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-14
+
 ### Added
 - **Credit-card payments and account transfers no longer count as spending.** Paying a card's balance or moving money to your own brokerage/savings shows up in bank feeds as a transaction, so budgets, the Cashflow Sankey, the dashboard cashflow, and the expense summaries were counting the same dollars twice (once as the card's purchases, once as the payment) and treating investment transfers as expenses. These are now detected automatically — from Plaid's transaction category on newly synced transactions and from recognizable payment/transfer wording on existing ones — shown with a "transfer" badge in the expense list, and excluded from every spending total. A checkbox in the expense editor overrides the detection in either direction. Deliberately categorized transactions (by you or by a rule) are always trusted as spending.
 - **Credit-card interest surfaces as its own "Interest Charges" category.** Interest is real spending — the cost of borrowed money — so instead of drowning in "Other" it's now categorized as Interest Charges, budgetable like any category. Other bank fees from synced transactions now land under "Bank Fees" instead of "Other" too.
@@ -31,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - **The AI assistant endpoint is rate-limited per user and per IP.**
+- **Added SECURITY.md** with private vulnerability reporting instructions and response expectations.
 
 ## [0.6.0] — 2026-07-06
 
@@ -235,7 +238,8 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.0...v0.4.1
