@@ -1,5 +1,6 @@
 import { escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage, navigate } from '../app.js';
+import { openFormModal } from '../services/modal-manager.js';
 import { auth } from '../auth.js';
 
 // Debounce utility for real-time search
@@ -768,31 +769,53 @@ async function loadReferralPayouts() {
         }
         contentEl.innerHTML = html;
 
-        const markPayout = async (uids, status) => {
-            let note = null;
-            if (status === 'paid') {
-                note = prompt('Payout note (optional — e.g. "PayPal 2026-07-15"):') || null;
-            }
-            try {
-                const mark = firebase.app().functions().httpsCallable('markReferralPayout');
-                await mark({ subscriberUids: uids, status, note });
-                loadReferralPayouts();
-            } catch (err) {
-                alert('Failed to update payout: ' + (err.message || 'unknown error'));
-            }
+        const markPayout = async (uids, status, note = null) => {
+            const mark = firebase.app().functions().httpsCallable('markReferralPayout');
+            await mark({ subscriberUids: uids, status, note });
+            loadReferralPayouts();
+        };
+
+        // Marking paid goes through a styled form modal (replaces the old
+        // native confirm + prompt pair): shows the total being recorded and
+        // takes an optional payout note.
+        const openMarkPaidModal = (uids, totalCents) => {
+            openFormModal({
+                title: `Mark ${uids.length} conversion${uids.length !== 1 ? 's' : ''} paid`,
+                saveLabel: 'Mark Paid',
+                skipRefresh: true,
+                fields: [
+                    { type: 'hint', label: `Records $${(totalCents / 100).toFixed(2)} as paid out in the ledger. Send the actual money separately — this is bookkeeping only.` },
+                    { type: 'text', id: 'refpay-note', label: 'Payout note (optional)', placeholder: 'e.g. PayPal 2026-07-15', autofocus: true },
+                ],
+                onSave: async (values) => {
+                    await markPayout(uids, 'paid', values['refpay-note'] || null);
+                },
+            });
         };
 
         contentEl.querySelectorAll('.refpay-payall').forEach(btn => {
             btn.addEventListener('click', () => {
                 const uids = btn.dataset.uids.split(',').filter(Boolean);
-                if (confirm(`Mark ${uids.length} conversion${uids.length !== 1 ? 's' : ''} as paid?`)) {
-                    markPayout(uids, 'paid');
-                }
+                openMarkPaidModal(uids, uids.length * 2000);
             });
         });
         contentEl.querySelectorAll('.refpay-status').forEach(sel => {
-            sel.addEventListener('change', () => {
-                markPayout([sel.dataset.uid], sel.value);
+            const prior = sel.value;
+            sel.addEventListener('change', async () => {
+                const next = sel.value;
+                if (next === 'paid') {
+                    // Reset the select immediately — the modal drives the
+                    // change, so a cancel leaves the UI truthful.
+                    sel.value = prior;
+                    openMarkPaidModal([sel.dataset.uid], 2000);
+                } else {
+                    try {
+                        await markPayout([sel.dataset.uid], next);
+                    } catch (err) {
+                        sel.value = prior;
+                        alert('Failed to update payout: ' + (err.message || 'unknown error'));
+                    }
+                }
             });
         });
     } catch (err) {
