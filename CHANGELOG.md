@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Bills, Budgets, and Rules now share ONE category set, with bill↔transaction reconciliation.** Bills historically had their own category list ("Insurance", "Rent", custom bill categories) that budgets and rules couldn't see. A one-time migration converts every bill to the shared canonical categories (labels with no match become custom categories automatically, so nothing is lost), the bill form uses the same category list as everywhere else (typing a brand-new name creates it on the spot), and bills feed the budget matching their category through **reconciliation**: a bill counts as an upcoming forecast until its real payment appears in your transactions (matched by amount ±5% and date ±7 days), then the actual takes over automatically — no double counting, no invisible upcoming bills. The per-bill override remains (count toward a different budget, or none). Custom categories are managed in one place in Settings and apply app-wide.
+- **This Month / Quarter / Year toggle on the dashboard.** The cashflow hero and the income/bills/remaining/coverage cards can aggregate over the current calendar quarter or year, with bills computed month by month (a yearly premium lands only in its due month, an every-other-month bill in its alternating months, per-paycheck bills follow each month's real pay-date count). Balance-sheet cards stay point-in-time.
+- **Referral revenue-share tracking (cloud, admin).** Every referred signup whose subscription becomes active is recorded in a payout ledger at $20 per conversion. The admin panel gains a Referral Payouts section grouped by referrer — owed/paid totals, per-conversion status (unpaid / paid / void) with payout notes, and one-click "mark all paid". The free-month referral tiers are unchanged and stack on top.
+- **Adding a detected bill can create a matching categorization rule.** A checked-by-default option on the "Add Detected Bill" dialog creates a rule (merchant → chosen category) so future transactions stay consistent, applies it to past transactions immediately (hand-edited ones untouched), lands at the lowest priority, and skips creation when a rule already covers the merchant.
+
+### Changed
+- **The dashboard uses a two-column layout.** Wide widgets flow down the main column while compact ones (Financial Health Score, Upcoming Bills, Savings Goals, Budget Health, Smart Insights) stack in a right-hand rail. The header greets you by name, the layout collapses to one column on narrow screens, and Customize works exactly as before.
+- **The financial summary is a single-row carousel.** Stat cards scroll horizontally (swipe on touch, chevrons on desktop) instead of wrapping into a tall grid.
+- **Detected bills prefill their real category.** The suggestion uses the majority category across the merchant's transactions (one recategorized charge no longer flips it), passes through verbatim including custom categories, and the saved bill counts toward the matching budget.
+- **No more native browser popups.** Creating a category (Budgets/Rules pickers), renaming a business (Settings), adjusting a shared budget, and recording a referral payout (admin) all use styled in-app forms instead of system prompt dialogs.
+
+### Fixed
+- **A stale browser tab can no longer wipe bank-synced transactions.** Saves write the whole data blob, so a tab opened before a server-side bank sync used to overwrite the newer transactions on its next save — budgets then under-reported spending. Every cloud save now checks the server first and preserves any synced transactions the tab has never seen; deliberate deletions stay deleted and the sync timestamp can't move backwards.
+- **The "Add Detected Bill" dialog actually has an Add button.** It rendered with no way to save (its confirm handler was passed to a modal API that ignored it); it now has Cancel/Add Bill buttons and a category dropdown with free-typing.
+
+### Security
+- **The AI assistant endpoint is rate-limited per user and per IP.**
+
 ## [0.6.0] — 2026-07-06
 
 ### Security

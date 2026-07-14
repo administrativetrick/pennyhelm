@@ -3,9 +3,10 @@
  *
  * Covers the one-shot migration (bill taxonomy labels → canonical
  * expense-category keys, unknown labels becoming custom categories) and the
- * blending contract: bill blending is OPT-IN via expenseCategory — bills
- * paid from connected accounts arrive as transactions, so counting
- * untagged bills would double budgets.
+ * blending contract: bills follow their own category and count as a
+ * FORECAST until a matching transaction lands (reconciliation) — then the
+ * actual counts and the forecast is suppressed. No double counting, no
+ * invisible upcoming bills.
  */
 
 process.env.TZ = 'America/Los_Angeles';
@@ -80,39 +81,76 @@ describe('migrateBillCategoriesToUnifiedSet', () => {
     });
 });
 
-describe('bill → budget blending is opt-in (avoids double counting with bank sync)', () => {
-    const baseData = (bills) => ({
+describe('bill → budget reconciliation: forecast until the payment lands', () => {
+    const baseData = (bills, expenses = []) => ({
         bills,
-        expenses: [],
+        expenses,
         paySchedule: null,
-        categoryBudgets: [{ id: 'b1', category: 'insurance', monthlyAmount: 500, rollover: false, startMonth: '2026-01' }],
+        categoryBudgets: [{ id: 'b1', category: 'insurance', monthlyAmount: 5000, rollover: false, startMonth: '2026-01' }],
     });
 
-    const insuranceSpend = (bills) => {
-        const agg = sharedAccess.computeBudgetAggregates(baseData(bills), new Date(2026, 6, 15));
-        return agg.statuses.find(s => s.category === 'insurance').spent;
+    const insuranceStatus = (bills, expenses) => {
+        const agg = sharedAccess.computeBudgetAggregates(baseData(bills, expenses), new Date(2026, 6, 15));
+        return agg.statuses.find(s => s.category === 'insurance');
     };
 
-    test('bills do NOT count by default — payments arrive as bank transactions (no double counting)', () => {
-        assert.equal(insuranceSpend([{ id: '1', category: 'insurance', amount: 446, frequency: 'monthly', dueDay: 21 }]), 0);
+    const bill = (extra = {}) => ({ id: 'sf', category: 'insurance', amount: 446, frequency: 'monthly', dueDay: 21, ...extra });
+    const txn = (amount, date, extra = {}) => ({ id: 't-' + amount + date, category: 'insurance', amount, date, source: 'plaid', ...extra });
+
+    test('unpaid bill counts as a forecast (no invisible upcoming bills)', () => {
+        assert.equal(insuranceStatus([bill()], []).spent, 446);
     });
 
-    test('explicitly tagged bills (expenseCategory) DO count', () => {
-        assert.equal(insuranceSpend([
-            { id: '1', category: 'other', expenseCategory: 'insurance', amount: 100, frequency: 'monthly', dueDay: 1 },
-            { id: '2', category: 'insurance', expenseCategory: 'utilities', amount: 999, frequency: 'monthly', dueDay: 1 },
-        ]), 100);
+    test('once the payment lands, the actual counts and the forecast is suppressed', () => {
+        const st = insuranceStatus([bill()], [txn(446, '2026-07-21')]);
+        assert.equal(st.spent, 446); // transaction only — NOT 892
+    });
+
+    test('near-match amounts reconcile (the mortgage case: 3475.02 vs 3486.50)', () => {
+        const st = insuranceStatus(
+            [bill({ amount: 3486.50, dueDay: 1 })],
+            [txn(3475.02, '2026-07-01')]
+        );
+        assert.equal(st.spent, 3475.02);
+    });
+
+    test('a payment outside the date window does not reconcile', () => {
+        const st = insuranceStatus([bill({ dueDay: 21 })], [txn(446, '2026-07-01')]);
+        assert.equal(st.spent, 446 + 446); // unrelated same-amount expense + forecast
+    });
+
+    test('two occurrences, one paid: actual + remaining forecast', () => {
+        // Semi-monthly-ish: weekly bill on Tuesdays of July 2026 (7,14,21,28)
+        const st = insuranceStatus(
+            [bill({ frequency: 'weekly', dueDay: 2, amount: 100 })],
+            [txn(100, '2026-07-07')]
+        );
+        // 4 Tuesdays; one matched → expense 100 + 3 forecasts of 100
+        assert.equal(st.spent, 400);
+    });
+
+    test('each transaction is consumed at most once', () => {
+        const st = insuranceStatus(
+            [bill({ id: 'a' }), bill({ id: 'b' })],
+            [txn(446, '2026-07-21')]
+        );
+        // one bill reconciled, one still forecast: 446 (txn) + 446 (forecast)
+        assert.equal(st.spent, 892);
     });
 
     test("expenseCategory 'none' opts a bill out entirely", () => {
-        assert.equal(insuranceSpend([
-            { id: '1', category: 'insurance', expenseCategory: 'none', amount: 999, frequency: 'monthly', dueDay: 1 },
-        ]), 0);
+        assert.equal(insuranceStatus([bill({ expenseCategory: 'none' })], []).spent, 0);
+    });
+
+    test('explicit expenseCategory overrides the bill category', () => {
+        const st = insuranceStatus([
+            { id: '1', category: 'other', expenseCategory: 'insurance', amount: 100, frequency: 'monthly', dueDay: 1 },
+            { id: '2', category: 'insurance', expenseCategory: 'utilities', amount: 999, frequency: 'monthly', dueDay: 1 },
+        ], []);
+        assert.equal(st.spent, 100);
     });
 
     test('frozen bills stay excluded', () => {
-        assert.equal(insuranceSpend([
-            { id: '1', category: 'insurance', amount: 999, frequency: 'monthly', dueDay: 1, frozen: true },
-        ]), 0);
+        assert.equal(insuranceStatus([bill({ frozen: true })], []).spent, 0);
     });
 });

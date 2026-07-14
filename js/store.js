@@ -1,7 +1,7 @@
 import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys, migrateBillCategoriesToUnifiedSet } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates, reconciledBillSpendForMonth } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey, getAllExpenseCategories } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
@@ -1464,7 +1464,7 @@ class Store {
 
     /** Returns per-budget status array for a given 'YYYY-MM' (defaults to current). */
     getBudgetStatuses(asOfMonth = monthKey()) {
-        const getBillSpend = (cat, mKey) => this._billSpendForMonth(cat, mKey);
+        const getBillSpend = (cat, mKey, monthExpenses) => this._billSpendForMonth(cat, mKey, monthExpenses);
         return computeAllBudgetStatuses(this.getBudgets(), this.getExpenses(), asOfMonth, getBillSpend);
     }
 
@@ -1478,7 +1478,7 @@ class Store {
      * the given expense category. Used by the budget engine to blend
      * committed bill spending into category budget totals.
      */
-    _billSpendForMonth(category, mKey) {
+    _billSpendForMonth(category, mKey, monthExpenses = []) {
         if (!category || !mKey) return 0;
         const [y, m] = mKey.split('-').map(Number);
         if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
@@ -1486,14 +1486,12 @@ class Store {
         const month = m - 1; // JS Date: 0-indexed
 
         const data = this._load();
-        // Case-insensitive match — same reason as budget-service. A one-time
-        // migration normalizes expenseCategory to the canonical key, but we
-        // lowercase here too so mixed-casing data never yields a silent 0.
         const needle = String(category || '').toLowerCase();
-        // Bill blending is OPT-IN: only bills explicitly tagged with a budget
-        // category count. Bills paid from a connected bank account also appear
-        // as imported transactions — counting both would double every budget.
-        const budgetCatOf = (b) => (!b.expenseCategory || b.expenseCategory === 'none') ? '' : b.expenseCategory;
+        // Unified default: a bill follows its own category. expenseCategory
+        // overrides ('none' opts out). Safe against double counting because
+        // reconciledBillSpendForMonth suppresses each occurrence's forecast
+        // once a matching transaction lands.
+        const budgetCatOf = (b) => b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || '');
         const bills = (data.bills || []).filter(b =>
             !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
         );
@@ -1501,32 +1499,12 @@ class Store {
 
         const monthStart = new Date(year, month, 1);
         const monthEnd = new Date(year, month + 1, 0);
-
-        // Pay dates — needed for per-paycheck / twice-monthly bills.
         const payDates = generatePayDates(
             data.paySchedule,
             monthStart.toISOString().slice(0, 10),
             monthEnd.toISOString().slice(0, 10)
         );
-
-        let total = 0;
-        for (const bill of bills) {
-            const amt = Number(bill.amount) || 0;
-            if (amt === 0) continue;
-            if (bill.frequency === 'yearly') {
-                if (bill.dueMonth === month) total += amt;
-            } else if (bill.frequency === 'semi-annual') {
-                const second = (bill.dueMonth + 6) % 12;
-                if (bill.dueMonth === month || second === month) total += amt;
-            } else if (bill.frequency === 'monthly' || !bill.frequency) {
-                total += amt;
-            } else {
-                // weekly / biweekly / per-paycheck / twice-monthly → expand
-                const occ = expandBillOccurrences(bill, monthStart, monthEnd, payDates);
-                total += (occ?.length || 0) * amt;
-            }
-        }
-        return total;
+        return reconciledBillSpendForMonth(bills, year, month, payDates, monthExpenses);
     }
 
     // ─── Savings Goals ───────────────────────────────────────

@@ -92,19 +92,17 @@ function deriveSharedRoles(sharedWith) {
 // (mirroring store._billSpendForMonth + budget-service) and only the
 // resulting numbers ship.
 
-function billSpendForMonth(data, category, mKey) {
+function billSpendForMonth(data, category, mKey, monthExpenses = []) {
     if (!category || !mKey) return 0;
     const [y, m] = mKey.split('-').map(Number);
     if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
     const month = m - 1;
 
     const needle = String(category || '').toLowerCase();
-    // Bill blending is OPT-IN: only bills explicitly tagged with a budget
-    // category count. Bills paid from a connected bank account also appear
-    // as imported transactions — counting both would double every budget.
-    // Mirrors store._billSpendForMonth — keep the three copies in agreement
-    // (web store, this file, mobile BudgetsScreen).
-    const budgetCatOf = (b) => (!b.expenseCategory || b.expenseCategory === 'none') ? '' : b.expenseCategory;
+    // Unified default with reconciliation — mirrors store._billSpendForMonth
+    // (keep the three copies in agreement: web store, this file, mobile
+    // BudgetsScreen). Forecast counts until a matching transaction lands.
+    const budgetCatOf = (b) => b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || '');
     const bills = (data.bills || []).filter(b =>
         !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
     );
@@ -117,24 +115,7 @@ function billSpendForMonth(data, category, mKey) {
         monthStart.toISOString().slice(0, 10),
         monthEnd.toISOString().slice(0, 10)
     );
-
-    let total = 0;
-    for (const bill of bills) {
-        const amt = Number(bill.amount) || 0;
-        if (amt === 0) continue;
-        if (bill.frequency === 'yearly') {
-            if (bill.dueMonth === month) total += amt;
-        } else if (bill.frequency === 'semi-annual') {
-            const second = (bill.dueMonth + 6) % 12;
-            if (bill.dueMonth === month || second === month) total += amt;
-        } else if (bill.frequency === 'monthly' || !bill.frequency) {
-            total += amt;
-        } else {
-            const occ = financialService.expandBillOccurrences(bill, monthStart, monthEnd, payDates);
-            total += (occ ? occ.length : 0) * amt;
-        }
-    }
-    return total;
+    return financialService.reconciledBillSpendForMonth(bills, y, month, payDates, monthExpenses);
 }
 
 // The store persists budgets under `categoryBudgets` (legacy name predating
@@ -149,7 +130,7 @@ function computeBudgetAggregates(data, now = new Date()) {
         budgetsOf(data),
         data.expenses || [],
         asOf,
-        (category, mKey) => billSpendForMonth(data, category, mKey)
+        (category, mKey, monthExpenses) => billSpendForMonth(data, category, mKey, monthExpenses)
     ).map(s => ({
         // Only the numbers — no payees, no transactions.
         category: s.category,
