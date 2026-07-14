@@ -2356,11 +2356,14 @@ function buildCashflowPdfContent(store, dateLabel) {
     // spendingExpenses drops transfers/card payments (double counting) and
     // ignored/split-parent rows, and remaps interest charges to 'interest'.
     var allExpenses = spendingExpenses((store.getExpenses ? store.getExpenses() : []) || []);
-    var thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Lexical ISO compare (not Date parsing, which reads date-only strings as
+    // UTC midnight) so this window agrees with the bills-page Sankey to the day.
+    var pad2 = function(n) { return String(n).padStart(2, '0'); };
+    var isoOf = function(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+    var thirtyDaysAgoIso = isoOf(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
+    var nowIso = isoOf(now);
     var recentExpenses = allExpenses.filter(function(e) {
-        if (!e || !e.date) return false;
-        var d = new Date(e.date);
-        return !isNaN(d) && d >= thirtyDaysAgo && d <= now && (e.amount || 0) > 0;
+        return e && e.date && e.date >= thirtyDaysAgoIso && e.date <= nowIso && (e.amount || 0) > 0;
     });
 
     var categoryTotals = {};

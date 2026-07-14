@@ -2030,59 +2030,6 @@ export function renderSettings(container, store) {
         });
     });
 
-    // Edit custom category
-    container.querySelectorAll('.edit-category').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const customCategories = store.getCustomCategories();
-            const cat = customCategories.find(c => c.id === btn.dataset.id);
-            if (!cat) return;
-
-            openModal('Edit Category', `
-                <div class="form-group">
-                    <label>Category Name</label>
-                    <input type="text" class="form-input" id="category-name" value="${escapeHtml(cat.name)}">
-                </div>
-                <div class="form-group">
-                    <label>Color</label>
-                    <div class="color-picker" id="color-picker">
-                        ${renderColorPicker(cat.color)}
-                    </div>
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="modal-save">Save</button>
-                </div>
-            `);
-
-            // Color picker selection
-            document.querySelectorAll('.color-option').forEach(opt => {
-                opt.addEventListener('click', () => {
-                    document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                });
-            });
-
-            document.getElementById('modal-cancel').addEventListener('click', closeModal);
-            document.getElementById('modal-save').addEventListener('click', () => {
-                const name = document.getElementById('category-name').value.trim();
-                const color = document.querySelector('.color-option.selected')?.dataset.color || cat.color;
-
-                if (!name) {
-                    alert('Please enter a category name');
-                    return;
-                }
-
-                try {
-                    store.updateCustomCategory(cat.id, { name, color });
-                    closeModal();
-                    refreshPage();
-                } catch (err) {
-                    alert(err.message);
-                }
-            });
-        });
-    });
-
     // Delete custom category
     container.querySelectorAll('.delete-category').forEach(btn => {
         btn.addEventListener('click', () => {

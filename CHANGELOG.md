@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-07-14
+
+### Fixed
+- **Late-month paydays now land on the right day.** Someone paid on the 30th or 31st (or semimonthly on the 15th/30th) had every payday pulled back to the 28th year-round; paydays now fall on the real day, clamped only where the month is shorter (a 31st payday lands on Feb 28). This also sharpens per-paycheck bill counts and the bill/transaction reconciliation window.
+- **The dashboard's 30-day spending window and the Cashflow Sankey now agree to the day.** They previously used different date comparisons and could disagree by a day at the window edge for US time zones.
+
+### Security
+- **Custom category names are now escaped everywhere they render.** A category named with embedded HTML could execute when its badge or picker drew (self-only — you can only set your own category names — but fixed regardless). Custom category colors are also validated to a hex literal.
+- **The public API's monthly-expenses figure now excludes transfers, card payments, and ignored transactions**, matching every in-app total (it was still summing raw expenses).
+
 ## [0.7.0] — 2026-07-14
 
 ### Added
@@ -238,7 +248,8 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.4.1...v0.5.0

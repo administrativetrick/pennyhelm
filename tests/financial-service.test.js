@@ -430,11 +430,19 @@ describe('generatePayDates', () => {
         for (const d of dates) assert.equal(d.getDate(), 15);
     });
 
-    test('monthly clamps day-of-month above 28 to 28 (prevents Feb rollover bugs)', () => {
+    test('monthly paydays land on the real day, clamped to each month\'s last day', () => {
         const schedule = { startDate: '2026-01-31', frequency: 'monthly' };
         const dates = generatePayDates(schedule, '2026-01-01', '2026-04-30');
-        // Every date should be on the 28th (clamp prevents "March 3" accidents)
-        for (const d of dates) assert.equal(d.getDate(), 28);
+        // Paid on the 31st: Jan 31, Feb 28 (clamped — no "March 3" rollover),
+        // Mar 31, Apr 30 — NOT pulled back to the 28th year-round.
+        assert.deepEqual(dates.map(d => `${d.getMonth() + 1}/${d.getDate()}`), ['1/31', '2/28', '3/31', '4/30']);
+    });
+
+    test('semimonthly 15th/30th lands on the 30th (or Feb 28), not the 28th year-round', () => {
+        const schedule = { startDate: '2026-01-15', frequency: 'semimonthly' };
+        const dates = generatePayDates(schedule, '2026-01-01', '2026-03-31');
+        assert.deepEqual(dates.map(d => `${d.getMonth() + 1}/${d.getDate()}`),
+            ['1/15', '1/30', '2/15', '2/28', '3/15', '3/30']);
     });
 
     test('all returned dates fall within the requested range', () => {
