@@ -13,6 +13,7 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { navigate } from '../app.js';
 import { isSharedMode, exitSharedMode } from '../services/shared-mode.js';
+import { openFormModal } from '../services/modal-manager.js';
 
 const STATE_KEY = 'pennyhelm-shared-view';
 
@@ -176,18 +177,25 @@ function renderSnapshot(container, store, state, snap) {
                 ? configs.find(c => String(c.tag || '').toLowerCase() === name.toLowerCase())
                 : configs.find(c => !c.tag && String(c.category || '').toLowerCase() === name.toLowerCase());
             if (!target) { alert('This budget cannot be adjusted.'); return; }
-            const input = prompt(`New monthly amount for ${kind === 'tag' ? '#' + name : name}:`, target.monthlyAmount);
-            if (input === null) return;
-            const amount = parseFloat(input);
-            if (!Number.isFinite(amount) || amount <= 0) { alert('Enter a positive number.'); return; }
-            try {
-                const fn = firebase.functions().httpsCallable('sharedUpdateBudget');
-                const updated = configs.map(c => c === target ? { ...c, monthlyAmount: amount } : c);
-                await fn({ ownerUid: state.ownerUid, budgets: updated });
-                renderSharedView(container, store); // reload fresh snapshot
-            } catch (err) {
-                alert('Could not update the budget: ' + (err.message || 'permission denied'));
-            }
+            const label = kind === 'tag' ? '#' + name : name;
+            openFormModal({
+                title: `Adjust ${label} budget`,
+                saveLabel: 'Update Budget',
+                skipRefresh: true,
+                fields: [
+                    { type: 'number', id: 'shared-budget-amount', label: 'New monthly amount',
+                      value: target.monthlyAmount, min: 0.01, step: 0.01, required: true, autofocus: true },
+                    { type: 'hint', label: `Changes ${escapeHtml(ownerName)}'s ${label} budget for everyone — they'll see it on their next refresh.` },
+                ],
+                onSave: async (values) => {
+                    const amount = values['shared-budget-amount'];
+                    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a positive number.');
+                    const fn = firebase.functions().httpsCallable('sharedUpdateBudget');
+                    const updated = configs.map(c => c === target ? { ...c, monthlyAmount: amount } : c);
+                    await fn({ ownerUid: state.ownerUid, budgets: updated });
+                    renderSharedView(container, store); // reload fresh snapshot
+                },
+            });
         });
     });
 }

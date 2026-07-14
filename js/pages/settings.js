@@ -1967,11 +1967,21 @@ export function renderSettings(container, store) {
     container.querySelectorAll('.edit-business-name').forEach(btn => {
         btn.addEventListener('click', () => {
             const oldName = btn.dataset.name;
-            const newName = prompt('Rename business:', oldName);
-            if (newName && newName.trim() && newName.trim() !== oldName) {
-                store.renameBusinessName(oldName, newName.trim());
-                refreshPage();
-            }
+            openFormModal({
+                title: 'Rename Business',
+                saveLabel: 'Rename',
+                refreshPage,
+                fields: [
+                    { type: 'text', id: 'biz-rename', label: 'Business name', value: oldName, required: true, autofocus: true },
+                    { type: 'hint', label: 'Expenses tagged with this business follow the rename automatically.' },
+                ],
+                onSave: (values) => {
+                    const newName = values['biz-rename'];
+                    if (newName && newName !== oldName) {
+                        store.renameBusinessName(oldName, newName);
+                    }
+                },
+            });
         });
     });
 
