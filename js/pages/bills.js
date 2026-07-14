@@ -2,7 +2,7 @@ import { formatCurrency, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
 import { getAllExpenseCategories, getCategoryLabel, getCategoryColor as getExpenseCategoryHex, normalizeCategoryKey } from '../expense-categories.js';
-import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills, addDays, getOverdueCarryForwards, spendingExpenses } from '../services/financial-service.js';
+import { expandBillOccurrences, buildPayPeriods, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, getBillPaidBucket, sumRemainingBills, addDays, getOverdueCarryForwards, spendingExpenses, getPeriodDef, computePeriodSummary } from '../services/financial-service.js';
 import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
 import { capabilities } from '../mode/mode.js';
@@ -13,6 +13,7 @@ const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
 let cfPeriodOffset = 0; // For cashflow view pay period navigation
+let cashflowPeriod = 'month'; // 'month' | 'quarter' | 'year' — mirrors the dashboard toggle
 // Persisted across re-renders — multi-select (ctrl/shift/long-press) triggers a
 // full renderBills, which used to reset the filter chips back to Unpaid
 // mid-selection.
@@ -1125,8 +1126,28 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
         return sum + getBillMonthlyAmount(b, month, store);
     }, 0) + depCoverageTotal;
 
-    const netCashflow = totalMonthlyIncome - monthlyOutflow;
-    const savingsRate = totalMonthlyIncome > 0 ? (netCashflow / totalMonthlyIncome * 100) : 0;
+    // This Month / Quarter / Year toggle (same semantics as the dashboard).
+    // Month keeps the existing per-month math; quarter/year aggregate with
+    // per-month bill occurrence counting via computePeriodSummary.
+    const periodDef = getPeriodDef(cashflowPeriod, now);
+    const isMonthPeriod = periodDef.kind === 'month';
+    let periodIncome = totalMonthlyIncome;
+    let periodOutflow = monthlyOutflow;
+    let periodBillCount = bills.filter(b => !b.frozen && !b.excludeFromTotal).length;
+    let periodCoverage = depCoverageTotal;
+    if (!isMonthPeriod) {
+        const ps = computePeriodSummary({
+            bills,
+            coveredDependentBills: depCoveredBills,
+            paySchedule,
+            monthlyIncome: totalMonthlyIncome,
+        }, periodDef.startYear, periodDef.startMonth, periodDef.monthCount);
+        periodIncome = ps.income;
+        periodOutflow = ps.outflow;
+        periodCoverage = ps.coverageTotal;
+    }
+    const netCashflow = periodIncome - periodOutflow;
+    const savingsRate = periodIncome > 0 ? (netCashflow / periodIncome * 100) : 0;
 
     // Category breakdown for waterfall (annualized monthly)
     const categoryTotals = {};
@@ -1171,18 +1192,27 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
     const incomeMax = incomeSources.length > 0 ? Math.max(...incomeSources.map(s => s.amount)) : 0;
     const expenseMax = sortedCategories.length > 0 ? sortedCategories[0][1] : 0;
 
-    // ─── Sankey data: prefer actual transactions (last 30 days) when available ───
+    // ─── Sankey data: actual transactions for the selected period-to-date ───
     // Falls back to recurring bills if the user has no imported transactions yet.
     // spendingExpenses drops transfers/card payments (they'd double the card's
     // own purchases) and remaps interest charges to the 'interest' category.
     const allExpenses = spendingExpenses((store.getExpenses ? store.getExpenses() : []) || []);
     const today = new Date();
-    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const recentExpenses = allExpenses.filter(e => {
-        if (!e || !e.date) return false;
-        const d = new Date(e.date);
-        return !isNaN(d) && d >= thirtyDaysAgo && d <= today && (e.amount || 0) > 0;
-    });
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const isoOf = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const periodStart = new Date(periodDef.startYear, periodDef.startMonth, 1);
+    const periodEndDate = new Date(periodDef.startYear, periodDef.startMonth + periodDef.monthCount, 0);
+    const startIso = isoOf(periodStart);
+    const todayIso = isoOf(today);
+    const recentExpenses = allExpenses.filter(e =>
+        e && e.date && e.date >= startIso && e.date <= todayIso && (e.amount || 0) > 0
+    );
+    // Income accrued so far in the period — prorated by elapsed days so the
+    // savings/shortfall node compares like with like (spending to date vs
+    // income to date, not a full period's income).
+    const periodDays = Math.round((periodEndDate - periodStart) / 86400000) + 1;
+    const elapsedDays = Math.min(periodDays, Math.max(1, Math.round((today - periodStart) / 86400000) + 1));
+    const elapsedFraction = elapsedDays / periodDays;
 
     let sankeyCategories;
     let sankeySource = 'bills';
@@ -1197,8 +1227,14 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
     } else {
         sankeyCategories = sortedCategories;
     }
+    // Bills fallback stays a plain monthly picture; transaction mode scales
+    // each income source to the period elapsed so far.
+    const sankeyIncomeSources = sankeySource === 'transactions'
+        ? incomeSources.map(s => ({ ...s, amount: s.amount * periodDef.monthCount * elapsedFraction }))
+        : incomeSources;
+    const sankeyIncome = sankeyIncomeSources.reduce((s, x) => s + x.amount, 0);
     const sankeyOutflow = sankeyCategories.reduce((s, [, v]) => s + v, 0);
-    const sankeyNet = totalMonthlyIncome - sankeyOutflow;
+    const sankeyNet = sankeyIncome - sankeyOutflow;
 
     // Pay periods
     const payPeriods = buildPayPeriods(payDates, bills, store, income, year, month, depCoveredBills, otherIncome);
@@ -1214,7 +1250,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
         <div class="page-header">
             <div>
                 <h2>${escapeHtml(userName)}'s Bills</h2>
-                <div class="subtitle">${monthNames[month]} ${year} Cashflow</div>
+                <div class="subtitle">${isMonthPeriod ? `${monthNames[month]} ${year}` : periodDef.label} Cashflow</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 ${showImportFromBankCf ? '<button class="btn btn-secondary" id="import-from-bank-btn" title="Detect recurring bills from your linked bank accounts">Import from bank</button>' : ''}
@@ -1222,28 +1258,37 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
             </div>
         </div>
 
-        <div class="view-tabs">
-            <button class="view-tab" id="view-paycheck">By Paycheck</button>
-            <button class="view-tab" id="view-month">By Month</button>
-            <button class="view-tab active" id="view-cashflow">Cashflow</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+            <div class="view-tabs" style="margin-bottom:0;">
+                <button class="view-tab" id="view-paycheck">By Paycheck</button>
+                <button class="view-tab" id="view-month">By Month</button>
+                <button class="view-tab active" id="view-cashflow">Cashflow</button>
+            </div>
+            <div style="display:flex;gap:8px;" id="cashflow-period-toggle">
+                <button class="filter-chip${cashflowPeriod === 'month' ? ' active' : ''}" data-period="month">This Month</button>
+                <button class="filter-chip${cashflowPeriod === 'quarter' ? ' active' : ''}" data-period="quarter">Quarter</button>
+                <button class="filter-chip${cashflowPeriod === 'year' ? ' active' : ''}" data-period="year">Year</button>
+            </div>
         </div>
 
         <!-- Summary Stat Cards -->
-        <div class="card-grid">
+        <div class="card-grid" style="margin-top:16px;">
             <div class="stat-card green">
-                <div class="label">Monthly Income</div>
-                <div class="value">${formatCurrency(totalMonthlyIncome)}</div>
-                <div class="sub">${formatCurrency(userPayMonthly)} pay${otherIncomeMonthly > 0 ? ` + ${formatCurrency(otherIncomeMonthly)} other` : ''}${depMonthlyPay > 0 ? ` + ${formatCurrency(depMonthlyPay)} dep` : ''}</div>
+                <div class="label">${isMonthPeriod ? 'Monthly Income' : `Income &middot; ${periodDef.label}`}</div>
+                <div class="value">${formatCurrency(periodIncome)}</div>
+                <div class="sub">${isMonthPeriod
+                    ? `${formatCurrency(userPayMonthly)} pay${otherIncomeMonthly > 0 ? ` + ${formatCurrency(otherIncomeMonthly)} other` : ''}${depMonthlyPay > 0 ? ` + ${formatCurrency(depMonthlyPay)} dep` : ''}`
+                    : `${formatCurrency(totalMonthlyIncome)}/mo &times; ${periodDef.monthCount} months`}</div>
             </div>
             <div class="stat-card red">
-                <div class="label">Monthly Outflow</div>
-                <div class="value">${formatCurrency(monthlyOutflow)}</div>
-                <div class="sub">${bills.filter(b => !b.frozen && !b.excludeFromTotal).length} bills${depCoverageTotal > 0 ? ` + ${formatCurrency(depCoverageTotal)} dep coverage` : ''}</div>
+                <div class="label">${isMonthPeriod ? 'Monthly Outflow' : `Outflow &middot; ${periodDef.label}`}</div>
+                <div class="value">${formatCurrency(periodOutflow)}</div>
+                <div class="sub">${periodBillCount} bills${periodCoverage > 0 ? ` + ${formatCurrency(periodCoverage)} dep coverage` : ''}${isMonthPeriod ? '' : ` &middot; per-month bill math`}</div>
             </div>
             <div class="stat-card ${netCashflow >= 0 ? 'green' : 'red'}">
-                <div class="label">Net Cashflow</div>
+                <div class="label">Net Cashflow${isMonthPeriod ? '' : ` &middot; ${periodDef.label}`}</div>
                 <div class="value">${netCashflow >= 0 ? '+' : ''}${formatCurrency(netCashflow)}</div>
-                <div class="sub">${totalMonthlyIncome > 0 ? `${Math.abs(netCashflow / totalMonthlyIncome * 100).toFixed(1)}% of income` : 'Income minus outflow'}</div>
+                <div class="sub">${periodIncome > 0 ? `${Math.abs(netCashflow / periodIncome * 100).toFixed(1)}% of income` : 'Income minus outflow'}</div>
             </div>
             <div class="stat-card ${savingsRate >= 20 ? 'green' : savingsRate >= 0 ? 'blue' : 'red'}">
                 <div class="label">Savings Rate</div>
@@ -1258,7 +1303,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
                 <div>
                     <h3>Cashflow Sankey</h3>
                     <p style="font-size:12px;color:var(--text-muted);margin-top:2px;">
-                        Interactive view — how income flows through ${sankeySource === 'transactions' ? 'your actual spending (last 30 days; transfers &amp; card payments excluded)' : 'your recurring bills'} to ${sankeyNet >= 0 ? 'savings' : 'shortfall'}
+                        Interactive view — how income flows through ${sankeySource === 'transactions' ? `your actual spending (${periodDef.noun} so far; income prorated to date; transfers &amp; card payments excluded)` : 'your recurring bills'} to ${sankeyNet >= 0 ? 'savings' : 'shortfall'}
                         ${sankeySource === 'transactions' ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(99,102,241,0.15);color:#818cf8;border-radius:10px;font-size:10px;font-weight:600;">${recentExpenses.length} transactions</span>` : ''}
                     </p>
                 </div>
@@ -1462,7 +1507,7 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
     const sankeyMount = container.querySelector('#cashflow-sankey-mount');
     if (sankeyMount) {
         const renderSankey = () => renderCashflowSankey(sankeyMount, {
-            incomeSources,
+            incomeSources: sankeyIncomeSources,
             expenseCategories: sankeyCategories,
             netCashflow: sankeyNet,
         });
@@ -1517,6 +1562,15 @@ function renderCashflowView(container, store, allBills, sources, categories, yea
     }
 
     // Period navigation
+    // This Month / Quarter / Year toggle
+    container.querySelectorAll('#cashflow-period-toggle .filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            if (chip.dataset.period === cashflowPeriod) return;
+            cashflowPeriod = chip.dataset.period;
+            renderCashflowView(container, store, allBills, sources, categories, year, month, payDates);
+        });
+    });
+
     const prevBtn = container.querySelector('#cf-period-prev');
     const nextBtn = container.querySelector('#cf-period-next');
     const todayBtn = container.querySelector('#cf-period-today');

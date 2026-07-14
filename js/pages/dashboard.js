@@ -14,6 +14,7 @@ import {
     getOverdueCarryForwards,
     billTotalForMonth,
     computePeriodSummary,
+    getPeriodDef,
     spendingExpenses,
     HOUSING_BILL_CATEGORIES,
     DEBT_BILL_CATEGORIES,
@@ -51,21 +52,8 @@ let dashboardEditMode = false;
 let activeDashboardTab = 'overview';
 let dashboardPeriod = 'month'; // 'month' | 'quarter' | 'year'
 
-// Resolve the toggle selection into a run of calendar months + a label.
-function getPeriodDef(kind, now) {
-    const y = now.getFullYear();
-    const m = now.getMonth();
-    if (kind === 'quarter') {
-        const qStart = Math.floor(m / 3) * 3;
-        return { kind, startYear: y, startMonth: qStart, monthCount: 3,
-                 label: 'Q' + (Math.floor(m / 3) + 1) + ' ' + y, noun: 'this quarter' };
-    }
-    if (kind === 'year') {
-        return { kind, startYear: y, startMonth: 0, monthCount: 12, label: String(y), noun: 'this year' };
-    }
-    return { kind: 'month', startYear: y, startMonth: m, monthCount: 1,
-             label: new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long' }), noun: 'this month' };
-}
+// getPeriodDef (the This Month / Quarter / Year resolver) now lives in
+// financial-service and is shared with the bills Cashflow view.
 
 // ─────────────────────────────────────────────
 // WIDGET BUILDER FUNCTIONS

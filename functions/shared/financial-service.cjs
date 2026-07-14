@@ -642,6 +642,24 @@ function reconciledBillSpendForMonth(bills, year, month, payDatesInMonth, monthE
  * @returns {{ income, billsTotal, coverageTotal, outflow, remaining,
  *             months: Array<{year, month, income, bills, coverage}> }}
  */
+// Resolve a This Month / Quarter / Year toggle selection into a run of
+// calendar months + display labels. Shared by the dashboard and the
+// bills Cashflow view so both toggles mean exactly the same thing.
+function getPeriodDef(kind, now) {
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    if (kind === 'quarter') {
+        const qStart = Math.floor(m / 3) * 3;
+        return { kind, startYear: y, startMonth: qStart, monthCount: 3,
+                 label: 'Q' + (Math.floor(m / 3) + 1) + ' ' + y, noun: 'this quarter' };
+    }
+    if (kind === 'year') {
+        return { kind, startYear: y, startMonth: 0, monthCount: 12, label: String(y), noun: 'this year' };
+    }
+    return { kind: 'month', startYear: y, startMonth: m, monthCount: 1,
+             label: new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long' }), noun: 'this month' };
+}
+
 function computePeriodSummary(data, startYear, startMonth, monthCount) {
     const pad = (n) => String(n).padStart(2, '0');
     const monthlyIncome = Number(data.monthlyIncome) || 0;
@@ -1326,4 +1344,4 @@ function computeAutoTickUpdates(bills, isBillPaid, now = new Date()) {
     return updates;
 }
 
-module.exports = { classifyExpenseFlow, isTransferExpense, effectiveExpenseCategory, spendingExpenses, calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };
+module.exports = { classifyExpenseFlow, isTransferExpense, effectiveExpenseCategory, spendingExpenses, calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, getPeriodDef, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };
