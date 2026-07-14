@@ -197,7 +197,7 @@ export function renderBudgets(container, store) {
                                 <div style="font-size:20px;font-weight:700;">
                                     ${formatCurrency(s.spent)} <span style="font-size:13px;color:var(--text-muted);font-weight:500;">spent this month — tracking only</span>
                                 </div>
-                                ${s.billSpent > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);">Bills ${formatCurrency(s.billSpent)} &middot; Expenses ${formatCurrency(s.expenseSpent)}</div>` : ''}
+                                ${s.billSpent > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);">Upcoming bills ${formatCurrency(s.billSpent)} &middot; Spent ${formatCurrency(s.expenseSpent)}</div>` : ''}
                             </div>
                         </div>
                         `;
@@ -225,7 +225,7 @@ export function renderBudgets(container, store) {
                                 <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--text-muted);flex-wrap:wrap;gap:6px;">
                                     <span>${formatCurrency(s.monthlyAmount)}/mo limit</span>
                                     ${s.billSpent > 0
-                                        ? `<span>Bills ${formatCurrency(s.billSpent)} &middot; Expenses ${formatCurrency(s.expenseSpent)}</span>`
+                                        ? `<span>Upcoming bills ${formatCurrency(s.billSpent)} &middot; Spent ${formatCurrency(s.expenseSpent)}</span>`
                                         : ''}
                                     <span>${rolloverNote}</span>
                                 </div>

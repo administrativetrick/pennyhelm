@@ -409,30 +409,99 @@ export function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRang
  *   fall back to `fallbackPayChecks` occurrences (default 2, matching the
  *   long-standing dashboard behavior for users without a pay schedule).
  */
-export function billTotalForMonth(bills, year, month, payDatesInMonth = [], { fallbackPayChecks = 2 } = {}) {
-    const monthStart = new Date(year, month, 1);
-    const monthEnd = new Date(year, month + 1, 0);
+export function billTotalForMonth(bills, year, month, payDatesInMonth = [], opts = {}) {
     return (bills || []).reduce((sum, b) => {
         if (b.frozen || b.excludeFromTotal) return sum;
         const amt = Number(b.amount) || 0;
         if (!amt) return sum;
-        const freq = b.frequency || 'monthly';
-        if (freq === 'monthly') return sum + amt;
-        if (freq === 'yearly') return sum + (b.dueMonth === month ? amt : 0);
-        if (freq === 'semi-annual') {
-            const second = ((b.dueMonth || 0) + 6) % 12;
-            return sum + (b.dueMonth === month || second === month ? amt : 0);
-        }
-        if (freq === 'per-paycheck' || freq === 'twice-monthly') {
-            let n = payDatesInMonth.length || fallbackPayChecks;
-            if (freq === 'twice-monthly') n = Math.min(n, 2);
-            return sum + amt * n;
-        }
-        // weekly / biweekly / every-4-weeks / every-2-months: expand to
-        // actual occurrences inside the month.
-        const occ = expandBillOccurrences(b, monthStart, monthEnd, payDatesInMonth);
-        return sum + (occ ? occ.length : 0) * amt;
+        return sum + amt * billOccurrenceDatesForMonth(b, year, month, payDatesInMonth, opts).length;
     }, 0);
+}
+
+/**
+ * The DATES a bill is due inside a calendar month — one entry per
+ * occurrence. billTotalForMonth is amount × these; the budget
+ * reconciliation matches each date against imported transactions.
+ * Per-paycheck/twice-monthly fall back to approximate mid-month dates when
+ * no pay schedule exists (fallbackPayChecks, default 2 — same totals as
+ * the long-standing dashboard behavior).
+ */
+export function billOccurrenceDatesForMonth(bill, year, month, payDatesInMonth = [], { fallbackPayChecks = 2 } = {}) {
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+    const lastDay = monthEnd.getDate();
+    const dueDate = () => new Date(year, month, Math.min(bill.dueDay || 1, lastDay));
+    const freq = bill.frequency || 'monthly';
+    if (freq === 'monthly') return [dueDate()];
+    if (freq === 'yearly') return bill.dueMonth === month ? [dueDate()] : [];
+    if (freq === 'semi-annual') {
+        const second = ((bill.dueMonth || 0) + 6) % 12;
+        return (bill.dueMonth === month || second === month) ? [dueDate()] : [];
+    }
+    if (freq === 'per-paycheck' || freq === 'twice-monthly') {
+        let dates = payDatesInMonth.slice();
+        if (dates.length === 0) {
+            dates = Array.from({ length: fallbackPayChecks }, () => new Date(year, month, 15));
+        }
+        if (freq === 'twice-monthly' && dates.length > 2) {
+            dates.sort((a, b) => a - b);
+            dates = [dates[0], dates[dates.length - 1]];
+        }
+        return dates;
+    }
+    // weekly / biweekly / every-4-weeks / every-2-months
+    const occ = expandBillOccurrences(bill, monthStart, monthEnd, payDatesInMonth);
+    return occ ? occ.map(o => o._occurrenceDate) : [];
+}
+
+/**
+ * Bill contribution to a category budget with TRANSACTION RECONCILIATION:
+ * each bill occurrence counts as a forecast ONLY until a matching imported
+ * or manual expense lands (amount within ±5%/±$1, date within ±7 days,
+ * each expense consumed at most once). The matched expense is already in
+ * the budget's expenseSpent, so this is what makes "bills follow their
+ * category" safe: no double counting once the payment posts, no invisible
+ * upcoming bills before it does.
+ *
+ * @param {Array} bills — pre-filtered to this budget's category (not frozen)
+ * @param {Array} monthExpenses — the month's qualifying expenses for the
+ *   same category (the exact set summed into expenseSpent)
+ */
+export function reconciledBillSpendForMonth(bills, year, month, payDatesInMonth, monthExpenses, opts = {}) {
+    const dateTol = opts.dateToleranceDays ?? 7;
+    const amountTolerance = opts.amountTolerance ?? 0.05;
+    const amountFloor = opts.amountFloor ?? 1;
+    const usedExpenseIds = new Set();
+    const pool = (monthExpenses || []).map(e => ({
+        id: e.id,
+        amount: Number(e.amount) || 0,
+        date: e.date ? new Date(String(e.date).slice(0, 10) + 'T00:00:00') : null,
+    })).filter(e => e.date && e.amount > 0);
+
+    let total = 0;
+    for (const bill of bills || []) {
+        const amt = Number(bill.amount) || 0;
+        if (!amt) continue;
+        const tolerance = Math.max(amt * amountTolerance, amountFloor);
+        for (const due of billOccurrenceDatesForMonth(bill, year, month, payDatesInMonth, opts)) {
+            // Closest unconsumed expense within amount + date tolerance
+            let best = null;
+            let bestDist = Infinity;
+            for (const e of pool) {
+                if (usedExpenseIds.has(e.id)) continue;
+                if (Math.abs(e.amount - amt) > tolerance) continue;
+                const dist = Math.abs(e.date - due) / 86400000;
+                if (dist > dateTol) continue;
+                if (dist < bestDist) { best = e; bestDist = dist; }
+            }
+            if (best) {
+                usedExpenseIds.add(best.id); // payment landed — actual counts, forecast doesn't
+            } else {
+                total += amt; // still upcoming — count the forecast
+            }
+        }
+    }
+    return total;
 }
 
 /**

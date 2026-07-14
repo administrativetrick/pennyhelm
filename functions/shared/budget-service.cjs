@@ -120,11 +120,13 @@ function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendForMonth) 
     // eslint-disable-next-line no-constant-condition
     while (true) {
         const available = Number(budget.monthlyAmount || 0) + rolledIn;
-        const expenseSpent = expenses
-            .filter(e => qualifies(e) && (e.date || '').startsWith(cursor))
-            .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+        const monthExpenses = expenses.filter(e => qualifies(e) && (e.date || '').startsWith(cursor));
+        const expenseSpent = monthExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+        // The callback also receives the month's qualifying expenses so
+        // implementations can reconcile bill occurrences against real
+        // payments (forecast until the transaction lands).
         const billSpent = (!budgetTag && typeof getBillSpendForMonth === 'function')
-            ? Number(getBillSpendForMonth(budget.category, cursor)) || 0
+            ? Number(getBillSpendForMonth(budget.category, cursor, monthExpenses)) || 0
             : 0;
         const spent = expenseSpent + billSpent;
 
