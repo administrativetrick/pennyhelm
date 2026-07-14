@@ -1683,6 +1683,10 @@ function setupSmartInsightsHandlers(container, store, ctx) {
 
                 store.addBill({
                     name, amount, frequency, dueDay, category,
+                    // Blend this bill into the matching category budget —
+                    // the budget engine matches expenseCategory
+                    // case-insensitively.
+                    expenseCategory: category || null,
                     autoPay: false, frozen: false,
                     notes: 'Auto-detected from transactions'
                 });

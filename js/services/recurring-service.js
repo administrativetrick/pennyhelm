@@ -63,7 +63,7 @@ export function detectRecurringTransactions(expenses, bills, dismissedIds = []) 
             recurring.push({
                 merchantKey,
                 merchantName: txns[txns.length - 1].name, // most recent name
-                category: txns[txns.length - 1].category,
+                category: majorityCategory(txns),
                 frequency: pattern.frequency,
                 averageAmount: pattern.averageAmount,
                 lastAmount: txns[txns.length - 1].amount,
@@ -275,6 +275,25 @@ function stdDev(arr) {
 // ─── Bill Suggestion Builder ─────────────────────
 
 /**
+ * Most common category across a merchant's transactions (ties broken by
+ * recency). One recategorized or mis-tagged transaction shouldn't flip the
+ * suggested category for the whole recurring bill.
+ */
+function majorityCategory(txns) {
+    const counts = new Map();
+    for (const t of txns) {
+        const c = t.category || 'other';
+        counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    let best = txns[txns.length - 1].category || 'other';
+    let bestCount = counts.get(best) || 0;
+    for (const [c, n] of counts) {
+        if (n > bestCount) { best = c; bestCount = n; }
+    }
+    return best;
+}
+
+/**
  * Convert a recurring detection into a Bill-ready object.
  */
 export function buildBillSuggestion(recurring) {
@@ -285,31 +304,13 @@ export function buildBillSuggestion(recurring) {
             : Math.round(recurring.averageAmount * 100) / 100, // variable — use average
         frequency: recurring.frequency,
         dueDay: recurring.estimatedDueDay,
-        category: mapExpenseCategoryToBillCategory(recurring.category),
+        // The auto-identified expense category, verbatim — the modal offers
+        // a dropdown to change it, and keeping the canonical key means the
+        // resulting bill lines up with category budgets.
+        category: recurring.category || 'other',
         autoPay: false,
         frozen: false,
         notes: 'Auto-detected from transactions (' + recurring.occurrences + ' occurrences)',
     };
 }
 
-function mapExpenseCategoryToBillCategory(expenseCategory) {
-    const map = {
-        'groceries': 'Groceries',
-        'dining': 'Dining',
-        'gas': 'Transportation',
-        'transportation': 'Transportation',
-        'shopping': 'Shopping',
-        'entertainment': 'Entertainment',
-        'healthcare': 'Health',
-        'personal-care': 'Personal',
-        'home': 'Housing',
-        'utilities': 'Utilities',
-        'education': 'Education',
-        'travel': 'Travel',
-        'gifts': 'Other',
-        'subscriptions': 'Subscriptions',
-        'pets': 'Other',
-        'other': 'Other',
-    };
-    return map[expenseCategory] || 'Other';
-}
