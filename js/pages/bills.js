@@ -994,14 +994,13 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             </div>
         </div>
         <div class="form-group">
-            <label>Budget override (optional)</label>
+            <label>Count toward a budget (optional)</label>
             <select class="form-select" id="bill-expense-category">
-                <option value=""${!bill.expenseCategory ? ' selected' : ''}>Same as category (default)</option>
-                <option value="none"${bill.expenseCategory === 'none' ? ' selected' : ''}>— don't count toward any budget —</option>
+                <option value=""${!bill.expenseCategory || bill.expenseCategory === 'none' ? ' selected' : ''}>No — payments show up as bank transactions (default)</option>
                 ${renderCategoryOptions(bill.expenseCategory === 'none' ? null : bill.expenseCategory, store)}
             </select>
             <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-                By default this bill counts toward the budget matching its category. Override to count it toward a different budget, or exclude it.
+                Only tag bills that are NOT paid from a connected bank account — otherwise the imported transaction already counts and the budget would double.
             </div>
         </div>
         <div class="form-group">

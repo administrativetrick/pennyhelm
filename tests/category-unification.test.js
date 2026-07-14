@@ -3,8 +3,9 @@
  *
  * Covers the one-shot migration (bill taxonomy labels → canonical
  * expense-category keys, unknown labels becoming custom categories) and the
- * new bill→budget blending default (a bill counts toward the budget
- * matching its own category; expenseCategory overrides; 'none' opts out).
+ * blending contract: bill blending is OPT-IN via expenseCategory — bills
+ * paid from connected accounts arrive as transactions, so counting
+ * untagged bills would double budgets.
  */
 
 process.env.TZ = 'America/Los_Angeles';
@@ -79,7 +80,7 @@ describe('migrateBillCategoriesToUnifiedSet', () => {
     });
 });
 
-describe('bill → budget blending follows the unified category', () => {
+describe('bill → budget blending is opt-in (avoids double counting with bank sync)', () => {
     const baseData = (bills) => ({
         bills,
         expenses: [],
@@ -92,11 +93,11 @@ describe('bill → budget blending follows the unified category', () => {
         return agg.statuses.find(s => s.category === 'insurance').spent;
     };
 
-    test("a bill's own category feeds the matching budget (no expenseCategory needed)", () => {
-        assert.equal(insuranceSpend([{ id: '1', category: 'insurance', amount: 446, frequency: 'monthly', dueDay: 21 }]), 446);
+    test('bills do NOT count by default — payments arrive as bank transactions (no double counting)', () => {
+        assert.equal(insuranceSpend([{ id: '1', category: 'insurance', amount: 446, frequency: 'monthly', dueDay: 21 }]), 0);
     });
 
-    test('expenseCategory still overrides the category', () => {
+    test('explicitly tagged bills (expenseCategory) DO count', () => {
         assert.equal(insuranceSpend([
             { id: '1', category: 'other', expenseCategory: 'insurance', amount: 100, frequency: 'monthly', dueDay: 1 },
             { id: '2', category: 'insurance', expenseCategory: 'utilities', amount: 999, frequency: 'monthly', dueDay: 1 },
