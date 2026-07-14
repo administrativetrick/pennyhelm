@@ -6,7 +6,12 @@ import { capabilities } from '../mode/mode.js';
 import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
 import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
-import { spendingExpenses, classifyExpenseFlow } from '../services/financial-service.js';
+import { spendingExpenses, classifyExpenseFlow, getPeriodDef } from '../services/financial-service.js';
+
+// Expenses-tab window: This Month / Quarter / Year, navigable one unit at a
+// time so older expenses stay reachable and editable.
+let expensesPeriodKind = 'month'; // 'month' | 'quarter' | 'year'
+let expensesMonthOffset = 0;      // months back (negative) / forward from today
 
 let activeDebtsTab = 'debts';
 
@@ -656,28 +661,44 @@ function renderExpensesTab(container, store) {
     // charges are remapped to the 'interest' category.
     const countableExpenses = spendingExpenses(expenses);
 
-    // Summary calculations
+    // ── Period window: This Month / Quarter / Year, shiftable by one unit ──
     const now = new Date();
-    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const thisMonthExpenses = countableExpenses.filter(e => (e.date || '').startsWith(thisMonth));
-    const thisMonthTotal = thisMonthExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const avgExpense = countableExpenses.length > 0 ? countableExpenses.reduce((sum, e) => sum + (e.amount || 0), 0) / countableExpenses.length : 0;
+    const anchor = new Date(now.getFullYear(), now.getMonth() + expensesMonthOffset, 1);
+    const periodDef = getPeriodDef(expensesPeriodKind, anchor);
+    const periodStart = new Date(periodDef.startYear, periodDef.startMonth, 1);
+    const periodEnd = new Date(periodDef.startYear, periodDef.startMonth + periodDef.monthCount, 0);
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const isoOf = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const startIso = isoOf(periodStart);
+    const endIso = isoOf(periodEnd);
+    const windowLabel = expensesPeriodKind === 'month'
+        ? periodStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+        : periodDef.label;
+    const isCurrentWindow = expensesMonthOffset === 0;
+    const inWindow = (e) => e.date && e.date >= startIso && e.date <= endIso;
+
+    // Summary calculations over the selected window
+    const windowExpenses = countableExpenses.filter(inWindow);
+    const windowTotal = windowExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const avgExpense = windowExpenses.length > 0 ? windowTotal / windowExpenses.length : 0;
 
     // Business vs Personal totals
-    const personalTotal = thisMonthExpenses.filter(e => e.expenseType !== 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
-    const businessTotal = thisMonthExpenses.filter(e => e.expenseType === 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
+    const personalTotal = windowExpenses.filter(e => e.expenseType !== 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
+    const businessTotal = windowExpenses.filter(e => e.expenseType === 'business').reduce((sum, e) => sum + (e.amount || 0), 0);
 
-    // Top category (based on countable expenses)
+    // Top category in the window
     const catCounts = {};
-    countableExpenses.forEach(e => {
+    windowExpenses.forEach(e => {
         const cat = e.category || 'other';
         catCounts[cat] = (catCounts[cat] || 0) + (e.amount || 0);
     });
     const topCat = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0];
     const topCategoryLabel = topCat ? (EXPENSE_CATEGORIES[topCat[0]]?.label || 'Other') : 'N/A';
 
-    // Sort expenses by date descending
-    const sorted = [...expenses].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    // The list shows the window too (that's how old expenses get found and
+    // edited); undated expenses always show so they can't get stranded.
+    const sorted = expenses.filter(e => !e.date || inWindow(e))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     // Last sync info
     const lastSync = store.getLastTransactionSync();
@@ -695,17 +716,36 @@ function renderExpensesTab(container, store) {
             </div>
         </div>
 
-        <div class="filter-chips" style="margin-bottom:20px;">
-            <button class="filter-chip" data-tab="debts">Debts</button>
-            <button class="filter-chip active" data-tab="expenses">Expenses</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
+            <div class="filter-chips" style="margin-bottom:0;">
+                <button class="filter-chip" data-tab="debts">Debts</button>
+                <button class="filter-chip active" data-tab="expenses">Expenses</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div style="display:flex;gap:8px;" id="expenses-period-toggle">
+                    <button class="filter-chip${expensesPeriodKind === 'month' ? ' active' : ''}" data-period="month">Month</button>
+                    <button class="filter-chip${expensesPeriodKind === 'quarter' ? ' active' : ''}" data-period="quarter">Quarter</button>
+                    <button class="filter-chip${expensesPeriodKind === 'year' ? ' active' : ''}" data-period="year">Year</button>
+                </div>
+                <div class="flex-align-center gap-8">
+                    <button class="btn-icon" id="exp-window-prev" title="Previous ${expensesPeriodKind}">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                    <span style="font-size:13px;font-weight:600;min-width:90px;text-align:center;">${escapeHtml(windowLabel)}</span>
+                    <button class="btn-icon" id="exp-window-next" title="Next ${expensesPeriodKind}">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                    ${!isCurrentWindow ? '<button class="btn btn-secondary btn-sm" id="exp-window-today" style="font-size:11px;padding:2px 8px;">Current</button>' : ''}
+                </div>
+            </div>
         </div>
 
         ${showPlaidSync ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">Last synced: ${lastSyncLabel}</div>` : ''}
 
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-label">This Month</div>
-                <div class="stat-value" style="color:var(--red);">${formatCurrency(thisMonthTotal)}</div>
+                <div class="stat-label">Spent &middot; ${escapeHtml(windowLabel)}</div>
+                <div class="stat-value" style="color:var(--red);">${formatCurrency(windowTotal)}</div>
             </div>
             ${showTypeColumn ? `
             <div class="stat-card">
@@ -728,7 +768,7 @@ function renderExpensesTab(container, store) {
             </div>
         </div>
 
-        ${sorted.length === 0 ? `
+        ${expenses.length === 0 ? `
             <div class="card" style="text-align:center;padding:48px 24px;margin-top:24px;">
                 <div style="font-size:48px;margin-bottom:16px;">&#128206;</div>
                 <h3 class="mb-8">No expenses tracked</h3>
@@ -738,9 +778,14 @@ function renderExpensesTab(container, store) {
                     ${showPlaidSync ? `<button class="btn btn-secondary" id="empty-sync-btn">Sync From Bank</button>` : ''}
                 </div>
             </div>
+        ` : sorted.length === 0 ? `
+            <div class="card" style="text-align:center;padding:32px 24px;margin-top:24px;">
+                <h3 class="mb-8">No expenses in ${escapeHtml(windowLabel)}</h3>
+                <p style="color:var(--text-muted);">Use the arrows above to move between periods${isCurrentWindow ? '' : ', or jump back with Current'}.</p>
+            </div>
         ` : `
             <div class="card" style="margin-top:24px;">
-                <h3 class="mb-16">Your Expenses</h3>
+                <h3 class="mb-16">Your Expenses &middot; ${escapeHtml(windowLabel)} <span style="font-size:12px;font-weight:400;color:var(--text-muted);">(${sorted.length} of ${expenses.length} tracked)</span></h3>
                 <div class="table-wrapper expenses-table">
                     <table>
                         <thead>
@@ -807,6 +852,31 @@ function renderExpensesTab(container, store) {
             if (chip.classList.contains('active')) return;
             navigate(chip.dataset.tab === 'debts' ? 'debts' : 'debts/expenses');
         });
+    });
+
+    // Period toggle + window navigation. Switching the kind keeps the anchor
+    // month, so Month → Quarter shows the quarter you were already looking at.
+    container.querySelectorAll('#expenses-period-toggle .filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            if (chip.dataset.period === expensesPeriodKind) return;
+            expensesPeriodKind = chip.dataset.period;
+            renderExpensesTab(container, store);
+        });
+    });
+    const wPrev = container.querySelector('#exp-window-prev');
+    const wNext = container.querySelector('#exp-window-next');
+    const wToday = container.querySelector('#exp-window-today');
+    if (wPrev) wPrev.addEventListener('click', () => {
+        expensesMonthOffset -= (expensesPeriodKind === 'year' ? 12 : expensesPeriodKind === 'quarter' ? 3 : 1);
+        renderExpensesTab(container, store);
+    });
+    if (wNext) wNext.addEventListener('click', () => {
+        expensesMonthOffset += (expensesPeriodKind === 'year' ? 12 : expensesPeriodKind === 'quarter' ? 3 : 1);
+        renderExpensesTab(container, store);
+    });
+    if (wToday) wToday.addEventListener('click', () => {
+        expensesMonthOffset = 0;
+        renderExpensesTab(container, store);
     });
 
     // Add expense button
