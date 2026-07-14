@@ -99,11 +99,12 @@ function billSpendForMonth(data, category, mKey) {
     const month = m - 1;
 
     const needle = String(category || '').toLowerCase();
-    // A bill counts toward the budget matching its own category unless
-    // expenseCategory overrides it ('none' opts the bill out entirely).
+    // Bill blending is OPT-IN: only bills explicitly tagged with a budget
+    // category count. Bills paid from a connected bank account also appear
+    // as imported transactions — counting both would double every budget.
     // Mirrors store._billSpendForMonth — keep the three copies in agreement
     // (web store, this file, mobile BudgetsScreen).
-    const budgetCatOf = (b) => b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || '');
+    const budgetCatOf = (b) => (!b.expenseCategory || b.expenseCategory === 'none') ? '' : b.expenseCategory;
     const bills = (data.bills || []).filter(b =>
         !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
     );
