@@ -635,6 +635,24 @@ export function reconciledBillSpendForMonth(bills, year, month, payDatesInMonth,
  * @returns {{ income, billsTotal, coverageTotal, outflow, remaining,
  *             months: Array<{year, month, income, bills, coverage}> }}
  */
+// Resolve a This Month / Quarter / Year toggle selection into a run of
+// calendar months + display labels. Shared by the dashboard and the
+// bills Cashflow view so both toggles mean exactly the same thing.
+export function getPeriodDef(kind, now) {
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    if (kind === 'quarter') {
+        const qStart = Math.floor(m / 3) * 3;
+        return { kind, startYear: y, startMonth: qStart, monthCount: 3,
+                 label: 'Q' + (Math.floor(m / 3) + 1) + ' ' + y, noun: 'this quarter' };
+    }
+    if (kind === 'year') {
+        return { kind, startYear: y, startMonth: 0, monthCount: 12, label: String(y), noun: 'this year' };
+    }
+    return { kind: 'month', startYear: y, startMonth: m, monthCount: 1,
+             label: new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long' }), noun: 'this month' };
+}
+
 export function computePeriodSummary(data, startYear, startMonth, monthCount) {
     const pad = (n) => String(n).padStart(2, '0');
     const monthlyIncome = Number(data.monthlyIncome) || 0;
