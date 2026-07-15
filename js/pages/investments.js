@@ -778,7 +778,7 @@ export function renderInvestments(container, store) {
                 console.error('Failed to refresh holdings:', e);
                 refreshBtn.disabled = false;
                 refreshBtn.textContent = 'Refresh';
-                alert('Could not refresh. Please try again.');
+                showToast('Could not refresh. Please try again.', 'error');
             }
         });
     }

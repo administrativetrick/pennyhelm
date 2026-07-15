@@ -1,5 +1,6 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal } from '../app.js';
+import { showToast, confirmModal } from '../services/modal-manager.js';
 
 let currentTab = 'overview';
 let currentVehicleId = null;
@@ -302,8 +303,8 @@ function wireTabEvents(store, account) {
             const mileage = parseInt(modal.querySelector('#mileage-input').value);
             const date = modal.querySelector('#mileage-date').value;
             const notes = modal.querySelector('#mileage-notes').value.trim();
-            if (!mileage || mileage <= 0) { alert('Please enter a valid mileage'); return; }
-            if (!date) { alert('Please enter a date'); return; }
+            if (!mileage || mileage <= 0) { showToast('Please enter a valid mileage', 'error'); return; }
+            if (!date) { showToast('Please enter a date', 'error'); return; }
             store.addVehicleMileage({
                 vehicleAccountId: account.id,
                 mileage,
@@ -318,8 +319,8 @@ function wireTabEvents(store, account) {
 
     // Delete mileage entries
     modal.querySelectorAll('.delete-mileage-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm('Delete this mileage reading?')) {
+        btn.addEventListener('click', async () => {
+            if (await confirmModal({ title: 'Delete reading', message: 'Delete this mileage reading?', confirmLabel: 'Delete', danger: true })) {
                 store.deleteVehicleMileage(btn.dataset.id);
                 modal.innerHTML = buildModalContent(store, account);
                 wireTabEvents(store, account);
@@ -355,9 +356,9 @@ function wireTabEvents(store, account) {
             const startMileage = parseInt(modal.querySelector('#trip-start').value);
             const endMileage = parseInt(modal.querySelector('#trip-end').value);
             const notes = modal.querySelector('#trip-notes').value.trim();
-            if (!date) { alert('Please enter a date'); return; }
-            if (!startMileage || !endMileage) { alert('Please enter start and end mileage'); return; }
-            if (endMileage <= startMileage) { alert('End mileage must be greater than start mileage'); return; }
+            if (!date) { showToast('Please enter a date', 'error'); return; }
+            if (!startMileage || !endMileage) { showToast('Please enter start and end mileage', 'error'); return; }
+            if (endMileage <= startMileage) { showToast('End mileage must be greater than start mileage', 'error'); return; }
             store.addVehicleTrip({
                 vehicleAccountId: account.id,
                 startMileage,
@@ -384,8 +385,8 @@ function wireTabEvents(store, account) {
 
     // Delete trip entries
     modal.querySelectorAll('.delete-trip-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm('Delete this trip?')) {
+        btn.addEventListener('click', async () => {
+            if (await confirmModal({ title: 'Delete trip', message: 'Delete this trip?', confirmLabel: 'Delete', danger: true })) {
                 store.deleteVehicleTrip(btn.dataset.id);
                 modal.innerHTML = buildModalContent(store, account);
                 wireTabEvents(store, account);

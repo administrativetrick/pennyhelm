@@ -10,6 +10,7 @@ import { openModal, closeModal, refreshPage } from '../app.js';
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { EXPENSE_CATEGORIES, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 import { monthKey, addMonth } from '../services/budget-service.js';
+import { confirmModal } from '../services/modal-manager.js';
 import { calculateMonthlyIncome } from '../services/financial-service.js';
 
 // Track the month the page is currently showing. Defaults to the current month
@@ -267,8 +268,8 @@ export function renderBudgets(container, store) {
     });
 
     container.querySelectorAll('.delete-budget').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (!confirm('Delete this budget? Your expense history is unaffected — only the target and rollover state go away.')) return;
+        btn.addEventListener('click', async () => {
+            if (!(await confirmModal({ title: 'Delete budget', message: 'Delete this budget? Your expense history is unaffected — only the target and rollover state go away.', confirmLabel: 'Delete', danger: true }))) return;
             store.deleteBudget(btn.dataset.budgetId);
             refreshPage();
         });
@@ -381,7 +382,7 @@ function showBudgetForm(store, existing = null) {
     }
 
     document.getElementById('modal-cancel').addEventListener('click', closeModal);
-    document.getElementById('modal-save').addEventListener('click', () => {
+    document.getElementById('modal-save').addEventListener('click', async () => {
         const targetType = document.getElementById('budget-target-type').value;
         const tagValue = document.getElementById('budget-tag').value.trim();
         const amountRaw = document.getElementById('budget-amount').value.trim();
@@ -414,7 +415,7 @@ function showBudgetForm(store, existing = null) {
                     : (b.category === payload.category && !b.tag));
                 if (dup) {
                     const dupLabel = payload.tag ? `#${payload.tag}` : (getAllExpenseCategories(store)[payload.category]?.label || payload.category);
-                    if (!confirm(`A budget already exists for ${dupLabel}. Replace it?`)) return;
+                    if (!(await confirmModal({ title: 'Replace budget', message: `A budget already exists for ${dupLabel}. Replace it?`, confirmLabel: 'Replace', danger: true }))) return;
                 }
                 budgetId = store.addBudget(payload).id;
             }

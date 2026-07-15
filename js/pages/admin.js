@@ -1,6 +1,6 @@
 import { escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage, navigate } from '../app.js';
-import { openFormModal } from '../services/modal-manager.js';
+import { openFormModal, showToast, confirmModal } from '../services/modal-manager.js';
 import { auth } from '../auth.js';
 
 // Debounce utility for real-time search
@@ -237,7 +237,7 @@ export async function renderAdmin(container, store) {
             const trialDays = parseInt(document.getElementById('tc-days').value);
             const maxUses = parseInt(document.getElementById('tc-max-uses').value) || 0;
 
-            if (!code) { alert('Please enter a code'); return; }
+            if (!code) { showToast('Please enter a code', 'error'); return; }
 
             const codeData = {
                 code,
@@ -263,7 +263,7 @@ export async function renderAdmin(container, store) {
                 refreshPage();
             } catch (e) {
                 console.error('Failed to create trial code:', e);
-                alert('Failed to create trial code. Check console for details.');
+                showToast('Failed to create trial code. Check console for details.', 'error');
             }
         });
     });
@@ -352,7 +352,7 @@ export async function renderAdmin(container, store) {
             const email = document.getElementById('tu-email').value.trim();
             const status = document.getElementById('tu-status').value;
 
-            if (!name) { alert('Please enter a name'); return; }
+            if (!name) { showToast('Please enter a name', 'error'); return; }
 
             const saveBtn = document.getElementById('modal-save');
             saveBtn.disabled = true;
@@ -389,7 +389,7 @@ export async function renderAdmin(container, store) {
                 });
             } catch (e) {
                 console.error('Failed to create test user:', e);
-                alert('Failed to create test user: ' + (e.message || 'Check console for details.'));
+                showToast('Failed to create test user: ' + (e.message || 'Check console for details.'), 'error');
                 saveBtn.disabled = false;
                 saveBtn.textContent = 'Create';
             }
@@ -813,7 +813,7 @@ async function loadReferralPayouts() {
                         await markPayout([sel.dataset.uid], next);
                     } catch (err) {
                         sel.value = prior;
-                        alert('Failed to update payout: ' + (err.message || 'unknown error'));
+                        showToast('Failed to update payout: ' + (err.message || 'unknown error'), 'error');
                     }
                 }
             });
@@ -908,7 +908,7 @@ async function loadTestUsers(container, db, store) {
                 const uid = btn.dataset.uid;
                 const name = btn.dataset.name;
 
-                if (!confirm(`Reset password for ${name}?`)) return;
+                if (!(await confirmModal({ title: 'Reset password', message: `Reset password for ${name}?`, confirmLabel: 'Reset' }))) return;
 
                 btn.disabled = true;
                 btn.textContent = 'Resetting...';
@@ -933,7 +933,7 @@ async function loadTestUsers(container, db, store) {
                     document.getElementById('modal-ok').addEventListener('click', closeModal);
                 } catch (e) {
                     console.error('Failed to reset password:', e);
-                    alert('Failed to reset password: ' + (e.message || 'Check console.'));
+                    showToast('Failed to reset password: ' + (e.message || 'Check console.'), 'error');
                 } finally {
                     btn.disabled = false;
                     btn.textContent = 'Reset Password';
@@ -944,7 +944,7 @@ async function loadTestUsers(container, db, store) {
         // Wire delete buttons
         listDiv.querySelectorAll('.delete-test-user').forEach(btn => {
             btn.addEventListener('click', async () => {
-                if (!confirm('Delete this test user and all their data?')) return;
+                if (!(await confirmModal({ title: 'Delete test user', message: 'Delete this test user and all their data?', confirmLabel: 'Delete', danger: true }))) return;
                 const uid = btn.dataset.uid;
 
                 try {
@@ -1221,13 +1221,13 @@ async function lookupUser(db) {
                     lookupUser(db); // Refresh result
                 } catch (e) {
                     console.error('Failed to extend trial:', e);
-                    alert('Failed to extend trial.');
+                    showToast('Failed to extend trial.', 'error');
                 }
             });
         });
 
         document.getElementById('reset-trial-btn').addEventListener('click', async () => {
-            if (!confirm('Reset trial start date to today?')) return;
+            if (!(await confirmModal({ title: 'Reset trial', message: 'Reset trial start date to today?', confirmLabel: 'Reset' }))) return;
             try {
                 await db.collection('users').doc(uid).update({
                     trialStartDate: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1241,7 +1241,7 @@ async function lookupUser(db) {
         });
 
         document.getElementById('grant-unlimited-btn').addEventListener('click', async () => {
-            if (!confirm('Grant unlimited trial to this user?')) return;
+            if (!(await confirmModal({ title: 'Grant unlimited trial', message: 'Grant unlimited trial to this user?', confirmLabel: 'Grant' }))) return;
             try {
                 await db.collection('users').doc(uid).update({
                     trialDays: 0,
@@ -1262,16 +1262,16 @@ async function lookupUser(db) {
                 const result = await fn({ uid });
                 const data = result.data;
                 if (data.repaired > 0) {
-                    alert(`Repaired ${data.repaired} Plaid connection(s).\n\n${data.details.map(d => `${d.institution || d.itemId}: ${d.status}`).join('\n')}`);
+                    showToast(`Repaired ${data.repaired} Plaid connection(s). ${data.details.map(d => `${d.institution || d.itemId}: ${d.status}`).join('; ')}`, 'success');
                 } else {
                     const msg = data.details?.length > 0
-                        ? `No orphaned Plaid accounts found.\n\n${data.details.map(d => `${d.itemId || d.uid}: ${d.status}`).join('\n')}`
+                        ? `No orphaned Plaid accounts found. ${data.details.map(d => `${d.itemId || d.uid}: ${d.status}`).join('; ')}`
                         : data.message || 'No Plaid items found for this user.';
-                    alert(msg);
+                    showToast(msg, 'info');
                 }
             } catch (e) {
                 console.error('Repair Plaid failed:', e);
-                alert('Failed to repair Plaid accounts: ' + (e.message || 'Unknown error'));
+                showToast('Failed to repair Plaid accounts: ' + (e.message || 'Unknown error'), 'error');
             }
             btn.textContent = 'Repair Plaid';
             btn.disabled = false;

@@ -7,6 +7,7 @@ import { renderCashflowSankey } from './cashflow-sankey.js';
 import { hasPlaidConnections, fetchRecurringTransactions, mapRecurringFrequency, extractDueDay } from '../plaid.js';
 import { capabilities } from '../mode/mode.js';
 import { EXPENSE_CATEGORIES, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
+import { showToast, confirmModal } from '../services/modal-manager.js';
 
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -713,13 +714,13 @@ function attachRowEvents(tbody, store, bills, sources, categories, year, month, 
 
     // Delete buttons
     tbody.querySelectorAll('.delete-bill').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const bill = bills.find(b => b.id === btn.dataset.billId);
             const isLinked = bill && bill.linkedDebtId;
             const msg = isLinked
                 ? 'This bill is synced with a debt. Deleting it will remove the sync but keep the debt. Continue?'
                 : 'Delete this bill?';
-            if (confirm(msg)) {
+            if (await confirmModal({ title: 'Delete bill', message: msg, confirmLabel: 'Delete', danger: true })) {
                 store.deleteBill(btn.dataset.billId);
                 refreshPage();
             }
@@ -1083,8 +1084,8 @@ function showBillForm(store, sources, categories, existingBill = null, depEnable
             expenseCategory: document.getElementById('bill-expense-category').value || null
         };
 
-        if (!data.name) { alert('Please enter a bill name'); return; }
-        if (freq === 'every-4-weeks' && !anchorVal) { alert('Pick a date this bill is due — it anchors the 4-week cycle'); return; }
+        if (!data.name) { showToast('Please enter a bill name', 'error'); return; }
+        if (freq === 'every-4-weeks' && !anchorVal) { showToast('Pick a date this bill is due — it anchors the 4-week cycle', 'error'); return; }
 
         if (isEdit) {
             store.updateBill(existingBill.id, data);
@@ -1897,9 +1898,9 @@ function showRecurringImportModal(store, sources, categories, depEnabled, userNa
 
             closeModal();
             refreshPage();
-            // Gentle confirmation — alert is consistent with rest of codebase
+            // Gentle confirmation toast after the modal closes and page refreshes
             setTimeout(() => {
-                alert(`Imported ${imported} bill${imported === 1 ? '' : 's'} from your bank.`);
+                showToast(`Imported ${imported} bill${imported === 1 ? '' : 's'} from your bank.`, 'success');
             }, 50);
         });
     }).catch(err => {

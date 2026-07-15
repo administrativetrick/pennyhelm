@@ -1,6 +1,7 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { showAccountForm } from './accounts.js';
+import { confirmModal } from '../services/modal-manager.js';
 
 // Asset type categories — maps account types to grouped categories
 const ASSET_CATEGORIES = [
@@ -200,13 +201,13 @@ export function renderAssetsTab(container, store) {
 
     // Delete asset
     container.querySelectorAll('.delete-asset-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const account = allAccounts.find(a => a.id === btn.dataset.accountId);
             const hasLink = account && account.linkedDebtId;
             const msg = hasLink
                 ? 'Delete this asset? This will also remove the linked debt and its payment bill.'
                 : 'Delete this asset?';
-            if (confirm(msg)) {
+            if (await confirmModal({ title: 'Delete asset', message: msg, confirmLabel: 'Delete', danger: true })) {
                 store.deleteAccount(btn.dataset.accountId);
                 refreshPage();
             }

@@ -1,5 +1,6 @@
 import { firebaseConfig, APP_CHECK_SITE_KEY } from './firebase-config.js';
 import { activateAppCheck } from './app-check-boot.js';
+import { confirmModal } from './services/modal-manager.js';
 
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
@@ -234,7 +235,7 @@ async function declineInvite(invite) {
     const acceptBtn = document.getElementById('btn-accept');
     const declineBtn = document.getElementById('btn-decline');
 
-    if (!confirm('Are you sure you want to decline this invitation?')) {
+    if (!(await confirmModal({ title: 'Decline invitation', message: 'Are you sure you want to decline this invitation?', confirmLabel: 'Decline', danger: true }))) {
         return;
     }
 
