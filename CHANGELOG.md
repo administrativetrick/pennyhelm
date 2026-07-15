@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-07-15
+
+### Changed
+- **No more native browser pop-ups anywhere.** Every remaining confirmation and alert — deleting a bill, debt, account, budget, savings goal, or expense; form-validation messages; bank-sync results — now uses the app's own styled confirm dialogs and toast notifications instead of the browser's default pop-ups.
+
+_Also in this release (no behavior change): the bill↔transaction reconciliation logic and the expense-category list were consolidated into single shared modules, the dashboard's CSV/PDF export code was split into its own module, and the account/debt/bill linking service gained a full test suite._
+
 ## [0.7.1] — 2026-07-14
 
 ### Fixed
@@ -248,7 +255,8 @@ First public release. Tagged as the baseline for future versioning.
 - Licensed under **GNU AGPLv3**.
 - Contributor License Agreement required for external PRs (`CLA.md` + CLA Assistant).
 
-[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/administrativetrick/pennyhelm/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/administrativetrick/pennyhelm/compare/v0.5.0...v0.6.0
