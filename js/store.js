@@ -1,7 +1,7 @@
 import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys, migrateBillCategoriesToUnifiedSet } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates, reconciledBillSpendForMonth, spendingExpenses } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates, monthlyBillSpend, spendingExpenses } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey, getAllExpenseCategories } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
@@ -1482,32 +1482,7 @@ class Store {
      * committed bill spending into category budget totals.
      */
     _billSpendForMonth(category, mKey, monthExpenses = []) {
-        if (!category || !mKey) return 0;
-        const [y, m] = mKey.split('-').map(Number);
-        if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
-        const year = y;
-        const month = m - 1; // JS Date: 0-indexed
-
-        const data = this._load();
-        const needle = String(category || '').toLowerCase();
-        // Unified default: a bill follows its own category. expenseCategory
-        // overrides ('none' opts out). Safe against double counting because
-        // reconciledBillSpendForMonth suppresses each occurrence's forecast
-        // once a matching transaction lands.
-        const budgetCatOf = (b) => b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || '');
-        const bills = (data.bills || []).filter(b =>
-            !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
-        );
-        if (bills.length === 0) return 0;
-
-        const monthStart = new Date(year, month, 1);
-        const monthEnd = new Date(year, month + 1, 0);
-        const payDates = generatePayDates(
-            data.paySchedule,
-            monthStart.toISOString().slice(0, 10),
-            monthEnd.toISOString().slice(0, 10)
-        );
-        return reconciledBillSpendForMonth(bills, year, month, payDates, monthExpenses);
+        return monthlyBillSpend(this._load(), category, mKey, monthExpenses);
     }
 
     // ─── Savings Goals ───────────────────────────────────────

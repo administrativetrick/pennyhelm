@@ -635,6 +635,48 @@ function reconciledBillSpendForMonth(bills, year, month, payDatesInMonth, monthE
 }
 
 /**
+ * Bill contribution to a category budget for one month, end to end: picks the
+ * bills whose budget category matches (a bill follows its own category by
+ * default; `expenseCategory` overrides, 'none' opts out), resolves the month's
+ * pay dates, and reconciles each occurrence against `monthExpenses`.
+ *
+ * This is THE month-spend computation for budgets — the web store, the
+ * functions snapshot gateway, and the mobile Budgets screen all call this so
+ * the wiring lives in exactly one place.
+ *
+ * @param {object} data — the finance blob (needs `bills`, `paySchedule`)
+ * @param {string} category — the budget's category key
+ * @param {string} mKey — 'YYYY-MM'
+ * @param {Array}  [monthExpenses] — pre-filtered spending expenses for the
+ *   category+month (the exact set summed into expenseSpent); see the
+ *   reconciliation invariant on reconciledBillSpendForMonth
+ * @returns {number}
+ */
+function monthlyBillSpend(data, category, mKey, monthExpenses = []) {
+    if (!data || !category || !mKey) return 0;
+    const [y, m] = String(mKey).split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
+    const year = y;
+    const month = m - 1; // JS Date: 0-indexed
+
+    const needle = String(category).toLowerCase();
+    const budgetCatOf = (b) => (b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || ''));
+    const bills = (data.bills || []).filter(b =>
+        !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
+    );
+    if (bills.length === 0) return 0;
+
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+    const payDates = generatePayDates(
+        data.paySchedule,
+        monthStart.toISOString().slice(0, 10),
+        monthEnd.toISOString().slice(0, 10)
+    );
+    return reconciledBillSpendForMonth(bills, year, month, payDates, monthExpenses);
+}
+
+/**
  * Aggregate income vs. bills over a run of calendar months — the engine
  * behind the dashboard's This Month / Quarter / Year toggle.
  *
@@ -1356,4 +1398,4 @@ function computeAutoTickUpdates(bills, isBillPaid, now = new Date()) {
     return updates;
 }
 
-module.exports = { classifyExpenseFlow, isTransferExpense, effectiveExpenseCategory, spendingExpenses, calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, getPeriodDef, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };
+module.exports = { classifyExpenseFlow, isTransferExpense, effectiveExpenseCategory, spendingExpenses, calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, monthlyBillSpend, getPeriodDef, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };
