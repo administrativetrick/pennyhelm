@@ -1,6 +1,6 @@
 {
   "name": "pennyhelm",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "PennyHelm - Personal finance tracker with SQLite backend",
   "scripts": {
     "start": "node server.js",
