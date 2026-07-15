@@ -21,6 +21,7 @@ import {
 } from '../services/financial-service.js';
 import { detectRecurringTransactions, buildBillSuggestion } from '../services/recurring-service.js';
 import { EXPENSE_CATEGORIES, getAllExpenseCategories } from '../expense-categories.js';
+import { showToast, confirmModal } from '../services/modal-manager.js';
 
 const GOAL_CATEGORIES = [
     { value: 'emergency', label: 'Emergency Fund', icon: '🛡️' },
@@ -1670,7 +1671,7 @@ function setupSmartInsightsHandlers(container, store, ctx) {
                 const category = document.getElementById('insight-bill-category').value.trim();
 
                 if (!name || isNaN(amount) || amount <= 0) {
-                    alert('Please enter a bill name and a positive amount.');
+                    showToast('Please enter a bill name and a positive amount.', 'error');
                     return;
                 }
 
@@ -1789,8 +1790,8 @@ function openGoalModal(store, existingGoal) {
         const targetDateInput = document.getElementById('goal-date').value;
         const targetDate = targetDateInput ? targetDateInput + '-01' : null;
 
-        if (!name) { alert('Please enter a goal name'); return; }
-        if (targetAmount <= 0) { alert('Please enter a target amount greater than 0'); return; }
+        if (!name) { showToast('Please enter a goal name', 'error'); return; }
+        if (targetAmount <= 0) { showToast('Please enter a target amount greater than 0', 'error'); return; }
 
         if (isEdit) {
             store.updateSavingsGoal(existingGoal.id, { name, category, targetAmount, currentAmount, targetDate });
@@ -1804,8 +1805,8 @@ function openGoalModal(store, existingGoal) {
 
     const deleteBtn = document.getElementById('modal-delete');
     if (deleteBtn) {
-        deleteBtn.addEventListener('click', () => {
-            if (confirm(`Delete "${existingGoal.name}"? This cannot be undone.`)) {
+        deleteBtn.addEventListener('click', async () => {
+            if (await confirmModal({ title: 'Delete goal', message: `Delete "${existingGoal.name}"? This cannot be undone.`, confirmLabel: 'Delete', danger: true })) {
                 store.deleteSavingsGoal(existingGoal.id);
                 closeModal();
                 refreshPage();
@@ -2143,7 +2144,7 @@ function generatePdfReport(store, reportId) {
 function openPrintWindow(title, bodyHtml, dateLabel) {
     var printWin = window.open('', '_blank', 'width=900,height=700');
     if (!printWin) {
-        alert('Please allow pop-ups to generate PDF reports.');
+        showToast('Please allow pop-ups to generate PDF reports.', 'error');
         return;
     }
     var fullHtml = '<!DOCTYPE html><html><head><meta charset="utf-8">';

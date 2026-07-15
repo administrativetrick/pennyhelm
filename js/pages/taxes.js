@@ -3,6 +3,7 @@ import { escapeHtml, formatCurrency } from '../utils.js';
 import { auth } from '../auth.js';
 import { capabilities } from '../mode/mode.js';
 import { requireMFAForUpload } from '../mfa-guard.js';
+import { showToast } from '../services/modal-manager.js';
 
 // ===== IndexedDB Helper for Tax Document Blobs =====
 const DB_NAME = 'personal_finances_taxdocs';
@@ -667,7 +668,7 @@ function showDeductionModal(store, taxYear, existingDed = null) {
         };
 
         if (!data.description) {
-            alert('Please enter a description');
+            showToast('Please enter a description', 'error');
             return;
         }
 

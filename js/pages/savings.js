@@ -11,6 +11,7 @@
 
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { formatCurrency, escapeHtml } from '../utils.js';
+import { showToast, confirmModal } from '../services/modal-manager.js';
 
 const GOAL_CATEGORIES = [
     { value: 'emergency', label: 'Emergency Fund', icon: '🛡️' },
@@ -287,8 +288,8 @@ function showGoalForm(store, linkableAccounts, existing = null) {
         const linkedAccountId = linkedSelect.value || null;
         const notes = document.getElementById('goal-notes').value.trim();
 
-        if (!name) { alert('Please enter a goal name.'); return; }
-        if (targetAmount <= 0) { alert('Target amount must be greater than 0.'); return; }
+        if (!name) { showToast('Please enter a goal name.', 'error'); return; }
+        if (targetAmount <= 0) { showToast('Target amount must be greater than 0.', 'error'); return; }
 
         const payload = { name, category, targetAmount, currentAmount, targetDate, linkedAccountId, notes };
 
@@ -303,8 +304,8 @@ function showGoalForm(store, linkableAccounts, existing = null) {
 
     const deleteBtn = document.getElementById('modal-delete');
     if (deleteBtn) {
-        deleteBtn.addEventListener('click', () => {
-            if (!confirm(`Delete "${existing.name}"? This cannot be undone.`)) return;
+        deleteBtn.addEventListener('click', async () => {
+            if (!(await confirmModal({ title: 'Delete goal', message: `Delete "${existing.name}"? This cannot be undone.`, confirmLabel: 'Delete', danger: true }))) return;
             store.deleteSavingsGoal(existing.id);
             closeModal();
             refreshPage();

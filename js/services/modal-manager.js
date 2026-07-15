@@ -472,6 +472,6 @@ export async function openManageSubscription(auth) {
         }
     } catch (e) {
         console.error('Portal error:', e);
-        alert('Unable to open subscription management. Please try again.');
+        showToast('Unable to open subscription management. Please try again.', 'error');
     }
 }

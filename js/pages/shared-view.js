@@ -13,7 +13,7 @@
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { navigate } from '../app.js';
 import { isSharedMode, exitSharedMode } from '../services/shared-mode.js';
-import { openFormModal } from '../services/modal-manager.js';
+import { openFormModal, showToast } from '../services/modal-manager.js';
 
 const STATE_KEY = 'pennyhelm-shared-view';
 
@@ -176,7 +176,7 @@ function renderSnapshot(container, store, state, snap) {
             const target = kind === 'tag'
                 ? configs.find(c => String(c.tag || '').toLowerCase() === name.toLowerCase())
                 : configs.find(c => !c.tag && String(c.category || '').toLowerCase() === name.toLowerCase());
-            if (!target) { alert('This budget cannot be adjusted.'); return; }
+            if (!target) { showToast('This budget cannot be adjusted.', 'error'); return; }
             const label = kind === 'tag' ? '#' + name : name;
             openFormModal({
                 title: `Adjust ${label} budget`,

@@ -13,7 +13,7 @@
 
 import { escapeHtml } from '../utils.js';
 import { mode } from '../mode/mode.js';
-import { openModal, closeModal } from '../services/modal-manager.js';
+import { openModal, closeModal, confirmModal } from '../services/modal-manager.js';
 
 const ENVS = ['sandbox', 'development', 'production'];
 const UPGRADE_URL = 'https://pennyhelm.com/switch?utm_source=selfhost&utm_campaign=plaid-gate';
@@ -233,7 +233,7 @@ export async function attachPlaidConfigHandlers(container) {
     }
 
     async function handleClear() {
-        if (!confirm('Remove stored Plaid credentials? Bank connections will stop working until you add new ones.')) return;
+        if (!(await confirmModal({ title: 'Remove credentials', message: 'Remove stored Plaid credentials? Bank connections will stop working until you add new ones.', confirmLabel: 'Remove', danger: true }))) return;
         await fetch('/api/plaid/config', { method: 'DELETE' });
         await mode().refreshPlaidStatus();
         view = 'status';

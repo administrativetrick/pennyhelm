@@ -5,6 +5,7 @@ import { capabilities } from '../mode/mode.js';
 import { connectBank, refreshPlaidBalances, hasPlaidConnections } from '../plaid.js';
 import { showVehicleDetail } from './vehicle-detail.js';
 import { requireMFAForUpload } from '../mfa-guard.js';
+import { showToast, confirmModal } from '../services/modal-manager.js';
 
 export function renderAccounts(container, store) {
     const accounts = store.getAccounts();
@@ -269,12 +270,12 @@ export function renderAccounts(container, store) {
                 const result = await refreshPlaidBalances(store);
                 localStorage.setItem(STORAGE_KEY, Date.now().toString());
                 if (result.errors > 0) {
-                    alert(`Refreshed ${result.updated} account(s), but ${result.errors} connection(s) had errors.`);
+                    showToast(`Refreshed ${result.updated} account(s), but ${result.errors} connection(s) had errors.`, 'error');
                 }
                 refreshPage();
             } catch (err) {
                 console.error('Refresh error:', err);
-                alert('Failed to refresh balances. Please try again.');
+                showToast('Failed to refresh balances. Please try again.', 'error');
                 refreshPlaidBtn.disabled = false;
                 refreshPlaidBtn.innerHTML = `${refreshIcon} Refresh Connected Balances`;
             }
@@ -361,13 +362,13 @@ export function renderAccounts(container, store) {
 
     // Delete account
     container.querySelectorAll('.delete-account-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const account = accounts.find(a => a.id === btn.dataset.accountId);
             const hasLink = account && account.linkedDebtId;
             const msg = hasLink
                 ? 'Delete this account? This will also remove the linked debt and its payment bill.'
                 : 'Delete this account?';
-            if (confirm(msg)) {
+            if (await confirmModal({ title: 'Delete account', message: msg, confirmLabel: 'Delete', danger: true })) {
                 store.deleteAccount(btn.dataset.accountId);
                 refreshPage();
             }
@@ -518,7 +519,7 @@ export function showAccountForm(store, existingAccount = null) {
             data._minimumPayment = parseFloat(document.getElementById('account-min-payment').value) || 0;
         }
 
-        if (!data.name) { alert('Please enter an account name'); return; }
+        if (!data.name) { showToast('Please enter an account name', 'error'); return; }
 
         if (isEdit) {
             store.updateAccount(existingAccount.id, data);

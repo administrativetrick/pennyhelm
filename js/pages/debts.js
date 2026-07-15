@@ -7,6 +7,7 @@ import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
 import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
 import { spendingExpenses, classifyExpenseFlow, getPeriodDef } from '../services/financial-service.js';
+import { showToast, confirmModal } from '../services/modal-manager.js';
 
 // Expenses-tab window: This Month / Quarter / Year, navigable one unit at a
 // time so older expenses stay reachable and editable.
@@ -583,7 +584,7 @@ export function renderDebts(container, store, subTab = null) {
     });
 
     container.querySelectorAll('.delete-debt').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const debt = debts.find(d => d.id === btn.dataset.debtId);
             const hasLinkedAccount = debt && debt.linkedAccountId;
             const hasLinkedBill = debt && bills.some(b => b.linkedDebtId === debt.id);
@@ -595,7 +596,7 @@ export function renderDebts(container, store, subTab = null) {
             } else if (hasLinkedBill) {
                 msg = 'Delete this debt? This will also remove the linked payment bill.';
             }
-            if (confirm(msg)) {
+            if (await confirmModal({ title: 'Delete debt', message: msg, confirmLabel: 'Delete', danger: true })) {
                 store.deleteDebt(btn.dataset.debtId);
                 refreshPage();
             }
@@ -895,14 +896,14 @@ function renderExpensesTab(container, store) {
             try {
                 const result = await syncPlaidTransactions(store);
                 if (result.imported > 0) {
-                    alert(`Imported ${result.imported} new transaction(s) as expenses.`);
+                    showToast(`Imported ${result.imported} new transaction(s) as expenses.`, 'success');
                     refreshPage();
                 } else {
-                    alert('No new transactions to import.');
+                    showToast('No new transactions to import.', 'info');
                     refreshPage();
                 }
             } catch (err) {
-                alert('Failed to sync transactions. Please try again.');
+                showToast('Failed to sync transactions. Please try again.', 'error');
                 syncBtn.disabled = false;
                 syncBtn.textContent = 'Sync Transactions';
             }
@@ -917,11 +918,11 @@ function renderExpensesTab(container, store) {
             try {
                 const result = await syncPlaidTransactions(store);
                 if (result.imported > 0) {
-                    alert(`Imported ${result.imported} new transaction(s) as expenses.`);
+                    showToast(`Imported ${result.imported} new transaction(s) as expenses.`, 'success');
                 }
                 refreshPage();
             } catch (err) {
-                alert('Failed to sync transactions. Please try again.');
+                showToast('Failed to sync transactions. Please try again.', 'error');
                 refreshPage();
             }
         });
@@ -936,8 +937,8 @@ function renderExpensesTab(container, store) {
     });
 
     container.querySelectorAll('.delete-expense').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm('Delete this expense?')) {
+        btn.addEventListener('click', async () => {
+            if (await confirmModal({ title: 'Delete expense', message: 'Delete this expense?', confirmLabel: 'Delete', danger: true })) {
                 store.deleteExpense(btn.dataset.expenseId);
                 refreshPage();
             }
@@ -952,8 +953,8 @@ function renderExpensesTab(container, store) {
     });
 
     container.querySelectorAll('.unsplit-expense').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (!confirm('Undo this split and restore the original expense? All split children will be deleted.')) return;
+        btn.addEventListener('click', async () => {
+            if (!(await confirmModal({ title: 'Undo split', message: 'Undo this split and restore the original expense? All split children will be deleted.', confirmLabel: 'Undo', danger: true }))) return;
             store.unsplitExpense(btn.dataset.expenseId);
             refreshPage();
         });
@@ -1160,11 +1161,11 @@ function showExpenseForm(store, existingExpense = null) {
         }
 
         if (!data.name) {
-            alert('Please enter an expense name');
+            showToast('Please enter an expense name', 'error');
             return;
         }
         if (data.amount <= 0) {
-            alert('Please enter a valid amount');
+            showToast('Please enter a valid amount', 'error');
             return;
         }
 
@@ -1415,7 +1416,7 @@ function showDebtForm(store, existingDebt = null) {
         }
 
         if (!data.name) {
-            alert('Please enter a debt name');
+            showToast('Please enter a debt name', 'error');
             return;
         }
 
@@ -2001,7 +2002,7 @@ function showSplitForm(store, expense) {
                 closeModal();
                 refreshPage();
             } catch (ex) {
-                alert(ex.message);
+                showToast(ex.message, 'error');
             }
         });
     }

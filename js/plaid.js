@@ -10,6 +10,7 @@
 
 import { mode, capabilities } from './mode/mode.js';
 import { loadPlaidSdk } from './cloud-loader.js';
+import { showToast } from './services/modal-manager.js';
 
 // ─── Plaid Type → PennyHelm Type Mapping ───
 
@@ -54,7 +55,7 @@ function callFunction(name, data) {
  */
 export async function connectBank(store, onComplete) {
     if (!capabilities().plaid) {
-        alert('Bank connection is not available in this mode.');
+        showToast('Bank connection is not available in this mode.', 'info');
         return;
     }
 
@@ -113,7 +114,7 @@ export async function connectBank(store, onComplete) {
                     const totalImported = store.getAccounts().filter(a => a.plaidItemId === result.itemId).length
                         + store.getDebts().filter(d => d.plaidItemId === result.itemId).length;
 
-                    alert(`Successfully connected ${result.institutionName}!\n${totalImported} account(s) imported.`);
+                    showToast(`Successfully connected ${result.institutionName}! ${totalImported} account(s) imported.`, 'success');
 
                     if (onComplete) onComplete();
                 } catch (err) {
@@ -121,7 +122,7 @@ export async function connectBank(store, onComplete) {
                     // The cloud function may have succeeded (plaidItem created)
                     // even if the client-side save failed. Inform the user to
                     // try refreshing rather than re-linking.
-                    alert('Bank connection was saved but accounts may not have loaded.\nPlease try refreshing connected balances, or contact support.');
+                    showToast('Bank connection was saved but accounts may not have loaded. Please try refreshing connected balances, or contact support.', 'error');
                 }
             },
             onEvent: (eventName, metadata) => {
@@ -141,7 +142,7 @@ export async function connectBank(store, onComplete) {
         handler.open();
     } catch (err) {
         console.error('Plaid Link init error:', err);
-        alert('Failed to start bank connection. Please try again.');
+        showToast('Failed to start bank connection. Please try again.', 'error');
     }
 }
 
@@ -154,7 +155,7 @@ export async function connectBank(store, onComplete) {
  */
 export async function updateBankConsent(store, itemId, onComplete) {
     if (!capabilities().plaid) {
-        alert('Bank connection is not available in this mode.');
+        showToast('Bank connection is not available in this mode.', 'info');
         return;
     }
 
@@ -175,11 +176,11 @@ export async function updateBankConsent(store, itemId, onComplete) {
                 // Trigger a refresh to pull the newly consented data.
                 try {
                     const result = await refreshPlaidBalances(store);
-                    alert(`Consent updated! Refreshed ${result.updated} account(s).`);
+                    showToast(`Consent updated! Refreshed ${result.updated} account(s).`, 'success');
                     if (onComplete) onComplete();
                 } catch (err) {
                     console.error('Post-consent refresh error:', err);
-                    alert('Consent updated, but refresh failed. Try clicking Refresh Connected Balances.');
+                    showToast('Consent updated, but refresh failed. Try clicking Refresh Connected Balances.', 'error');
                     if (onComplete) onComplete();
                 }
             },
@@ -196,7 +197,7 @@ export async function updateBankConsent(store, itemId, onComplete) {
         handler.open();
     } catch (err) {
         console.error('Plaid Update init error:', err);
-        alert('Failed to start consent update. Please try again.');
+        showToast('Failed to start consent update. Please try again.', 'error');
     }
 }
 

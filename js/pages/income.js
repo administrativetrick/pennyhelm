@@ -1,7 +1,7 @@
 import { formatCurrency, escapeHtml, getOrdinal } from '../utils.js';
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { getMonthlyMultiplier, frequencyToMonthly } from '../services/financial-service.js';
-import { openFormModal } from '../services/modal-manager.js';
+import { openFormModal, showToast, confirmModal } from '../services/modal-manager.js';
 import {
     renderTaxes,
     getSelectedYear, setSelectedYear,
@@ -694,8 +694,8 @@ export function renderIncome(container, store, subTab = null) {
 
     // Delete other income
     container.querySelectorAll('.delete-other-income').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm('Delete this income source?')) {
+        btn.addEventListener('click', async () => {
+            if (await confirmModal({ title: 'Delete income source', message: 'Delete this income source?', confirmLabel: 'Delete', danger: true })) {
                 store.deleteOtherIncome(btn.dataset.id);
                 refreshPage();
             }
@@ -774,7 +774,7 @@ function showOtherIncomeForm(store, existing = null) {
         };
 
         if (!data.name) {
-            alert('Please enter a source name');
+            showToast('Please enter a source name', 'error');
             return;
         }
 

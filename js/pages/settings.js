@@ -1,6 +1,6 @@
 import { formatCurrency, escapeHtml, getScoreRating, estimateScoreImpact } from '../utils.js';
 import { openModal, closeModal, refreshPage, updateDependentNav, navigate } from '../app.js';
-import { openFormModal } from '../services/modal-manager.js';
+import { openFormModal, showToast, confirmModal } from '../services/modal-manager.js';
 import { auth } from '../auth.js';
 import { CATEGORY_COLORS } from '../categories.js';
 import { hasPlaidConnections } from '../plaid.js';
@@ -787,7 +787,7 @@ export function renderSettings(container, store) {
                     }
                 } catch (e) {
                     console.error('Portal error:', e);
-                    alert('Unable to open subscription management.');
+                    showToast('Unable to open subscription management.', 'error');
                     manageSubBtn.textContent = 'Manage';
                     manageSubBtn.disabled = false;
                 }
@@ -1004,7 +1004,7 @@ export function renderSettings(container, store) {
                         console.error('MFA setup error:', e);
                         mfaToggleBtn.disabled = false;
                         mfaToggleBtn.textContent = 'Enable';
-                        alert('Failed to start MFA setup. Please try again.');
+                        showToast('Failed to start MFA setup. Please try again.', 'error');
                     }
                 }
             });
@@ -1053,7 +1053,7 @@ export function renderSettings(container, store) {
             apiKeysListEl.querySelectorAll('.revoke-api-key-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const keyId = btn.dataset.keyId;
-                    if (!confirm('Revoke this API key? Any integrations using it will stop working immediately.')) return;
+                    if (!(await confirmModal({ title: 'Revoke API key', message: 'Revoke this API key? Any integrations using it will stop working immediately.', confirmLabel: 'Revoke', danger: true }))) return;
                     btn.disabled = true;
                     btn.textContent = 'Revoking...';
                     try {
@@ -1063,7 +1063,7 @@ export function renderSettings(container, store) {
                         loadApiKeys();
                     } catch (e) {
                         console.error('Revoke API key error:', e);
-                        alert('Failed to revoke API key.');
+                        showToast('Failed to revoke API key.', 'error');
                         btn.disabled = false;
                         btn.textContent = 'Revoke';
                     }
@@ -1248,7 +1248,7 @@ export function renderSettings(container, store) {
                         closeModal();
                         if (onSaved) onSaved();
                     } catch (e) {
-                        alert(e.message || 'Could not update access.');
+                        showToast(e.message || 'Could not update access.', 'error');
                     }
                 });
             };
@@ -1284,9 +1284,9 @@ export function renderSettings(container, store) {
 
                     // Cancel invite handlers
                     pendingList.querySelectorAll('.cancel-invite').forEach(btn => {
-                        btn.addEventListener('click', () => {
+                        btn.addEventListener('click', async () => {
                             const id = btn.dataset.id;
-                            if (confirm('Cancel this invite?')) {
+                            if (await confirmModal({ title: 'Cancel invite', message: 'Cancel this invite?', confirmLabel: 'Cancel invite', danger: true })) {
                                 store.deleteInvite(id);
                                 loadInvitesAndShares();
                             }
@@ -1321,9 +1321,9 @@ export function renderSettings(container, store) {
 
                     // Revoke access handlers
                     sharedList.querySelectorAll('.revoke-access').forEach(btn => {
-                        btn.addEventListener('click', () => {
+                        btn.addEventListener('click', async () => {
                             const uid = btn.dataset.uid;
-                            if (confirm('Revoke access for this person? They will no longer be able to view your finances.')) {
+                            if (await confirmModal({ title: 'Revoke access', message: 'Revoke access for this person? They will no longer be able to view your finances.', confirmLabel: 'Revoke', danger: true })) {
                                 store.revokeAccess(uid);
                                 loadInvitesAndShares();
                             }
@@ -1505,21 +1505,21 @@ export function renderSettings(container, store) {
                     const permissions = (role === 'partner' || role === 'full') ? 'edit' : 'view';
 
                     if (!email || !email.includes('@')) {
-                        alert('Please enter a valid email address');
+                        showToast('Please enter a valid email address', 'error');
                         return;
                     }
 
                     // Check if already invited
                     const existingInvites = store.getInvites();
                     if (existingInvites.find(i => i.email === email && i.status === 'pending')) {
-                        alert('This email has already been invited');
+                        showToast('This email has already been invited', 'error');
                         return;
                     }
 
                     // Check if already has access
                     const sharedWith = store.getSharedWith();
                     if (sharedWith.find(s => s.email === email)) {
-                        alert('This person already has access');
+                        showToast('This person already has access', 'error');
                         return;
                     }
 
@@ -1595,7 +1595,7 @@ export function renderSettings(container, store) {
                         console.error('Error sending invite:', err);
                         sendBtn.disabled = false;
                         sendBtn.textContent = 'Send Invite';
-                        alert('Failed to send invite. Please try again.');
+                        showToast('Failed to send invite. Please try again.', 'error');
                     }
                 });
             });
@@ -1918,8 +1918,8 @@ export function renderSettings(container, store) {
 
     // Remove sources
     container.querySelectorAll('.remove-source').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (confirm(`Remove payment source "${btn.dataset.source}"?`)) {
+        btn.addEventListener('click', async () => {
+            if (await confirmModal({ title: 'Remove payment source', message: `Remove payment source "${btn.dataset.source}"?`, confirmLabel: 'Remove', danger: true })) {
                 store.removePaymentSource(btn.dataset.source);
                 refreshPage();
             }
@@ -1949,7 +1949,7 @@ export function renderSettings(container, store) {
             const name = input.value.trim();
             if (!name) return;
             if (store.getBusinessNames().includes(name)) {
-                alert('This business name already exists.');
+                showToast('This business name already exists.', 'error');
                 return;
             }
             store.addBusinessName(name);
@@ -1988,14 +1988,14 @@ export function renderSettings(container, store) {
 
     // Remove business name
     container.querySelectorAll('.remove-business-name').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const name = btn.dataset.name;
             const expCount = store.getExpenses().filter(e => e.businessName === name).length;
             let msg = `Remove business "${name}"?`;
             if (expCount > 0) {
                 msg += ` ${expCount} expense(s) will keep their business tag but it won't appear in dropdowns.`;
             }
-            if (confirm(msg)) {
+            if (await confirmModal({ title: 'Remove business', message: msg, confirmLabel: 'Remove', danger: true })) {
                 store.removeBusinessName(name);
                 refreshPage();
             }
@@ -2032,12 +2032,12 @@ export function renderSettings(container, store) {
 
     // Delete custom category
     container.querySelectorAll('.delete-category').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const inUse = parseInt(btn.dataset.inuse || '0', 10);
             const warning = inUse > 0
                 ? ` ${inUse} item${inUse !== 1 ? 's' : ''} still use${inUse === 1 ? 's' : ''} it and will show the raw key until recategorized.`
                 : '';
-            if (confirm(`Delete category "${btn.dataset.name}"?${warning}`)) {
+            if (await confirmModal({ title: 'Delete category', message: `Delete category "${btn.dataset.name}"?${warning}`, confirmLabel: 'Delete', danger: true })) {
                 store.deleteCustomExpenseCategory(btn.dataset.id);
                 refreshPage();
             }
@@ -2067,10 +2067,10 @@ export function renderSettings(container, store) {
         const reader = new FileReader();
         reader.onload = (evt) => {
             if (store.importJSON(evt.target.result)) {
-                alert('Data imported successfully!');
+                showToast('Data imported successfully!', 'success');
                 refreshPage();
             } else {
-                alert('Failed to import. Invalid JSON file.');
+                showToast('Failed to import. Invalid JSON file.', 'error');
             }
         };
         reader.readAsText(file);
@@ -2104,9 +2104,9 @@ export function renderSettings(container, store) {
     });
 
     // Reset
-    container.querySelector('#reset-btn').addEventListener('click', () => {
-        if (confirm('This will delete ALL your data and re-seed with defaults. Are you sure?')) {
-            if (confirm('Really sure? This cannot be undone.')) {
+    container.querySelector('#reset-btn').addEventListener('click', async () => {
+        if (await confirmModal({ title: 'Reset all data', message: 'This will delete ALL your data and re-seed with defaults. Are you sure?', confirmLabel: 'Reset', danger: true })) {
+            if (await confirmModal({ title: 'Confirm reset', message: 'Really sure? This cannot be undone.', confirmLabel: 'Reset', danger: true })) {
                 store.resetData();
                 // Re-seed
                 import('../seed.js').then(mod => {
@@ -2188,7 +2188,7 @@ export function renderSettings(container, store) {
                     window.location.href = '/';
                 } catch (err) {
                     console.error('Account deletion failed:', err);
-                    alert('Account deletion failed: ' + (err.message || 'Unknown error. Please try again.'));
+                    showToast('Account deletion failed: ' + (err.message || 'Unknown error. Please try again.'), 'error');
                     closeModal();
                 }
             });

@@ -10,6 +10,7 @@ import { openModal, closeModal, refreshPage } from '../app.js';
 import { escapeHtml } from '../utils.js';
 import { renderCategoryOptions, mountSearchableCategoryPicker, getAllExpenseCategories, normalizeCategoryKey } from '../expense-categories.js';
 import { normalizeMatch } from '../services/transaction-rules.js';
+import { showToast, confirmModal } from '../services/modal-manager.js';
 
 const MATCH_FIELDS = [
     { value: 'name',     label: 'Transaction name' },
@@ -211,8 +212,8 @@ export function renderRules(container, store) {
     });
 
     container.querySelectorAll('.delete-rule').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (!confirm('Delete this rule? Existing expenses keep their current categorization.')) return;
+        btn.addEventListener('click', async () => {
+            if (!(await confirmModal({ title: 'Delete rule', message: 'Delete this rule? Existing expenses keep their current categorization.', confirmLabel: 'Delete', danger: true }))) return;
             store.deleteRule(btn.dataset.ruleId);
             refreshPage();
         });
@@ -227,10 +228,10 @@ export function renderRules(container, store) {
 
     const reapply = container.querySelector('#reapply-rules-btn');
     if (reapply) {
-        reapply.addEventListener('click', () => {
-            if (!confirm('Re-apply all enabled rules to existing expenses? Expenses you have edited by hand are left untouched.')) return;
+        reapply.addEventListener('click', async () => {
+            if (!(await confirmModal({ title: 'Re-apply rules', message: 'Re-apply all enabled rules to existing expenses? Expenses you have edited by hand are left untouched.', confirmLabel: 'Re-apply' }))) return;
             const { changed, skipped } = store.reapplyRulesToAllExpenses();
-            alert(`Updated ${changed} expense${changed === 1 ? '' : 's'}.${skipped > 0 ? ` ${skipped} manually edited expense${skipped === 1 ? ' was' : 's were'} preserved.` : ''}`);
+            showToast(`Updated ${changed} expense${changed === 1 ? '' : 's'}.${skipped > 0 ? ` ${skipped} manually edited expense${skipped === 1 ? ' was' : 's were'} preserved.` : ''}`, 'success');
             refreshPage();
         });
     }
