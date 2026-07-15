@@ -93,29 +93,9 @@ function deriveSharedRoles(sharedWith) {
 // resulting numbers ship.
 
 function billSpendForMonth(data, category, mKey, monthExpenses = []) {
-    if (!category || !mKey) return 0;
-    const [y, m] = mKey.split('-').map(Number);
-    if (!Number.isFinite(y) || !Number.isFinite(m)) return 0;
-    const month = m - 1;
-
-    const needle = String(category || '').toLowerCase();
-    // Unified default with reconciliation — mirrors store._billSpendForMonth
-    // (keep the three copies in agreement: web store, this file, mobile
-    // BudgetsScreen). Forecast counts until a matching transaction lands.
-    const budgetCatOf = (b) => b.expenseCategory === 'none' ? '' : (b.expenseCategory || b.category || '');
-    const bills = (data.bills || []).filter(b =>
-        !b.frozen && String(budgetCatOf(b)).toLowerCase() === needle
-    );
-    if (bills.length === 0) return 0;
-
-    const monthStart = new Date(y, month, 1);
-    const monthEnd = new Date(y, month + 1, 0);
-    const payDates = financialService.generatePayDates(
-        data.paySchedule,
-        monthStart.toISOString().slice(0, 10),
-        monthEnd.toISOString().slice(0, 10)
-    );
-    return financialService.reconciledBillSpendForMonth(bills, y, month, payDates, monthExpenses);
+    // Canonical wiring lives in financial-service.monthlyBillSpend — the web
+    // store and the mobile Budgets screen call the same function.
+    return financialService.monthlyBillSpend(data, category, mKey, monthExpenses);
 }
 
 // The store persists budgets under `categoryBudgets` (legacy name predating
