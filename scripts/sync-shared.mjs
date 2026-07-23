@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MOBILE_SHARED_DIR = path.join(root, '..', 'PennyHelm-Mobile', 'src', 'shared');
 
-const SERVICES = ['financial-service', 'budget-service', 'category-service'];
+const SERVICES = ['financial-service', 'budget-service', 'category-service', 'transaction-rules'];
 
 const cjsHeader = (name) => `/**
  * CJS COPY of js/services/${name}.js for Cloud Functions.
