@@ -1110,7 +1110,7 @@ export function renderSettings(container, store) {
                         <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;">
                             <input type="checkbox" id="api-key-write" style="margin-top:2px;">
                             <span><strong>Allow this key to modify my data (write access)</strong><br>
-                            <span style="color:var(--text-muted);font-size:12px;">Lets integrations add expenses to your account, not just read.</span></span>
+                            <span style="color:var(--text-muted);font-size:12px;">Lets integrations add expenses, bills, budgets, debts, and rules &mdash; not just read.</span></span>
                         </label>
                         <div id="api-key-write-panel" style="display:none;margin-top:12px;">
                             <div style="padding:12px;background:rgba(220,38,38,0.06);border:1px solid var(--red);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);line-height:1.5;">
