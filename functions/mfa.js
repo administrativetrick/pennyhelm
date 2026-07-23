@@ -393,5 +393,30 @@ module.exports = function({ admin, db, secrets, enforceRateLimit }) {
         }
     );
 
+    // ─── _verifyUserTotp (internal helper, NOT a cloud function) ──
+    // Validates a live TOTP code against the user's active MFA config. Used to
+    // gate sensitive actions (e.g. creating a write-capable API key) behind 2FA.
+    // Returns { ok: true } on success, or { ok: false, reason: 'not_enabled' |
+    // 'invalid' }. The CALLER's onCall must declare the MFA_ENCRYPTION_KEY
+    // secret so decryptMFA can read it, and should rate-limit before calling.
+    exports._verifyUserTotp = async function (uid, code) {
+        if (!code || typeof code !== 'string' || code.length !== 6) {
+            return { ok: false, reason: 'invalid' };
+        }
+        const configDoc = await db.collection("users").doc(uid)
+            .collection("mfaSecrets").doc("config").get();
+        if (!configDoc.exists) {
+            return { ok: false, reason: 'not_enabled' };
+        }
+        const secretBase32 = decryptMFA(configDoc.data().encryptedSecret);
+        const totp = new TOTP({
+            issuer: 'PennyHelm',
+            algorithm: 'SHA1', digits: 6, period: 30,
+            secret: Secret.fromBase32(secretBase32),
+        });
+        const delta = totp.validate({ token: code, window: 1 });
+        return delta === null ? { ok: false, reason: 'invalid' } : { ok: true };
+    };
+
     return exports;
 };
