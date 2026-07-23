@@ -114,7 +114,8 @@ const inviteFns    = require("./invites")(shared);
 const sharedAccessFns = require("./shared-access")(shared);
 const scheduledFns = require("./scheduled")(shared);
 const chatbotFns   = require("./chatbot")(shared);
-const apiKeyFns    = require("./api-keys")(shared);
+// api-keys gets the TOTP verifier so it can gate write-key creation behind 2FA.
+const apiKeyFns    = require("./api-keys")(shared, mfaFns._verifyUserTotp);
 const apiFns       = require("./api")(shared, apiKeyFns._validateApiKey);
 const adEventFns   = require("./ad-events")(shared);
 const activeUserFns = require("./active-users")(shared);
@@ -178,6 +179,7 @@ try {
 // Remove internal helpers before exporting (these are plain functions,
 // not onCall/onRequest — they'd crash if Firebase tried to deploy them)
 delete apiKeyFns._validateApiKey;
+delete mfaFns._verifyUserTotp;
 delete inviteFns.trackPaidReferral;
 
 Object.assign(exports, authFns, plaidFns, stripeFns, mfaFns, inviteFns, sharedAccessFns, scheduledFns, chatbotFns, apiKeyFns, apiFns, adEventFns, activeUserFns, blogSiteFns, aiHealthFns, socialFns, blgFns, internalJobsFns, internalSvcFns);

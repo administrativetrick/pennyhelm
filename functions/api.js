@@ -1,4 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const crypto = require("crypto");
 const { spendingExpenses } = require("./shared/financial-service.cjs");
 
 /**
@@ -22,7 +23,7 @@ module.exports = function ({ admin, db }, validateApiKey) {
 
     function corsHeaders(res) {
         res.set("Access-Control-Allow-Origin", "*");
-        res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+        res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
         res.set("Access-Control-Max-Age", "3600");
     }
@@ -63,6 +64,59 @@ module.exports = function ({ admin, db }, validateApiKey) {
         }
     }
 
+    // ─── Write: add an expense (read_write scope only) ───────────
+    // Appends inside a transaction so a concurrent app save can't be clobbered.
+    async function createExpense(req, res, uid) {
+        const body = req.body || {};
+        const name = typeof body.name === "string" ? body.name.trim() : "";
+        const amount = Number(body.amount);
+        if (!name) return jsonError(res, 400, "Field 'name' is required.");
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return jsonError(res, 400, "Field 'amount' must be a positive number.");
+        }
+        const date = typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
+            ? body.date
+            : new Date().toISOString().slice(0, 10);
+        const category = (typeof body.category === "string" && body.category.trim())
+            ? body.category.trim().toLowerCase()
+            : "other";
+
+        const expense = {
+            id: crypto.randomUUID(),
+            name,
+            amount: Math.round(amount * 100) / 100,
+            category,
+            date,
+            vendor: typeof body.vendor === "string" ? body.vendor.trim() : "",
+            notes: typeof body.notes === "string" ? body.notes.trim() : "",
+            source: "api",
+            expenseType: "personal",
+            tags: [],
+            ignored: false,
+            createdDate: new Date().toISOString(),
+        };
+
+        const docRef = db.collection("userData").doc(uid);
+        try {
+            await db.runTransaction(async (tx) => {
+                const snap = await tx.get(docRef);
+                const raw = snap.exists ? snap.data().data : null;
+                let parsed = {};
+                if (raw) { try { parsed = JSON.parse(raw); } catch { parsed = {}; } }
+                if (!Array.isArray(parsed.expenses)) parsed.expenses = [];
+                parsed.expenses.push(expense);
+                tx.set(docRef, {
+                    data: JSON.stringify(parsed),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+            });
+        } catch (e) {
+            console.error("API createExpense error:", e);
+            return jsonError(res, 500, "Failed to save expense.");
+        }
+        res.status(201).json({ success: true, expense });
+    }
+
     // ─── API Router ──────────────────────────────────────────────
 
     exports.api = onRequest({ cors: false }, async (req, res) => {
@@ -74,8 +128,8 @@ module.exports = function ({ admin, db }, validateApiKey) {
             return;
         }
 
-        if (req.method !== "GET") {
-            jsonError(res, 405, "Only GET requests are supported.");
+        if (req.method !== "GET" && req.method !== "POST") {
+            jsonError(res, 405, "Only GET and POST requests are supported.");
             return;
         }
 
@@ -98,6 +152,22 @@ module.exports = function ({ admin, db }, validateApiKey) {
         }
 
         const resource = segments[1];
+
+        // ─── Writes (POST) — require a read_write-scoped key ───
+        if (req.method === "POST") {
+            if (keyInfo.scope !== "read_write") {
+                jsonError(res, 403, "This API key is read-only. Create a write-enabled key to modify data.");
+                return;
+            }
+            if (resource === "expenses") {
+                await createExpense(req, res, keyInfo.uid);
+                return;
+            }
+            jsonError(res, 404, "Not found. Writable endpoints: POST /api/v1/expenses");
+            return;
+        }
+
+        // ─── Reads (GET) ───
         const data = await getUserData(keyInfo.uid);
 
         if (!data) {
@@ -159,6 +229,7 @@ module.exports = function ({ admin, db }, validateApiKey) {
                         date: e.date,
                         vendor: e.vendor,
                         expenseType: e.expenseType,
+                        source: e.source || "manual",
                     })),
                 });
                 break;

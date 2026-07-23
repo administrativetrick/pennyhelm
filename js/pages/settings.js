@@ -1035,10 +1035,14 @@ export function renderSettings(container, store) {
                 const created = k.createdAt ? new Date(k.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
                 const lastUsed = k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never';
                 const isRevoked = k.status === 'revoked';
+                const isWrite = k.scope === 'read_write';
+                const scopeBadge = isWrite
+                    ? '<span style="display:inline-block;margin-left:6px;font-size:9px;font-weight:700;letter-spacing:0.03em;padding:1px 6px;border-radius:4px;background:rgba(220,38,38,0.12);color:var(--red);border:1px solid var(--red);vertical-align:middle;">READ + WRITE</span>'
+                    : '<span style="display:inline-block;margin-left:6px;font-size:9px;font-weight:700;letter-spacing:0.03em;padding:1px 6px;border-radius:4px;background:var(--bg-primary);color:var(--text-muted);border:1px solid var(--border);vertical-align:middle;">READ ONLY</span>';
                 return `
-                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;${isRevoked ? 'opacity:0.5;' : ''}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg-secondary);border:1px solid ${isWrite && !isRevoked ? 'var(--red)' : 'var(--border)'};border-radius:var(--radius-sm);margin-bottom:6px;${isRevoked ? 'opacity:0.5;' : ''}">
                         <div style="min-width:0;">
-                            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${escapeHtml(k.name)}</div>
+                            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${escapeHtml(k.name)}${scopeBadge}</div>
                             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
                                 <code style="font-size:11px;">${escapeHtml(k.keyPrefix)}...</code>
                                 &middot; Created ${created} &middot; Last used: ${lastUsed}
@@ -1097,13 +1101,29 @@ export function renderSettings(container, store) {
                         <div style="margin:14px 0;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);line-height:1.5;">
                             <div style="font-weight:600;color:var(--text-primary);margin-bottom:6px;">Before you continue</div>
                             <ul style="margin:0;padding-left:18px;">
-                                <li>This key grants <strong>read-only</strong> access to <strong>your</strong> financial data (bills, accounts, debts, expenses, summary).</li>
+                                <li>By default this key is <strong>read-only</strong> &mdash; it can view your financial data but cannot change it.</li>
                                 <li>The full key is shown <strong>only once</strong> &mdash; copy it immediately and store it somewhere safe (a password manager).</li>
                                 <li>Treat it like a password. Don't commit it to a public repo, paste it into a chat, or share it.</li>
                                 <li>If it leaks, revoke it from this page right away and create a new one.</li>
                             </ul>
                         </div>
-                        <div id="api-key-create-error" style="color:var(--red);font-size:13px;margin-bottom:8px;"></div>
+                        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;">
+                            <input type="checkbox" id="api-key-write" style="margin-top:2px;">
+                            <span><strong>Allow this key to modify my data (write access)</strong><br>
+                            <span style="color:var(--text-muted);font-size:12px;">Lets integrations add expenses to your account, not just read.</span></span>
+                        </label>
+                        <div id="api-key-write-panel" style="display:none;margin-top:12px;">
+                            <div style="padding:12px;background:rgba(220,38,38,0.06);border:1px solid var(--red);border-radius:var(--radius-sm);font-size:12px;color:var(--text-secondary);line-height:1.5;">
+                                <div style="font-weight:700;color:var(--red);margin-bottom:6px;">&#9888;&#65039; Write access is powerful</div>
+                                A write-enabled key can <strong>change your financial data</strong>. Anyone who obtains it can add records to your account. Only create one if an integration truly needs it, and revoke it the moment it's no longer used.
+                            </div>
+                            <div class="form-group" style="margin-top:12px;">
+                                <label class="form-label" for="api-key-mfa">Confirm with your authenticator code</label>
+                                <input type="text" class="form-input" id="api-key-mfa" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code">
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Two-factor authentication is required to create a write key.</div>
+                            </div>
+                        </div>
+                        <div id="api-key-create-error" style="color:var(--red);font-size:13px;margin:10px 0 0;"></div>
                     </div>
                     <div class="modal-actions">
                         <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
@@ -1111,13 +1131,29 @@ export function renderSettings(container, store) {
                     </div>
                 `);
                 document.getElementById('api-key-name').focus();
+                const writeToggle = document.getElementById('api-key-write');
+                const writePanel = document.getElementById('api-key-write-panel');
+                const createBtnEl = document.getElementById('modal-create');
+                writeToggle.addEventListener('change', () => {
+                    writePanel.style.display = writeToggle.checked ? 'block' : 'none';
+                    createBtnEl.textContent = writeToggle.checked ? 'Create Write Key' : 'Create Key';
+                    createBtnEl.classList.toggle('btn-danger', writeToggle.checked);
+                    createBtnEl.classList.toggle('btn-primary', !writeToggle.checked);
+                    if (writeToggle.checked) document.getElementById('api-key-mfa').focus();
+                });
                 document.getElementById('modal-cancel').addEventListener('click', closeModal);
                 document.getElementById('modal-create').addEventListener('click', async () => {
                     const name = document.getElementById('api-key-name').value.trim();
                     const errorDiv = document.getElementById('api-key-create-error');
                     const createBtn = document.getElementById('modal-create');
+                    const wantsWrite = writeToggle.checked;
+                    const mfaCode = (document.getElementById('api-key-mfa').value || '').trim();
                     if (!name) {
                         errorDiv.textContent = 'Please enter a name for the API key.';
+                        return;
+                    }
+                    if (wantsWrite && !/^\d{6}$/.test(mfaCode)) {
+                        errorDiv.textContent = 'Enter the 6-digit code from your authenticator app to create a write key.';
                         return;
                     }
                     createBtn.disabled = true;
@@ -1126,7 +1162,9 @@ export function renderSettings(container, store) {
                     try {
                         const functions = firebase.functions();
                         const createApiKey = functions.httpsCallable('createApiKey');
-                        const result = await createApiKey({ name });
+                        const payload = { name };
+                        if (wantsWrite) { payload.scope = 'read_write'; payload.mfaCode = mfaCode; }
+                        const result = await createApiKey(payload);
                         closeModal();
                         // Show the key in the banner
                         apiKeyValueEl.textContent = result.data.apiKey;
@@ -1134,8 +1172,11 @@ export function renderSettings(container, store) {
                         loadApiKeys();
                     } catch (e) {
                         createBtn.disabled = false;
-                        createBtn.textContent = 'Create Key';
-                        errorDiv.textContent = e.message || 'Failed to create API key.';
+                        createBtn.textContent = wantsWrite ? 'Create Write Key' : 'Create Key';
+                        // failed-precondition = MFA not enabled on the account
+                        errorDiv.textContent = (e.code === 'functions/failed-precondition')
+                            ? 'Turn on two-factor authentication (above, under Security) before creating a write key.'
+                            : (e.message || 'Failed to create API key.');
                     }
                 });
             });
