@@ -401,6 +401,51 @@ function createBalanceSnapshot(accounts, debts) {
     return { date: dateKey, checking, savings, investment, netWorth };
 }
 
+// ─── Financial trend history ──────────────────────
+//
+// balanceHistory tracks the balance sheet (net worth); financialHistory tracks
+// the CASHFLOW side — the recurring bill commitment and monthly income — so the
+// dashboard can trend "how much I've cut my bills" over time. Bills hold only
+// their current amount, so this can only accrue forward: a snapshot is taken
+// once per month (the current month's row updates on each load to reflect the
+// latest bill total; past months stay frozen).
+
+/** Monthly-equivalent total of all active bills (frozen/excluded skipped). */
+function monthlyBillCommitment(bills) {
+    return (bills || []).reduce((sum, b) => sum + calculateBillMonthlyAmount(b), 0);
+}
+
+/** One financial-history row for the current month: { month, bills, income }. */
+function createFinancialSnapshot(data) {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const bills = monthlyBillCommitment(data.bills);
+    const income = calculateMonthlyIncome(data.income, data.otherIncome, data.paySchedule).totalMonthly;
+    return { month, bills: Math.round(bills * 100) / 100, income: Math.round(income * 100) / 100 };
+}
+
+/**
+ * Actual spending per calendar month, backfilled from dated expenses (transfers
+ * and ignored rows excluded). Returns a contiguous series of the last
+ * `monthsBack` months ending with the current month: [{ month, spent }].
+ */
+function monthlySpendingSeries(expenses, monthsBack = 12, now = new Date()) {
+    const byMonth = {};
+    for (const e of spendingExpenses(expenses)) {
+        const m = String(e.date || '').slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(m) && (e.amount || 0) > 0) {
+            byMonth[m] = (byMonth[m] || 0) + e.amount;
+        }
+    }
+    const series = [];
+    for (let i = monthsBack - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        series.push({ month: m, spent: Math.round((byMonth[m] || 0) * 100) / 100 });
+    }
+    return series;
+}
+
 // ─── Bill Expansion ───────────────────────────────
 
 function expandBillOccurrences(bill, rangeStart, rangeEnd, payDatesInRange = []) {
@@ -1398,4 +1443,4 @@ function computeAutoTickUpdates(bills, isBillPaid, now = new Date()) {
     return updates;
 }
 
-module.exports = { classifyExpenseFlow, isTransferExpense, effectiveExpenseCategory, spendingExpenses, calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, monthlyBillSpend, getPeriodDef, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };
+module.exports = { classifyExpenseFlow, isTransferExpense, effectiveExpenseCategory, spendingExpenses, calculateNetWorth, sumDebtMinimums, getMonthlyMultiplier, frequencyToMonthly, calculateBillMonthlyAmount, calculateMonthlyIncome, addDays, generatePayDates, createBalanceSnapshot, monthlyBillCommitment, createFinancialSnapshot, monthlySpendingSeries, expandBillOccurrences, billTotalForMonth, billOccurrenceDatesForMonth, reconciledBillSpendForMonth, monthlyBillSpend, getPeriodDef, computePeriodSummary, matchBillToPlaidTransactions, resolveInvestmentHaircut, calculateFinancialHealthScore, buildPayPeriods, getBillPaidBucket, sumRemainingBills, getOverdueCarryForwards, computeAutoTickUpdates, HOUSING_BILL_CATEGORIES, DEBT_BILL_CATEGORIES, INVESTMENT_HAIRCUT_BY_RISK_TOLERANCE };

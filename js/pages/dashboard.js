@@ -16,6 +16,8 @@ import {
     computePeriodSummary,
     getPeriodDef,
     spendingExpenses,
+    monthlyBillCommitment,
+    monthlySpendingSeries,
     HOUSING_BILL_CATEGORIES,
     DEBT_BILL_CATEGORIES,
 } from '../services/financial-service.js';
@@ -29,6 +31,7 @@ const DASHBOARD_WIDGETS = [
     { id: 'cashflow-hero',     label: 'Cashflow Summary',        icon: '💸' },
     { id: 'stats-grid',        label: 'Financial Summary',       icon: '📊' },
     { id: 'net-worth-trend',   label: 'Net Worth Trend',         icon: '📈' },
+    { id: 'bills-trend',       label: 'Bills & Spending Trend',  icon: '📉' },
     { id: 'health-score',      label: 'Financial Health Score',  icon: '🏥' },
     { id: 'pay-periods',       label: 'Pay Period Breakdown',    icon: '📅' },
     { id: 'monthly-progress',  label: 'Monthly Progress',        icon: '📈' },
@@ -199,6 +202,97 @@ function buildNetWorthTrendHtml(ctx) {
 
     html += '</div>';
     return html;
+}
+
+// Bills & Spending trend — how the recurring bill commitment and actual
+// monthly spending have moved. For BILLS a downward move is GOOD (green),
+// the opposite of net worth. Bill history accrues forward (see
+// financialHistory); spending is backfilled from dated expenses.
+function buildBillsTrendHtml(ctx) {
+    var store = ctx.store;
+    var billsNow = monthlyBillCommitment(store.getBills());
+    var fh = (store.getFinancialHistory() || []).filter(function(h) { return typeof h.bills === 'number'; });
+    var spendSeries = monthlySpendingSeries(store.getExpenses(), 12);
+
+    // Nothing to show until there are bills or spending.
+    if (billsNow <= 0 && spendSeries.every(function(s) { return s.spent === 0; })) return '';
+
+    // Down-is-good delta pill (reduced = green).
+    function deltaPill(now, prev) {
+        if (prev == null) return '';
+        var delta = now - prev; // negative = reduced = good
+        if (Math.abs(delta) < 0.005) return '<span class="nw-trend-delta" style="color:var(--text-muted);background:var(--bg-input);">no change</span>';
+        var down = delta < 0;
+        var pct = prev !== 0 ? Math.abs(delta / prev * 100) : 0;
+        var arrow = down ? '<polyline points="6 9 12 15 18 9"/>' : '<polyline points="6 15 12 9 18 15"/>';
+        return '<span class="nw-trend-delta" style="color:' + (down ? 'var(--green)' : 'var(--red)') + ';background:' + (down ? 'var(--green-bg)' : 'var(--red-bg)') + ';">' +
+            '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' + arrow + '</svg>' +
+            (down ? '-' : '+') + formatCurrency(Math.abs(delta)) + ' (' + pct.toFixed(0) + '%)</span>';
+    }
+
+    var prevBills = fh.length >= 2 ? fh[fh.length - 2].bills : null;
+    var html = '<div class="card nw-trend">';
+    html += '<div class="nw-trend-eyebrow">Monthly bills</div>';
+    html += '<div class="nw-trend-head">';
+    html += '<div class="nw-trend-value">' + formatCurrency(billsNow) + '</div>';
+    html += deltaPill(billsNow, prevBills);
+    html += '</div>';
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;">' +
+        (fh.length >= 2 ? 'vs last month’s ' + formatCurrency(prevBills) : 'Recurring commitment — the trend builds each month as you adjust bills') + '</div>';
+
+    // Bills sparkline (once ≥2 monthly snapshots exist).
+    if (fh.length >= 2) {
+        var bvals = fh.map(function(h) { return h.bills; });
+        html += renderTrendChart(bvals, 'billsFill', 'var(--green)');
+        html += '<div class="nw-trend-axis"><span>' + fmtMonth(fh[0].month) + '</span><span>' + fmtMonth(fh[fh.length - 1].month) + '</span></div>';
+    }
+
+    // Spending block (backfilled — real history from day one).
+    var thisSpent = spendSeries[spendSeries.length - 1].spent;
+    var lastSpent = spendSeries[spendSeries.length - 2] ? spendSeries[spendSeries.length - 2].spent : null;
+    html += '<div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px;">';
+    html += '<div class="nw-trend-head">';
+    html += '<div><div class="nw-trend-eyebrow">Spending this month</div>' +
+        '<div style="font-size:20px;font-weight:700;color:var(--text-primary);">' + formatCurrency(thisSpent) + '</div></div>';
+    html += deltaPill(thisSpent, lastSpent);
+    html += '</div>';
+    if (lastSpent != null) {
+        html += '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">vs ' + formatCurrency(lastSpent) + ' last month</div>';
+    }
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+}
+
+// Shared area-line sparkline used by the trend widgets.
+function renderTrendChart(vals, gid, stroke) {
+    if (!vals || vals.length < 2) return '';
+    var W = 680, H = 96, pd = 8;
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    var padY = (hi - lo) * 0.12, dmin = lo - padY, dmax = hi + padY;
+    var n = vals.length, ih = H - pd * 2;
+    var pts = vals.map(function(v, i) {
+        var x = (i / (n - 1)) * W;
+        var y = pd + ih - ((v - dmin) / (dmax - dmin)) * ih;
+        return [x, y];
+    });
+    var line = pts.map(function(p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
+    var area = line + ' L ' + W + ' ' + H + ' L 0 ' + H + ' Z';
+    var s = '<div class="nw-trend-chart"><svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none">';
+    s += '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">';
+    s += '<stop offset="0" stop-color="' + stroke + '" stop-opacity="0.28"/>';
+    s += '<stop offset="1" stop-color="' + stroke + '" stop-opacity="0"/></linearGradient></defs>';
+    s += '<path d="' + area + '" fill="url(#' + gid + ')"/>';
+    s += '<path d="' + line + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+    s += '</svg></div>';
+    return s;
+}
+
+function fmtMonth(m) {
+    var parts = String(m).split('-');
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
 
 // Chevron buttons for horizontal stat scrollers (shared by any carousel row)
@@ -716,6 +810,7 @@ export function renderDashboard(container, store, subTab) {
         'cashflow-hero':     () => buildCashflowHeroHtml(ctx),
         'stats-grid':        () => buildStatsGridHtml(ctx),
         'net-worth-trend':   () => buildNetWorthTrendHtml(ctx),
+        'bills-trend':       () => buildBillsTrendHtml(ctx),
         'health-score':      () => buildHealthScoreHtml(ctx),
         'pay-periods':       () => buildPayPeriodsHtml(ctx),
         'monthly-progress':  () => buildMonthlyProgressHtml(ctx),

@@ -1,7 +1,7 @@
 import { StorageAdapter } from './services/storage-adapter.js';
 import { migrateKeyNames, migrateBalanceHistory, migrateCategoryKeys, migrateBillCategoriesToUnifiedSet } from './services/migration-manager.js';
 import { migrateEntityLinks, syncFromAccount, syncFromDebt, syncFromBill, syncDeleteAccount, syncDeleteDebt, syncDeleteBill } from './services/entity-linker.js';
-import { generatePayDates, createBalanceSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates, monthlyBillSpend, spendingExpenses } from './services/financial-service.js';
+import { generatePayDates, createBalanceSnapshot, createFinancialSnapshot, expandBillOccurrences, matchBillToPlaidTransactions, computeAutoTickUpdates, monthlyBillSpend, spendingExpenses } from './services/financial-service.js';
 import { applyRulesToExpense, validateRule } from './services/transaction-rules.js';
 import { EXPENSE_CATEGORIES as _builtinExpenseCategories, normalizeCategoryKey, getAllExpenseCategories } from './expense-categories.js';
 import { validateBudget, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, monthKey } from './services/budget-service.js';
@@ -827,8 +827,27 @@ class Store {
             data.balanceHistory = data.balanceHistory.slice(-365);
         }
 
+        // Monthly cashflow snapshot (recurring bill commitment + income) for the
+        // bills/spending trend. The current month's row updates on every load so
+        // it reflects the latest bill total; past months stay frozen.
+        if (!Array.isArray(data.financialHistory)) data.financialHistory = [];
+        const fSnap = createFinancialSnapshot(data);
+        const fIdx = data.financialHistory.findIndex(h => h.month === fSnap.month);
+        if (fIdx !== -1) data.financialHistory[fIdx] = fSnap;
+        else data.financialHistory.push(fSnap);
+        data.financialHistory.sort((a, b) => a.month.localeCompare(b.month));
+        if (data.financialHistory.length > 24) {
+            data.financialHistory = data.financialHistory.slice(-24);
+        }
+
         this._save();
         return snapshot;
+    }
+
+    getFinancialHistory() {
+        const data = this._load();
+        if (!Array.isArray(data.financialHistory)) data.financialHistory = [];
+        return data.financialHistory;
     }
 
     // ─── Tax Documents ───────────────────────────────────────
@@ -1546,7 +1565,7 @@ class Store {
 
     getDashboardLayout() {
         const data = this._load();
-        const defaultOrder = ['cashflow-hero', 'stats-grid', 'net-worth-trend', 'health-score', 'pay-periods', 'monthly-progress', 'upcoming-bills', 'spending-category', 'payment-sources', 'savings-goals', 'smart-insights'];
+        const defaultOrder = ['cashflow-hero', 'stats-grid', 'net-worth-trend', 'bills-trend', 'health-score', 'pay-periods', 'monthly-progress', 'upcoming-bills', 'spending-category', 'payment-sources', 'savings-goals', 'smart-insights'];
         if (!data.dashboardLayout) {
             return { order: [...defaultOrder], hidden: [] };
         }
