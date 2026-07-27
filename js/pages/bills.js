@@ -15,6 +15,8 @@ const DAYS_OF_WEEK = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 let billsViewMode = 'paycheck'; // 'paycheck', 'month', or 'cashflow'
 let cfPeriodOffset = 0; // For cashflow view pay period navigation
 let cashflowPeriod = 'month'; // 'month' | 'quarter' | 'year' — mirrors the dashboard toggle
+let billsPeriodOffset = 0; // By-Paycheck view: pay-period navigation (0 = current period)
+let billsMonthOffset = 0; // By-Month view: month navigation (0 = current month)
 // Persisted across re-renders — multi-select (ctrl/shift/long-press) triggers a
 // full renderBills, which used to reset the filter chips back to Unpaid
 // mid-selection.
@@ -43,24 +45,52 @@ export function renderBills(container, store) {
         ? rawBills
         : rawBills.filter(b => (b.owner || 'user') === billsOwnerFilter);
 
-    // Determine current pay period for paycheck view
-    const payDates = store.getPayDates();
+    // Determine the pay period for the paycheck view, honoring the navigation
+    // offset. Pull a WIDE pay-date window (the default only spans a few months)
+    // so the user can page many paychecks forward and back.
+    const payDates = store.getPayDates(); // default window — feeds the cashflow view
+    const navStart = new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().slice(0, 10);
+    const navEnd = new Date(now.getFullYear(), now.getMonth() + 18, 1).toISOString().slice(0, 10);
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const sorted = [...payDates].sort((a, b) => a - b);
+    const sorted = [...store.getPayDates(navStart, navEnd)].sort((a, b) => a - b);
+
+    // Find the period containing today, then step by the offset (clamped to range).
+    let curPeriodIdx = sorted.findIndex((pStart, i) => {
+        const pEnd = sorted[i + 1] ? addDays(sorted[i + 1], -1) : addDays(pStart, 13);
+        return today >= pStart && today <= pEnd;
+    });
+    if (curPeriodIdx === -1) curPeriodIdx = 0;
+    const maxPeriodIdx = Math.max(0, sorted.length - 1);
+    let periodIdx = curPeriodIdx + billsPeriodOffset;
+    if (periodIdx < 0) periodIdx = 0;
+    if (periodIdx > maxPeriodIdx) periodIdx = maxPeriodIdx;
+    billsPeriodOffset = periodIdx - curPeriodIdx; // re-clamp the stored offset
+
     let periodStart = null, periodEnd = null, periodLabel = '';
-    for (let i = 0; i < sorted.length; i++) {
-        const pStart = sorted[i];
-        const pEnd = sorted[i + 1]
-            ? addDays(sorted[i + 1], -1)
-            : addDays(pStart, 13);
-        if (today >= pStart && today <= pEnd) {
-            periodStart = pStart;
-            periodEnd = pEnd;
-            const dateOpts = { month: 'short', day: 'numeric' };
-            periodLabel = `${pStart.toLocaleDateString('en-US', dateOpts)} – ${pEnd.toLocaleDateString('en-US', dateOpts)}`;
-            break;
-        }
+    if (sorted.length) {
+        periodStart = sorted[periodIdx];
+        periodEnd = sorted[periodIdx + 1] ? addDays(sorted[periodIdx + 1], -1) : addDays(periodStart, 13);
+        const dateOpts = { month: 'short', day: 'numeric' };
+        periodLabel = `${periodStart.toLocaleDateString('en-US', dateOpts)} – ${periodEnd.toLocaleDateString('en-US', dateOpts)}`;
     }
+    const canPrevPeriod = periodIdx > 0;
+    const canNextPeriod = periodIdx < maxPeriodIdx;
+    const showingCurrentPeriod = billsPeriodOffset === 0;
+
+    // The month being viewed. Month view honors its own offset; paycheck view
+    // follows the selected period's start month (paid state still buckets per
+    // occurrence via _paidYear/_paidMonth, so this is only the fallback bucket).
+    const monthNavDate = new Date(year, month + billsMonthOffset, 1);
+    const viewYear = billsViewMode === 'month'
+        ? monthNavDate.getFullYear()
+        : (periodStart ? periodStart.getFullYear() : year);
+    const viewMonth = billsViewMode === 'month'
+        ? monthNavDate.getMonth()
+        : (periodStart ? periodStart.getMonth() : month);
+    // "Are we looking at the live period/month?" — gates the overdue banner so it
+    // never shows while paging into past/future periods.
+    const atCurrentView = billsViewMode === 'month' ? billsMonthOffset === 0
+        : billsViewMode === 'paycheck' ? billsPeriodOffset === 0 : true;
 
     // Separate regular vs periodic (yearly/semi-annual) bills
     const allRegularBills = allBills.filter(b => b.frequency !== 'yearly' && b.frequency !== 'semi-annual');
@@ -93,8 +123,8 @@ export function renderBills(container, store) {
         return false;
     }
 
-    // Get pay dates in current month for expansion
-    const payDatesInMonth = sorted.filter(d => d.getFullYear() === year && d.getMonth() === month);
+    // Get pay dates in the viewed month for expansion
+    const payDatesInMonth = sorted.filter(d => d.getFullYear() === viewYear && d.getMonth() === viewMonth);
 
     // Filter bills based on view mode, expanding recurring bills into individual occurrences
     let bills, periodicBills;
@@ -126,8 +156,8 @@ export function renderBills(container, store) {
 
         periodicBills = allPeriodicBills.filter(b => !b.frozen && isPeriodicBillDueInRange(b, periodStart, periodEnd));
     } else if (billsViewMode === 'month') {
-        const monthStart = new Date(year, month, 1);
-        const monthEnd = new Date(year, month + 1, 0);
+        const monthStart = new Date(viewYear, viewMonth, 1);
+        const monthEnd = new Date(viewYear, viewMonth + 1, 0);
 
         const expandedBills = [];
         allRegularBills.forEach(b => {
@@ -176,13 +206,50 @@ export function renderBills(container, store) {
     // Bills that went unpaid last month surface here instead of silently
     // vanishing at the month rollover. Rows carry _paidYear/_paidMonth for
     // the missed month, so their paid toggle resolves LAST month's bucket.
-    const overdueBills = getOverdueCarryForwards(allRegularBills, (id, py, pm) => store.isBillPaid(id, py, pm), now);
+    const overdueBills = atCurrentView
+        ? getOverdueCarryForwards(allRegularBills, (id, py, pm) => store.isBillPaid(id, py, pm), now)
+        : [];
     const overdueMonthName = overdueBills.length > 0
         ? new Date(overdueBills[0]._overdueFrom.year, overdueBills[0]._overdueFrom.month, 1).toLocaleDateString('en-US', { month: 'long' })
         : '';
     const overdueTotal = overdueBills.reduce((s, b) => s + (b.amount || 0), 0);
 
     const showImportFromBank = capabilities().plaid && hasPlaidConnections(store);
+
+    // Period navigation bar (paycheck + month views) — page between paychecks or
+    // between months to preview upcoming bills and amounts, or review past ones.
+    let periodNavHtml = '';
+    if (billsViewMode === 'paycheck' || billsViewMode === 'month') {
+        const isMonth = billsViewMode === 'month';
+        const prevId = isMonth ? 'month-prev' : 'period-prev';
+        const nextId = isMonth ? 'month-next' : 'period-next';
+        const todayId = isMonth ? 'month-today' : 'period-today';
+        const canPrev = isMonth ? true : canPrevPeriod;
+        const canNext = isMonth ? true : canNextPeriod;
+        const atCur = isMonth ? billsMonthOffset === 0 : showingCurrentPeriod;
+        const mainLabel = isMonth
+            ? monthNavDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+            : (periodLabel || 'No pay schedule set');
+        const rel = isMonth
+            ? (billsMonthOffset === 0 ? 'This month' : billsMonthOffset === 1 ? 'Next month' : billsMonthOffset === -1 ? 'Last month' : billsMonthOffset > 0 ? `${billsMonthOffset} months ahead` : `${-billsMonthOffset} months back`)
+            : (billsPeriodOffset === 0 ? 'This paycheck' : billsPeriodOffset === 1 ? 'Next paycheck' : billsPeriodOffset === -1 ? 'Previous paycheck' : billsPeriodOffset > 0 ? `${billsPeriodOffset} paychecks ahead` : `${-billsPeriodOffset} paychecks back`);
+        const disabledStyle = 'disabled style="opacity:0.3;cursor:default;"';
+        periodNavHtml = `
+        <div class="flex-align-center gap-8" style="margin-bottom:16px;flex-wrap:wrap;">
+            <button class="btn-icon" id="${prevId}" ${!canPrev ? disabledStyle : ''} title="Previous">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div style="min-width:180px;text-align:center;">
+                <div style="font-weight:700;font-size:14px;">${mainLabel}</div>
+                <div style="font-size:11px;color:var(--text-muted);">${rel}</div>
+            </div>
+            <button class="btn-icon" id="${nextId}" ${!canNext ? disabledStyle : ''} title="Next">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            ${!atCur ? `<button class="btn btn-secondary btn-sm" id="${todayId}" style="font-size:11px;padding:2px 10px;">${isMonth ? 'This month' : 'Current'}</button>` : ''}
+        </div>`;
+    }
+
     container.innerHTML = `
         <div class="page-header">
             <div>
@@ -201,16 +268,15 @@ export function renderBills(container, store) {
             <button class="view-tab${billsViewMode === 'cashflow' ? ' active' : ''}" id="view-cashflow">Cashflow</button>
         </div>
 
-        ${depEnabled || (billsViewMode === 'paycheck' && periodLabel) ? `
+        ${periodNavHtml}
+
+        ${depEnabled ? `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-            ${depEnabled ? `
             <select class="form-select" id="owner-filter" style="font-size:12px;padding:4px 8px;min-width:140px;">
                 <option value="all" ${billsOwnerFilter === 'all' ? 'selected' : ''}>All Bills</option>
                 <option value="user" ${billsOwnerFilter === 'user' ? 'selected' : ''}>${escapeHtml(userName)}'s Bills</option>
                 <option value="dependent" ${billsOwnerFilter === 'dependent' ? 'selected' : ''}>${escapeHtml(depName)}'s Bills</option>
             </select>
-            ` : ''}
-            ${billsViewMode === 'paycheck' && periodLabel ? `<span class="text-muted-sm">${periodLabel}</span>` : ''}
         </div>
         ` : ''}
 
@@ -268,7 +334,7 @@ export function renderBills(container, store) {
                     </tr>
                 </thead>
                 <tbody id="bills-tbody">
-                    ${renderBillRows(sortBills(filterBills(bills, activeFilter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
+                    ${renderBillRows(sortBills(filterBills(bills, activeFilter, store, viewYear, viewMonth), store, viewYear, viewMonth), store, viewYear, viewMonth, depEnabled, userName, depName)}
                 </tbody>
             </table>
         </div>
@@ -295,7 +361,7 @@ export function renderBills(container, store) {
                         </tr>
                     </thead>
                     <tbody id="periodic-bills-tbody">
-                        ${renderBillRows(sortBills(filterBills(periodicBills, activeFilter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName)}
+                        ${renderBillRows(sortBills(filterBills(periodicBills, activeFilter, store, viewYear, viewMonth), store, viewYear, viewMonth), store, viewYear, viewMonth, depEnabled, userName, depName)}
                     </tbody>
                 </table>
             </div>
@@ -308,10 +374,10 @@ export function renderBills(container, store) {
             // unpaid bill table above (same paid logic, via the shared
             // sumRemainingBills service helper, which is unit-tested).
             const isPaidFn = (id, py, pm, key) => store.isBillPaid(id, py, pm, key);
-            const regularTotal = sumRemainingBills(bills, isPaidFn, year, month);
+            const regularTotal = sumRemainingBills(bills, isPaidFn, viewYear, viewMonth);
             const periodicDueTotal = billsViewMode === 'paycheck'
-                ? sumRemainingBills(periodicBills, isPaidFn, year, month)
-                : sumRemainingBills(allPeriodicBills.filter(b => isPeriodicBillDueInMonth(b, year, month)), isPaidFn, year, month);
+                ? sumRemainingBills(periodicBills, isPaidFn, viewYear, viewMonth)
+                : sumRemainingBills(allPeriodicBills.filter(b => isPeriodicBillDueInMonth(b, viewYear, viewMonth)), isPaidFn, viewYear, viewMonth);
             const grandTotal = regularTotal + periodicDueTotal;
             return `
         <div class="card mt-16">
@@ -371,10 +437,12 @@ export function renderBills(container, store) {
     // View toggle events
     container.querySelector('#view-paycheck').addEventListener('click', () => {
         billsViewMode = 'paycheck';
+        billsPeriodOffset = 0;
         renderBills(container, store);
     });
     container.querySelector('#view-month').addEventListener('click', () => {
         billsViewMode = 'month';
+        billsMonthOffset = 0;
         renderBills(container, store);
     });
     container.querySelector('#view-cashflow').addEventListener('click', () => {
@@ -382,6 +450,18 @@ export function renderBills(container, store) {
         cfPeriodOffset = 0;
         renderBills(container, store);
     });
+
+    // Period navigation (paycheck view: step by pay period; month view: by month)
+    const bindNav = (id, fn) => {
+        const el = container.querySelector('#' + id);
+        if (el && !el.disabled) el.addEventListener('click', () => { fn(); renderBills(container, store); });
+    };
+    bindNav('period-prev', () => { billsPeriodOffset--; });
+    bindNav('period-next', () => { billsPeriodOffset++; });
+    bindNav('period-today', () => { billsPeriodOffset = 0; });
+    bindNav('month-prev', () => { billsMonthOffset--; });
+    bindNav('month-next', () => { billsMonthOffset++; });
+    bindNav('month-today', () => { billsMonthOffset = 0; });
 
     // Event: Add bill
     container.querySelector('#add-bill-btn').addEventListener('click', () => {
@@ -404,14 +484,14 @@ export function renderBills(container, store) {
             const filter = chip.dataset.filter;
             billsActiveFilter = filter; // survives the re-renders multi-select triggers
             const tbody = container.querySelector('#bills-tbody');
-            tbody.innerHTML = renderBillRows(sortBills(filterBills(bills, filter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName);
-            attachRowEvents(tbody, store, allBills, sources, categories, year, month, depEnabled, userName, depName);
+            tbody.innerHTML = renderBillRows(sortBills(filterBills(bills, filter, store, viewYear, viewMonth), store, viewYear, viewMonth), store, viewYear, viewMonth, depEnabled, userName, depName);
+            attachRowEvents(tbody, store, allBills, sources, categories, viewYear, viewMonth, depEnabled, userName, depName);
             attachSelectionEvents(tbody);
             // Also filter periodic bills section
             const periodicTbody = container.querySelector('#periodic-bills-tbody');
             if (periodicTbody) {
-                periodicTbody.innerHTML = renderBillRows(sortBills(filterBills(periodicBills, filter, store, year, month), store, year, month), store, year, month, depEnabled, userName, depName);
-                attachRowEvents(periodicTbody, store, allBills, sources, categories, year, month, depEnabled, userName, depName);
+                periodicTbody.innerHTML = renderBillRows(sortBills(filterBills(periodicBills, filter, store, viewYear, viewMonth), store, viewYear, viewMonth), store, viewYear, viewMonth, depEnabled, userName, depName);
+                attachRowEvents(periodicTbody, store, allBills, sources, categories, viewYear, viewMonth, depEnabled, userName, depName);
                 attachSelectionEvents(periodicTbody);
             }
         });
@@ -563,11 +643,12 @@ export function renderBills(container, store) {
         });
     }
 
-    // Attach row events
-    attachRowEvents(container.querySelector('#bills-tbody'), store, rawBills, sources, categories, year, month, depEnabled, userName, depName);
+    // Attach row events (viewed month drives the paid bucket for the main +
+    // periodic tables; overdue rows carry their own missed-month bucket).
+    attachRowEvents(container.querySelector('#bills-tbody'), store, rawBills, sources, categories, viewYear, viewMonth, depEnabled, userName, depName);
     const periodicTbody = container.querySelector('#periodic-bills-tbody');
     if (periodicTbody) {
-        attachRowEvents(periodicTbody, store, rawBills, sources, categories, year, month, depEnabled, userName, depName);
+        attachRowEvents(periodicTbody, store, rawBills, sources, categories, viewYear, viewMonth, depEnabled, userName, depName);
     }
     const overdueTbody = container.querySelector('#overdue-tbody');
     if (overdueTbody) {

@@ -113,6 +113,10 @@ class Store {
         if (!this._data) {
             this._data = JSON.parse(JSON.stringify(defaultData));
         }
+        // Backfill any top-level schema keys the stored blob is missing so
+        // readers can assume the shape (e.g. isBillPaid reads paidHistory).
+        // Partial/imported/older data would otherwise crash on first render.
+        this._backfillDefaults();
 
         // Run migrations
         const keysMigrated = migrateKeyNames(this._data);
@@ -159,6 +163,19 @@ class Store {
         }
         if (!this._data) {
             this._data = JSON.parse(JSON.stringify(defaultData));
+        }
+        this._backfillDefaults();
+    }
+
+    // Ensure every top-level key from the default schema exists on the loaded
+    // data. Only fills genuinely-missing keys (undefined) — never overwrites
+    // stored values, including intentional nulls like dashboardLayout.
+    _backfillDefaults() {
+        if (!this._data || typeof this._data !== 'object') return;
+        for (const key of Object.keys(defaultData)) {
+            if (this._data[key] === undefined) {
+                this._data[key] = JSON.parse(JSON.stringify(defaultData[key]));
+            }
         }
     }
 

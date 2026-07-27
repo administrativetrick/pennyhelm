@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Page through paychecks and months on the Bills screen.** By Paycheck and By Month now have back/next arrows (and a "Current" / "This month" jump) so you can look ahead to an upcoming paycheck or month — seeing exactly which bills hit and how much — or step back to review and update past ones. Marking a bill paid records it under the period you're viewing.
+
+### Fixed
+- **The Bills page no longer errors on accounts missing saved paid history** (brand-new or imported data); the app now backfills any missing data fields on load.
+
 ## [0.7.2] — 2026-07-15
 
 ### Changed
