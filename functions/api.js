@@ -26,12 +26,20 @@ class ApiError extends Error {
  *   GET  /api/v1/expenses    — List all expenses
  *   GET  /api/v1/summary     — Financial summary (totals, upcoming)
  *
- * Write endpoints (read_write-scoped keys only) — each adds one record:
+ * Write endpoints (read_write-scoped keys only). Resource ∈ {expenses, bills,
+ * debts, budgets, rules}:
+ *   POST   /api/v1/<resource>        — create one record (payloads below)
+ *   PATCH  /api/v1/<resource>/<id>   — update only the fields you send (PUT is an alias)
+ *   DELETE /api/v1/<resource>/<id>   — remove the record
+ *
  *   POST /api/v1/expenses    — { name, amount, category?, date?, vendor?, notes? }
  *   POST /api/v1/bills       — { name, amount, frequency, dueDay, category?, dueMonth?, paymentSource?, owner?, autoPay?, expenseCategory? }
  *   POST /api/v1/debts       — { name, type, currentBalance, originalBalance?, interestRate?, minimumPayment?, notes? }
  *   POST /api/v1/budgets     — { monthlyAmount, category | tag, startMonth?, rollover?, notes? }
  *   POST /api/v1/rules       — { name, match:{mode,conditions:[{field,op,value}]}, actions:{category?,rename?,addTags?,ignore?} }
+ *
+ * Update sends any subset of the create fields, e.g. re-categorize a bill with
+ *   PATCH /api/v1/bills/<id>  { "category": "utilities" }
  */
 
 module.exports = function ({ admin, db }, validateApiKey) {
@@ -41,7 +49,7 @@ module.exports = function ({ admin, db }, validateApiKey) {
 
     function corsHeaders(res) {
         res.set("Access-Control-Allow-Origin", "*");
-        res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
         res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
         res.set("Access-Control-Max-Age", "3600");
     }
@@ -87,9 +95,9 @@ module.exports = function ({ admin, db }, validateApiKey) {
     // app save can't be clobbered. `mutator(parsed)` mutates the parsed object
     // and returns the created record; it may throw ApiError for a specific
     // status (e.g. a duplicate). Returns { field, record } or sends an error.
-    async function writeUserData(req, res, uid, field, responseKey, mutator) {
+    async function writeUserData(req, res, uid, field, responseKey, mutator, successStatus = 201) {
         const docRef = db.collection("userData").doc(uid);
-        let created;
+        let record;
         try {
             await db.runTransaction(async (tx) => {
                 const snap = await tx.get(docRef);
@@ -97,7 +105,7 @@ module.exports = function ({ admin, db }, validateApiKey) {
                 let parsed = {};
                 if (raw) { try { parsed = JSON.parse(raw); } catch { parsed = {}; } }
                 if (!Array.isArray(parsed[field])) parsed[field] = [];
-                created = mutator(parsed);
+                record = mutator(parsed);
                 tx.set(docRef, {
                     data: JSON.stringify(parsed),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -108,7 +116,15 @@ module.exports = function ({ admin, db }, validateApiKey) {
             console.error(`API write ${field} error:`, e);
             return jsonError(res, 500, `Failed to save ${field}.`);
         }
-        res.status(201).json({ success: true, [responseKey]: created });
+        res.status(successStatus).json({ success: true, [responseKey]: record });
+    }
+
+    // Locate an array item by id or throw a 404 ApiError. Used by every
+    // update/delete handler so a bad id returns a clean "not found".
+    function findIndexOrThrow(arr, id, label) {
+        const idx = (arr || []).findIndex((x) => String(x.id) === String(id));
+        if (idx === -1) throw new ApiError(404, `No ${label} found with id '${id}'.`);
+        return idx;
     }
 
     const num = (v) => (typeof v === "number" ? v : Number(v));
@@ -233,6 +249,120 @@ module.exports = function ({ admin, db }, validateApiKey) {
         });
     }
 
+    // ─── Updates (PATCH/PUT) — partial: only provided fields change ──────
+    // Each mirrors its create validation, but per-field, so a caller can e.g.
+    // re-categorize just one bill/budget/rule without resending the record.
+
+    // PATCH /api/v1/expenses/:id
+    async function updateExpense(req, res, uid, id) {
+        const b = req.body || {};
+        await writeUserData(req, res, uid, "expenses", "expense", (d) => {
+            const item = d.expenses[findIndexOrThrow(d.expenses, id, "expense")];
+            if (b.name != null) { const n = str(b.name); if (!n) throw new ApiError(400, "Field 'name' cannot be empty."); item.name = n; }
+            if (b.amount != null) { const a = num(b.amount); if (!Number.isFinite(a) || a <= 0) throw new ApiError(400, "Field 'amount' must be a positive number."); item.amount = money(a); }
+            if (b.category != null) item.category = normalizeCategoryKey(str(b.category), null) || str(b.category).toLowerCase() || "other";
+            if (b.date != null) { if (!/^\d{4}-\d{2}-\d{2}$/.test(str(b.date))) throw new ApiError(400, "Field 'date' must be YYYY-MM-DD."); item.date = str(b.date); }
+            if (b.vendor != null) item.vendor = str(b.vendor);
+            if (b.notes != null) item.notes = str(b.notes);
+            if (b.ignored != null) item.ignored = b.ignored === true;
+            if (Array.isArray(b.tags)) item.tags = b.tags.map(str).filter(Boolean);
+            item.updatedAt = new Date().toISOString();
+            return item;
+        }, 200);
+    }
+
+    // PATCH /api/v1/bills/:id
+    async function updateBill(req, res, uid, id) {
+        const b = req.body || {};
+        await writeUserData(req, res, uid, "bills", "bill", (d) => {
+            const item = d.bills[findIndexOrThrow(d.bills, id, "bill")];
+            if (b.name != null) { const n = str(b.name); if (!n) throw new ApiError(400, "Field 'name' cannot be empty."); item.name = n; }
+            if (b.amount != null) { const a = num(b.amount); if (!Number.isFinite(a) || a < 0) throw new ApiError(400, "Field 'amount' must be zero or a positive number."); item.amount = money(a); }
+            if (b.frequency != null) { const f = str(b.frequency); if (!BILL_FREQUENCIES.includes(f)) throw new ApiError(400, `Field 'frequency' must be one of: ${BILL_FREQUENCIES.join(", ")}.`); item.frequency = f; }
+            if (b.dueDay != null) { const dd = Math.trunc(num(b.dueDay)); if (!Number.isFinite(dd) || dd < 1 || dd > 31) throw new ApiError(400, "Field 'dueDay' must be a day of month (1-31)."); item.dueDay = dd; }
+            if (b.dueMonth != null) { const dm = Math.trunc(num(b.dueMonth)); if (!Number.isFinite(dm) || dm < 0 || dm > 11) throw new ApiError(400, "Field 'dueMonth' must be a month index (0-11)."); item.dueMonth = dm; }
+            if (b.category != null) item.category = str(b.category) || "other";
+            if (b.paymentSource != null) item.paymentSource = str(b.paymentSource);
+            if (b.owner != null) item.owner = b.owner === "dependent" ? "dependent" : "user";
+            if (b.autoPay != null) item.autoPay = b.autoPay === true;
+            if (b.frozen != null) item.frozen = b.frozen === true;
+            if (b.notes != null) item.notes = str(b.notes);
+            if (b.expenseCategory != null) item.expenseCategory = b.expenseCategory === "none" ? "none" : normalizeCategoryKey(str(b.expenseCategory), null);
+            item.updatedAt = new Date().toISOString();
+            return item;
+        }, 200);
+    }
+
+    // PATCH /api/v1/debts/:id
+    async function updateDebt(req, res, uid, id) {
+        const b = req.body || {};
+        await writeUserData(req, res, uid, "debts", "debt", (d) => {
+            const item = d.debts[findIndexOrThrow(d.debts, id, "debt")];
+            if (b.name != null) { const n = str(b.name); if (!n) throw new ApiError(400, "Field 'name' cannot be empty."); item.name = n; }
+            if (b.type != null) { const t = str(b.type); if (!DEBT_TYPES.includes(t)) throw new ApiError(400, `Field 'type' must be one of: ${DEBT_TYPES.join(", ")}.`); item.type = t; }
+            if (b.currentBalance != null) { const v = num(b.currentBalance); if (!Number.isFinite(v) || v < 0) throw new ApiError(400, "Field 'currentBalance' must be zero or a positive number."); item.currentBalance = money(v); }
+            if (b.originalBalance != null) { const v = num(b.originalBalance); if (!Number.isFinite(v) || v < 0) throw new ApiError(400, "Field 'originalBalance' must be zero or a positive number."); item.originalBalance = money(v); }
+            if (b.interestRate != null) { const v = num(b.interestRate); if (Number.isFinite(v)) item.interestRate = v; }
+            if (b.minimumPayment != null) { const v = num(b.minimumPayment); if (!Number.isFinite(v) || v < 0) throw new ApiError(400, "Field 'minimumPayment' must be zero or a positive number."); item.minimumPayment = money(v); }
+            if (b.notes != null) item.notes = str(b.notes);
+            item.updatedAt = new Date().toISOString();
+            return item;
+        }, 200);
+    }
+
+    // PATCH /api/v1/budgets/:id
+    async function updateBudget(req, res, uid, id) {
+        const b = req.body || {};
+        await writeUserData(req, res, uid, "categoryBudgets", "budget", (d) => {
+            const idx = findIndexOrThrow(d.categoryBudgets, id, "budget");
+            const next = { ...d.categoryBudgets[idx] };
+            if (b.monthlyAmount != null) next.monthlyAmount = num(b.monthlyAmount);
+            if (b.startMonth != null) { if (!/^\d{4}-\d{2}$/.test(str(b.startMonth))) throw new ApiError(400, "Field 'startMonth' must be YYYY-MM."); next.startMonth = str(b.startMonth); }
+            if (b.rollover != null) next.rollover = b.rollover === true;
+            if (b.notes != null) next.notes = str(b.notes);
+            // Allow re-targeting the budget (category <-> tag are mutually exclusive).
+            if (b.tag != null && str(b.tag)) { next.tag = str(b.tag).replace(/^#/, "").toLowerCase(); delete next.category; }
+            else if (b.category != null && str(b.category)) { next.category = normalizeCategoryKey(str(b.category), null); delete next.tag; }
+            const err = validateBudget(next);
+            if (err) throw new ApiError(400, err);
+            const dup = d.categoryBudgets.find((x) => x.id !== next.id && (next.tag
+                ? String(x.tag || "").toLowerCase() === next.tag
+                : (x.category === next.category && !x.tag)));
+            if (dup) throw new ApiError(409, `A budget already exists for that ${next.tag ? "tag" : "category"}.`);
+            d.categoryBudgets[idx] = next;
+            return next;
+        }, 200);
+    }
+
+    // PATCH /api/v1/rules/:id
+    async function updateRule(req, res, uid, id) {
+        const b = req.body || {};
+        await writeUserData(req, res, uid, "transactionRules", "rule", (d) => {
+            const idx = findIndexOrThrow(d.transactionRules, id, "rule");
+            const next = { ...d.transactionRules[idx] };
+            if (b.name != null) next.name = str(b.name);
+            if (b.match != null) next.match = (b.match && typeof b.match === "object") ? b.match : null;
+            if (b.actions != null) next.actions = (b.actions && typeof b.actions === "object") ? { ...b.actions } : null;
+            if (b.enabled != null) next.enabled = b.enabled === true;
+            if (b.priority != null && Number.isFinite(num(b.priority))) next.priority = Math.trunc(num(b.priority));
+            if (next.actions && next.actions.category != null) next.actions.category = normalizeCategoryKey(str(next.actions.category), null);
+            const err = validateRule(next);
+            if (err) throw new ApiError(400, err);
+            d.transactionRules[idx] = next;
+            return next;
+        }, 200);
+    }
+
+    // ─── Delete (DELETE) ────────────────────────────────────────────────
+    // DELETE /api/v1/<resource>/:id — removes the item, returns its id.
+    async function deleteItem(req, res, uid, field, label, id) {
+        await writeUserData(req, res, uid, field, "deleted", (d) => {
+            const idx = findIndexOrThrow(d[field], id, label);
+            d[field].splice(idx, 1);
+            return { id };
+        }, 200);
+    }
+
     // ─── API Router ──────────────────────────────────────────────
 
     exports.api = onRequest({ cors: false }, async (req, res) => {
@@ -244,8 +374,9 @@ module.exports = function ({ admin, db }, validateApiKey) {
             return;
         }
 
-        if (req.method !== "GET" && req.method !== "POST") {
-            jsonError(res, 405, "Only GET and POST requests are supported.");
+        const WRITE_METHODS = ["POST", "PATCH", "PUT", "DELETE"];
+        if (req.method !== "GET" && !WRITE_METHODS.includes(req.method)) {
+            jsonError(res, 405, "Supported methods: GET, POST, PATCH, PUT, DELETE.");
             return;
         }
 
@@ -268,25 +399,68 @@ module.exports = function ({ admin, db }, validateApiKey) {
         }
 
         const resource = segments[1];
+        const itemId = segments[2]; // /api/v1/<resource>/<id> for update/delete
 
-        // ─── Writes (POST) — require a read_write-scoped key ───
-        if (req.method === "POST") {
+        // ─── All writes require a read_write-scoped key ───
+        if (WRITE_METHODS.includes(req.method)) {
             if (keyInfo.scope !== "read_write") {
                 jsonError(res, 403, "This API key is read-only. Create a write-enabled key to modify data.");
                 return;
             }
-            const writers = {
-                expenses: createExpense,
-                bills: createBill,
-                debts: createDebt,
-                budgets: createBudget,
-                rules: createRule,
-            };
-            if (writers[resource]) {
-                await writers[resource](req, res, keyInfo.uid);
+
+            // Create — POST /api/v1/<resource>
+            if (req.method === "POST") {
+                const creators = {
+                    expenses: createExpense,
+                    bills: createBill,
+                    debts: createDebt,
+                    budgets: createBudget,
+                    rules: createRule,
+                };
+                if (creators[resource]) {
+                    await creators[resource](req, res, keyInfo.uid);
+                    return;
+                }
+                jsonError(res, 404, "Not found. Create with: POST /api/v1/{expenses, bills, debts, budgets, rules}");
                 return;
             }
-            jsonError(res, 404, "Not found. Writable endpoints: POST /api/v1/{expenses, bills, debts, budgets, rules}");
+
+            // Update / delete both target a single item by id.
+            if (!itemId) {
+                jsonError(res, 400, `An item id is required: ${req.method} /api/v1/${resource}/{id}`);
+                return;
+            }
+
+            // Delete — DELETE /api/v1/<resource>/<id>
+            if (req.method === "DELETE") {
+                const fields = {
+                    expenses: ["expenses", "expense"],
+                    bills: ["bills", "bill"],
+                    debts: ["debts", "debt"],
+                    budgets: ["categoryBudgets", "budget"],
+                    rules: ["transactionRules", "rule"],
+                };
+                if (fields[resource]) {
+                    await deleteItem(req, res, keyInfo.uid, fields[resource][0], fields[resource][1], itemId);
+                    return;
+                }
+                jsonError(res, 404, "Not found. Delete with: DELETE /api/v1/{expenses, bills, debts, budgets, rules}/{id}");
+                return;
+            }
+
+            // Update — PATCH or PUT /api/v1/<resource>/<id> (partial in both cases)
+            const updaters = {
+                expenses: updateExpense,
+                bills: updateBill,
+                debts: updateDebt,
+                budgets: updateBudget,
+                rules: updateRule,
+            };
+            if (updaters[resource]) {
+                await updaters[resource](req, res, keyInfo.uid, itemId);
+                return;
+            }
+            jsonError(res, 404, "Not found. Update with: PATCH /api/v1/{expenses, bills, debts, budgets, rules}/{id}");
             return;
         }
 

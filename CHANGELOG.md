@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Page through paychecks and months on the Bills screen.** By Paycheck and By Month now have back/next arrows (and a "Current" / "This month" jump) so you can look ahead to an upcoming paycheck or month — seeing exactly which bills hit and how much — or step back to review and update past ones. Marking a bill paid records it under the period you're viewing.
+- **The write API can now update and delete, not just create.** Write-enabled API keys gained `PATCH /api/v1/<resource>/<id>` (partial update — send only the fields you want to change, e.g. re-categorize a bill or budget) and `DELETE /api/v1/<resource>/<id>`, across expenses, bills, debts, budgets, and rules. Reads and read-only keys are unchanged.
 
 ### Fixed
 - **The Bills page no longer errors on accounts missing saved paid history** (brand-new or imported data); the app now backfills any missing data fields on load.
