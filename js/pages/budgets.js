@@ -9,7 +9,7 @@
 import { openModal, closeModal, refreshPage } from '../app.js';
 import { formatCurrency, escapeHtml } from '../utils.js';
 import { EXPENSE_CATEGORIES, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
-import { monthKey, addMonth } from '../services/budget-service.js';
+import { monthKey, addMonth, budgetExpensesForMonth } from '../services/budget-service.js';
 import { confirmModal } from '../services/modal-manager.js';
 import { calculateMonthlyIncome } from '../services/financial-service.js';
 
@@ -37,6 +37,21 @@ function progressBar(status) {
             <div style="height:100%;width:${isFinite(pct) ? pct : 100}%;background:${color};transition:width 0.2s;"></div>
         </div>
     `;
+}
+
+// Collapsible list of the expenses that make up a budget's spend this month.
+// Hidden by default; toggled open by clicking the budget's header.
+function budgetDrilldownHTML(budget, store, month) {
+    if (!budget || !budget.id) return '';
+    const items = budgetExpensesForMonth(budget, store.getExpenses(), month);
+    const inner = items.length
+        ? `<div class="text-muted-sm" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${items.length} expense${items.length === 1 ? '' : 's'}</div>` +
+          items.map((e) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:13px;">
+                <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.name || e.vendor || 'Expense')}${e.vendor && e.name ? ` <span style="color:var(--text-muted);">· ${escapeHtml(e.vendor)}</span>` : ''}</span>
+                <span style="white-space:nowrap;"><span style="color:var(--text-muted);font-size:11px;margin-right:8px;">${escapeHtml(String(e.date || '').slice(5))}</span><b style="font-variant-numeric:tabular-nums;">${formatCurrency(e.amount)}</b></span>
+            </div>`).join('')
+        : `<div class="text-muted-sm" style="padding:6px 0;">No expenses in this category this month.${budget.tag ? '' : ' (Upcoming bills, if any, are shown on the card above.)'}</div>`;
+    return `<div class="budget-drilldown" data-budget-dd="${budget.id}" style="display:none;margin-top:12px;padding-top:4px;border-top:1px dashed var(--border);">${inner}</div>`;
 }
 
 export function renderBudgets(container, store) {
@@ -187,7 +202,8 @@ export function renderBudgets(container, store) {
                         return `
                         <div class="card">
                             <div class="settings-section">
-                                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+                                <div class="budget-head" data-budget-toggle="${budget.id}" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;cursor:pointer;">
+                                    <span class="budget-caret" data-budget-caret="${budget.id}" style="color:var(--text-muted);font-size:11px;width:10px;display:inline-block;transition:transform .15s;">▸</span>
                                     <div style="width:12px;height:12px;border-radius:3px;background:${color};"></div>
                                     <div style="flex:1;font-weight:600;font-size:15px;">${escapeHtml(label)} <span style="font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-input);padding:2px 8px;border-radius:10px;margin-left:6px;">no limit</span></div>
                                     <div style="display:flex;gap:4px;">
@@ -199,6 +215,7 @@ export function renderBudgets(container, store) {
                                     ${formatCurrency(s.spent)} <span style="font-size:13px;color:var(--text-muted);font-weight:500;">spent this month — tracking only</span>
                                 </div>
                                 ${s.billSpent > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--text-muted);">Upcoming bills ${formatCurrency(s.billSpent)} &middot; Spent ${formatCurrency(s.expenseSpent)}</div>` : ''}
+                                ${budgetDrilldownHTML(budget, store, viewMonth)}
                             </div>
                         </div>
                         `;
@@ -206,7 +223,8 @@ export function renderBudgets(container, store) {
                     return `
                         <div class="card">
                             <div class="settings-section">
-                                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+                                <div class="budget-head" data-budget-toggle="${budget.id}" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;cursor:pointer;">
+                                    <span class="budget-caret" data-budget-caret="${budget.id}" style="color:var(--text-muted);font-size:11px;width:10px;display:inline-block;transition:transform .15s;">▸</span>
                                     <div style="width:12px;height:12px;border-radius:3px;background:${color};"></div>
                                     <div style="flex:1;font-weight:600;font-size:15px;">${escapeHtml(label)}</div>
                                     <div style="display:flex;gap:4px;">
@@ -230,6 +248,7 @@ export function renderBudgets(container, store) {
                                         : ''}
                                     <span>${rolloverNote}</span>
                                 </div>
+                                ${budgetDrilldownHTML(budget, store, viewMonth)}
                             </div>
                         </div>
                     `;
@@ -272,6 +291,20 @@ export function renderBudgets(container, store) {
             if (!(await confirmModal({ title: 'Delete budget', message: 'Delete this budget? Your expense history is unaffected — only the target and rollover state go away.', confirmLabel: 'Delete', danger: true }))) return;
             store.deleteBudget(btn.dataset.budgetId);
             refreshPage();
+        });
+    });
+
+    // Click a budget header to expand/collapse its expense drilldown.
+    container.querySelectorAll('[data-budget-toggle]').forEach(head => {
+        head.addEventListener('click', (e) => {
+            if (e.target.closest('.btn-icon')) return; // edit/delete buttons act normally
+            const id = head.dataset.budgetToggle;
+            const dd = container.querySelector(`.budget-drilldown[data-budget-dd="${id}"]`);
+            const caret = container.querySelector(`.budget-caret[data-budget-caret="${id}"]`);
+            if (!dd) return;
+            const open = dd.style.display !== 'none';
+            dd.style.display = open ? 'none' : 'block';
+            if (caret) caret.style.transform = open ? '' : 'rotate(90deg)';
         });
     });
 }

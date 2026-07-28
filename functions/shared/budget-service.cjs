@@ -78,6 +78,28 @@ function isMonthBefore(a, b) {
  *   pctUsed: number          // spent / available
  * }}
  */
+// The single predicate that decides whether an expense counts toward a budget.
+// Shared by computeBudgetStatus and budgetExpensesForMonth so the "spent" total
+// and the drilldown line-items can never disagree. Compares case-insensitively
+// (legacy data mixes "Mortgage" vs "mortgage"); skips ignored + split parents.
+function budgetQualifier(budget) {
+    const budgetTag = String(budget.tag || '').toLowerCase();
+    const budgetCat = String(budget.category || '').toLowerCase();
+    const notSplitParent = (e) => !e.ignored && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0);
+    return budgetTag
+        ? (e) => notSplitParent(e) && (Array.isArray(e.tags) ? e.tags : []).some((t) => String(t).toLowerCase() === budgetTag)
+        : (e) => notSplitParent(e) && String(e.category || 'other').toLowerCase() === budgetCat;
+}
+
+// The expense line-items behind a budget's `expenseSpent` for one month, newest
+// first — powers the Budgets drilldown. Same matching as computeBudgetStatus.
+function budgetExpensesForMonth(budget, expenses, month) {
+    const qualifies = budgetQualifier(budget);
+    return (expenses || [])
+        .filter((e) => qualifies(e) && String(e.date || '').startsWith(month))
+        .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+}
+
 function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendForMonth) {
     // Defensive slice: a startMonth stored as a full date ('2026-07-03')
     // compares lexicographically AFTER '2026-07' and would wrongly mark the
@@ -97,16 +119,10 @@ function computeBudgetStatus(budget, expenses, asOfMonth, getBillSpendForMonth) 
     // A one-time migration backfills canonical keys, but this comparator is
     // the safety net so a single stray value can't silently zero out a
     // whole budget.
+    // budgetTag is still needed below to gate bill reconciliation (tag budgets
+    // never count bills, which carry no tags).
     const budgetTag = String(budget.tag || '').toLowerCase();
-    const budgetCat = String(budget.category || '').toLowerCase();
-    const notSplitParent = (e) =>
-        !e.ignored
-        && !(Array.isArray(e.splitChildren) && e.splitChildren.length > 0);
-    const qualifies = budgetTag
-        ? (e) => notSplitParent(e)
-            && (Array.isArray(e.tags) ? e.tags : []).some(t => String(t).toLowerCase() === budgetTag)
-        : (e) => notSplitParent(e)
-            && String(e.category || 'other').toLowerCase() === budgetCat;
+    const qualifies = budgetQualifier(budget);
 
     // A $0 monthly amount means "unlimited" — no cap, just track the spend.
     // No rollover math applies (there's no headroom to carry), remaining is
@@ -220,4 +236,4 @@ function validateBudget(budget) {
     return null;
 }
 
-module.exports = { monthKey, addMonth, isMonthBefore, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, validateBudget };
+module.exports = { monthKey, addMonth, isMonthBefore, budgetQualifier, budgetExpensesForMonth, computeBudgetStatus, computeAllBudgetStatuses, computeBudgetTotals, validateBudget };
