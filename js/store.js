@@ -43,6 +43,15 @@ const defaultData = {
     },
     debts: [], // { id, name, type, currentBalance, originalBalance, interestRate, minimumPayment, createdDate, notes }
     debtBudget: { totalMonthlyBudget: 0, strategy: 'avalanche' },
+    debtStrategy: {
+        // Debt Repayment Strategy planner (js/pages/debt-strategy.js).
+        monthlyPayment: null,      // null → default to the sum of included minimums
+        rateScenario: 'current',   // 'current' | '8' | '15' | '0' (uniform preview rate)
+        includeTypes: null,        // null → default to credit cards (first-run); else array of debt types
+        lumps: [],                 // { id, m: monthOffset, amt, label }
+        perDebt: {},               // { [debtId]: { included?, joint?, refundableAmount? } }
+        notes: [],                 // { id, title, body } — editable plan notes
+    },
     expenses: [], // { id, name, amount, category, date, vendor, notes, createdDate, expenseType: 'personal'|'business', businessName?, plaidTransactionId?, source: 'manual'|'plaid', tags?: string[], ignored?: boolean, splitOf?: string|null, splitChildren?: string[] }
     transactionRules: [], // { id, name, enabled, priority, match: {field, op, value}, actions: {category?, addTags?, rename?, ignore?} } — see js/services/transaction-rules.js
     categoryBudgets: [], // { id, category, monthlyAmount, rollover, startMonth: 'YYYY-MM', notes? } — see js/services/budget-service.js
@@ -1803,6 +1812,25 @@ class Store {
     updateHealthScoreSettings(updates) {
         const data = this._load();
         data.healthScoreSettings = { ...(data.healthScoreSettings || {}), ...updates };
+        this._save();
+    }
+
+    // ─── Debt Repayment Strategy ─────────────────────────────
+    getDebtStrategy() {
+        const s = this._load().debtStrategy || {};
+        return {
+            monthlyPayment: s.monthlyPayment == null ? null : Number(s.monthlyPayment),
+            rateScenario: s.rateScenario || 'current',
+            includeTypes: Array.isArray(s.includeTypes) ? s.includeTypes : null,
+            lumps: Array.isArray(s.lumps) ? s.lumps : [],
+            perDebt: (s.perDebt && typeof s.perDebt === 'object') ? s.perDebt : {},
+            notes: Array.isArray(s.notes) ? s.notes : [],
+        };
+    }
+
+    updateDebtStrategy(updates) {
+        const data = this._load();
+        data.debtStrategy = { ...(data.debtStrategy || {}), ...updates };
         this._save();
     }
 }

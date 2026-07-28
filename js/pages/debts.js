@@ -7,6 +7,8 @@ import { syncPlaidTransactions, hasPlaidConnections } from '../plaid.js';
 import { EXPENSE_CATEGORIES, getExpenseCategoryBadge, getAllExpenseCategories, renderCategoryOptions, mountSearchableCategoryPicker } from '../expense-categories.js';
 import { openInlineCategoryPicker } from '../inline-category-picker.js';
 import { spendingExpenses, classifyExpenseFlow, getPeriodDef } from '../services/financial-service.js';
+import { calculatePayoffStrategy, formatMonths, getDebtFreeDate } from '../services/debt-strategy-service.js';
+import { renderDebtStrategy } from './debt-strategy.js';
 import { showToast, confirmModal } from '../services/modal-manager.js';
 
 // Expenses-tab window: This Month / Quarter / Year, navigable one unit at a
@@ -43,132 +45,8 @@ function calculateWeightedAPR(debts) {
     return weighted / totalBalance;
 }
 
-function calculatePayoffStrategy(debts, monthlyBudget, strategy, cascade = true) {
-    if (debts.length === 0 || monthlyBudget <= 0) {
-        return { monthsToPayoff: 0, totalInterestPaid: 0, timeline: [], payoffOrder: [] };
-    }
-
-    // Clone debts for simulation
-    let balances = debts.map(d => ({
-        id: d.id,
-        name: d.name,
-        balance: d.currentBalance,
-        rate: d.interestRate / 100 / 12, // monthly rate
-        minPayment: d.minimumPayment
-    }));
-
-    // Sort by strategy
-    if (strategy === 'avalanche') {
-        balances.sort((a, b) => b.rate - a.rate); // highest rate first
-    } else {
-        balances.sort((a, b) => a.balance - b.balance); // lowest balance first
-    }
-
-    const totalMinimum = balances.reduce((sum, d) => sum + d.minPayment, 0);
-    if (monthlyBudget < totalMinimum) {
-        // Can't even cover minimums
-        return { monthsToPayoff: Infinity, totalInterestPaid: Infinity, timeline: [], payoffOrder: [] };
-    }
-
-    let months = 0;
-    let totalInterest = 0;
-    const timeline = [];
-    const payoffOrder = [];
-    const maxMonths = 600; // 50 years cap
-
-    // Track current budget - decreases when cascade is OFF
-    let currentBudget = monthlyBudget;
-
-    while (balances.some(d => d.balance > 0.01) && months < maxMonths) {
-        months++;
-        let extraPayment = currentBudget;
-        let monthInterest = 0;
-
-        // Apply interest to all
-        balances.forEach(d => {
-            if (d.balance > 0) {
-                const interest = d.balance * d.rate;
-                d.balance += interest;
-                monthInterest += interest;
-            }
-        });
-        totalInterest += monthInterest;
-
-        // Pay minimums on all active debts
-        balances.forEach(d => {
-            if (d.balance > 0) {
-                const payment = Math.min(d.minPayment, d.balance);
-                d.balance -= payment;
-                extraPayment -= payment;
-
-                // Check if debt is paid off after minimum payment
-                if (d.balance <= 0.01) {
-                    d.balance = 0;
-                    if (!payoffOrder.includes(d.name)) {
-                        payoffOrder.push(d.name);
-                    }
-                    // If cascade is OFF, reduce budget by this debt's minimum
-                    if (!cascade) {
-                        currentBudget -= d.minPayment;
-                    }
-                }
-            }
-        });
-
-        // Apply extra to target debt (first in sorted list with balance)
-        for (const d of balances) {
-            if (d.balance > 0 && extraPayment > 0) {
-                const payment = Math.min(extraPayment, d.balance);
-                d.balance -= payment;
-                extraPayment -= payment;
-                if (d.balance <= 0.01) {
-                    d.balance = 0;
-                    if (!payoffOrder.includes(d.name)) {
-                        payoffOrder.push(d.name);
-                    }
-                    // If cascade is OFF, reduce budget by this debt's minimum
-                    if (!cascade) {
-                        currentBudget -= d.minPayment;
-                    }
-                }
-                break;
-            }
-        }
-
-        // Record timeline every month for first 12 months
-        if (months <= 12) {
-            timeline.push({
-                month: months,
-                totalRemaining: balances.reduce((sum, d) => sum + d.balance, 0)
-            });
-        }
-    }
-
-    return {
-        monthsToPayoff: months >= maxMonths ? Infinity : months,
-        totalInterestPaid: totalInterest,
-        timeline,
-        payoffOrder
-    };
-}
-
-function formatMonths(months) {
-    if (months === Infinity || months >= 600) return 'Never';
-    if (months === 0) return 'Paid off';
-    const years = Math.floor(months / 12);
-    const remaining = months % 12;
-    if (years === 0) return `${months} months`;
-    if (remaining === 0) return `${years} year${years > 1 ? 's' : ''}`;
-    return `${years}y ${remaining}m`;
-}
-
-function getDebtFreeDate(months) {
-    if (months === Infinity || months >= 600) return 'Never';
-    if (months === 0) return 'Today';
-    const date = new Date();
-    date.setMonth(date.getMonth() + months);
-    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-}
+// calculatePayoffStrategy / formatMonths / getDebtFreeDate now live in
+// js/services/debt-strategy-service.js (shared with the Repayment Strategy page).
 
 function calculateMonthlyPayment(principal, annualRate, termMonths) {
     if (principal <= 0 || termMonths <= 0) return 0;
@@ -218,16 +96,23 @@ export function renderDebts(container, store, subTab = null) {
     // for direct page loads / bookmarks.
     if (subTab === 'expenses') {
         activeDebtsTab = 'expenses';
+    } else if (subTab === 'strategy') {
+        activeDebtsTab = 'strategy';
     } else if (subTab === 'debts') {
         activeDebtsTab = 'debts';
     } else {
         const hash = window.location.hash;
         if (hash === '#debts/expenses') activeDebtsTab = 'expenses';
+        else if (hash === '#debts/strategy') activeDebtsTab = 'strategy';
         else if (hash === '#debts' || hash === '#debts/debts') activeDebtsTab = 'debts';
     }
 
     if (activeDebtsTab === 'expenses') {
         renderExpensesTab(container, store);
+        return;
+    }
+    if (activeDebtsTab === 'strategy') {
+        renderDebtStrategy(container, store);
         return;
     }
 
@@ -268,6 +153,7 @@ export function renderDebts(container, store, subTab = null) {
         <div class="filter-chips" style="margin-bottom:20px;">
             <button class="filter-chip active" data-tab="debts">Debts</button>
             <button class="filter-chip" data-tab="expenses">Expenses</button>
+            <button class="filter-chip" data-tab="strategy">Repayment Strategy</button>
         </div>
 
         <div class="stats-grid">
@@ -297,6 +183,7 @@ export function renderDebts(container, store, subTab = null) {
                         <span class="strategy-drawer-meta">
                             Active: <strong>${budget.strategy === 'avalanche' ? 'Avalanche' : 'Snowball'}</strong>${activeAvalanche.totalInterestPaid < activeSnowball.totalInterestPaid && activeAvalanche.totalInterestPaid !== Infinity && activeSnowball.totalInterestPaid !== Infinity ? ` &middot; <span style="color:var(--green);">Avalanche saves ${formatCurrency(activeSnowball.totalInterestPaid - activeAvalanche.totalInterestPaid)}</span>` : ''}
                         </span>
+                        <button type="button" id="open-strategy-page" title="Open the full Repayment Strategy planner (lump sums, rate scenarios, chart)" style="margin-left:auto;font-size:12px;font-weight:600;color:var(--accent);background:transparent;border:1px solid var(--accent);border-radius:8px;padding:4px 10px;cursor:pointer;white-space:nowrap;">Open full planner ↗</button>
                     </div>
                     <span class="strategy-drawer-chevron" aria-hidden="true">▾</span>
                 </summary>
@@ -538,7 +425,7 @@ export function renderDebts(container, store, subTab = null) {
     container.querySelectorAll('.filter-chip[data-tab]').forEach(chip => {
         chip.addEventListener('click', () => {
             if (chip.classList.contains('active')) return;
-            navigate(chip.dataset.tab === 'debts' ? 'debts' : 'debts/expenses');
+            navigate(chip.dataset.tab === 'debts' ? 'debts' : 'debts/' + chip.dataset.tab);
         });
     });
 
@@ -551,6 +438,17 @@ export function renderDebts(container, store, subTab = null) {
         cascadeToggle.addEventListener('change', () => {
             store.updateDebtBudget({ cascadeEnabled: cascadeToggle.checked });
             refreshPage();
+        });
+    }
+
+    // "Open full planner" jumps to the dedicated Repayment Strategy page.
+    // stopPropagation keeps the click from toggling the <details> drawer.
+    const openStrategyBtn = container.querySelector('#open-strategy-page');
+    if (openStrategyBtn) {
+        openStrategyBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            navigate('debts/strategy');
         });
     }
 
@@ -721,6 +619,7 @@ function renderExpensesTab(container, store) {
             <div class="filter-chips" style="margin-bottom:0;">
                 <button class="filter-chip" data-tab="debts">Debts</button>
                 <button class="filter-chip active" data-tab="expenses">Expenses</button>
+                <button class="filter-chip" data-tab="strategy">Repayment Strategy</button>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <div style="display:flex;gap:8px;" id="expenses-period-toggle">
@@ -851,7 +750,7 @@ function renderExpensesTab(container, store) {
     container.querySelectorAll('.filter-chip[data-tab]').forEach(chip => {
         chip.addEventListener('click', () => {
             if (chip.classList.contains('active')) return;
-            navigate(chip.dataset.tab === 'debts' ? 'debts' : 'debts/expenses');
+            navigate(chip.dataset.tab === 'debts' ? 'debts' : 'debts/' + chip.dataset.tab);
         });
     });
 
