@@ -151,7 +151,13 @@ export function resetOnboarding() {
     localStorage.removeItem(ONBOARDING_KEY);
 }
 
-export function startOnboarding() {
+// Runs once when the tour ends — whether finished or skipped. Used by the
+// welcome flow to make the user's chosen first action (connect a bank /
+// add a bill) the tour's final stop.
+var onTourDone = null;
+
+export function startOnboarding(onDone) {
+    onTourDone = typeof onDone === 'function' ? onDone : null;
     currentStep = 0;
     buildActiveSteps();
     // Navigate to dashboard so sidebar highlights and Reports chip are available
@@ -490,6 +496,13 @@ function positionCard(step, card, highlight) {
 function finishOnboarding() {
     markOnboardingComplete();
     destroyOverlay();
+    // Hand off to the post-tour action (if the welcome flow set one) after
+    // the overlay fade so the next UI doesn't fight the tour chrome.
+    if (onTourDone) {
+        var cb = onTourDone;
+        onTourDone = null;
+        setTimeout(cb, 350);
+    }
 }
 
 function destroyOverlay() {

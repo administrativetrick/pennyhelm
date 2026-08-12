@@ -15,7 +15,7 @@ import { renderRules } from './pages/rules.js';
 import { renderBudgets } from './pages/budgets.js';
 import { renderSavingsGoalsPage } from './pages/savings.js';
 import { renderSharedView } from './pages/shared-view.js';
-import { shouldShowOnboarding, startOnboarding, markOnboardingComplete } from './onboarding.js';
+import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
 import { connectBank } from './plaid.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 import { pingActiveUser } from './active-ping.js';
@@ -232,7 +232,6 @@ function showWelcomeScreen() {
                             Add Your First Bill
                             <div style="font-size:12px;opacity:0.8;margin-top:4px;">Start by hand with the bill you think about most</div>
                         </button>
-                        <div id="welcome-bank-hint" style="font-size:12px;color:var(--text-muted);min-height:16px;"></div>
                         <div style="display:flex;gap:16px;justify-content:center;margin-top:4px;">
                             <button id="welcome-sample" style="background:none;border:none;color:var(--text-secondary);font-size:13px;cursor:pointer;text-decoration:underline;font-family:inherit;">Load sample data</button>
                             <button id="welcome-empty" style="background:none;border:none;color:var(--text-secondary);font-size:13px;cursor:pointer;text-decoration:underline;font-family:inherit;">Start fresh</button>
@@ -255,20 +254,14 @@ function showWelcomeScreen() {
             </div>
         `;
 
+        // The guided choices only record intent here — the tour runs first,
+        // and the chosen action fires as its final stop (or immediately if
+        // the tour is skipped/unavailable). See the boot sequence below.
         const bankBtn = document.getElementById('welcome-bank');
         if (bankBtn) {
             bankBtn.addEventListener('click', () => {
-                const hint = document.getElementById('welcome-bank-hint');
-                if (hint) hint.textContent = 'Opening a secure connection to your bank…';
-                // connectBank opens Plaid Link; onComplete fires only after
-                // accounts actually imported. Closing Link just returns here,
-                // so the other options stay available.
-                connectBank(store, () => {
-                    store.completeSetup();
-                    // They start with real data — skip the generic tour.
-                    markOnboardingComplete();
-                    resolve({ choice: 'bank' });
-                });
+                store.completeSetup();
+                resolve({ choice: 'bank' });
             });
         }
 
@@ -276,7 +269,6 @@ function showWelcomeScreen() {
         if (billBtn) {
             billBtn.addEventListener('click', () => {
                 store.completeSetup();
-                markOnboardingComplete();
                 resolve({ choice: 'first-bill' });
             });
         }
@@ -329,12 +321,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     init();
 
-    // "Add Your First Bill" onboarding path: land on Bills with the add
-    // form already open, so the first session ends with real data in place.
-    if (welcomeChoice && welcomeChoice.choice === 'first-bill') {
-        navigate('bills');
-        setTimeout(() => document.getElementById('add-bill-btn')?.click(), 250);
-    }
+    // The welcome screen's guided choice becomes the tour's final stop: run
+    // the tour first, then connect the bank / open the first-bill form. If
+    // the tour doesn't run (skipped earlier, shared mode), act immediately.
+    const welcomeFollowUp = !welcomeChoice ? null : () => {
+        if (welcomeChoice.choice === 'bank') {
+            connectBank(store, () => refreshPage());
+        } else if (welcomeChoice.choice === 'first-bill') {
+            navigate('bills');
+            setTimeout(() => document.getElementById('add-bill-btn')?.click(), 250);
+        }
+    };
 
     // Shared-mode chrome + share discovery (cloud only; async, non-blocking).
     initSharedMode({ store, auth });
@@ -344,7 +341,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     //    "My finances" with no finances of your own re-runs the tour.
     const resumeOnboarding = consumeResumeOnboarding();
     if (!isSharedMode() && (resumeOnboarding || shouldShowOnboarding())) {
-        setTimeout(() => startOnboarding(), 400);
+        setTimeout(() => startOnboarding(welcomeFollowUp), 400);
+    } else if (welcomeFollowUp) {
+        welcomeFollowUp();
     }
 
     // 8. Daily balance snapshot (both modes).
