@@ -1,7 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 
 module.exports = function({ admin, db, getPlaidClient, getEmailTransporter, generateSecurePassword, hashPassword, secrets, enforceRateLimit }) {
-    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV, STRIPE_SECRET_KEY } = secrets;
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, RESEND_API_KEY, PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV, STRIPE_SECRET_KEY } = secrets;
 
     const exports = {};
 
@@ -9,7 +9,7 @@ module.exports = function({ admin, db, getPlaidClient, getEmailTransporter, gene
     //    Called after Google sign-in to create email/password credentials
     //    and send the temporary password via email
     exports.setupMobileCredentials = onCall(
-        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM] },
+        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, RESEND_API_KEY] },
         async (request) => {
             console.log("setupMobileCredentials called");
 
@@ -157,7 +157,7 @@ If you did not request this, please ignore this email or contact support.
     // 5. resendMobilePassword
     //    Resend a new temporary password for users who lost theirs
     exports.resendMobilePassword = onCall(
-        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM] },
+        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, RESEND_API_KEY] },
         async (request) => {
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");

@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const sharedAccess = require("./shared/shared-access-model.cjs");
 
 module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRateLimit }) {
-    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = secrets;
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, RESEND_API_KEY } = secrets;
     const exports = {};
 
     // ─────────────────────────────────────────────
@@ -37,7 +37,7 @@ module.exports = function({ admin, db, getEmailTransporter, secrets, enforceRate
     // sendInvite
     //   Creates an invite record in Firestore and sends an email to the invitee
     exports.sendInvite = onCall(
-        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM] },
+        { secrets: [SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, RESEND_API_KEY] },
         async (request) => {
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Must be signed in.");

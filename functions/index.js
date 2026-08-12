@@ -37,6 +37,7 @@ const SMTP_PORT = defineSecret("SMTP_PORT");
 const SMTP_USER = defineSecret("SMTP_USER");
 const SMTP_PASS = defineSecret("SMTP_PASS");
 const SMTP_FROM = defineSecret("SMTP_FROM");
+const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
 
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
@@ -63,7 +64,37 @@ function getPlaidClient(clientId, secret, env) {
     return new PlaidApi(configuration);
 }
 
+// Email is sent via the Resend HTTP API when RESEND_API_KEY is attached to the
+// calling function, with classic SMTP as the fallback. (Office 365 retired
+// Basic SMTP AUTH in 2026, which silently killed every SMTP send — see the
+// 2026-08-12 outage.) Returns a nodemailer-compatible { sendMail } object so
+// no call site has to change.
 function getEmailTransporter() {
+    let resendKey = null;
+    try { resendKey = RESEND_API_KEY.value(); } catch { resendKey = null; }
+    if (resendKey) {
+        return {
+            sendMail: async (msg) => {
+                const payload = {
+                    from: msg.from,
+                    to: Array.isArray(msg.to) ? msg.to : [msg.to],
+                    subject: msg.subject,
+                    html: msg.html,
+                    text: msg.text,
+                };
+                const res = await fetch("https://api.resend.com/emails", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${resendKey}`, "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    const body = await res.text().catch(() => "");
+                    throw new Error(`Resend ${res.status}: ${body.slice(0, 300)}`);
+                }
+                return res.json();
+            },
+        };
+    }
     return nodemailer.createTransport({
         host: SMTP_HOST.value(),
         port: parseInt(SMTP_PORT.value()) || 587,
@@ -93,7 +124,7 @@ function hashPassword(password) {
 
 const secrets = {
     PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV,
-    SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
+    SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, RESEND_API_KEY,
     STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
     STRIPE_ANNUAL_PRICE_ID, STRIPE_MONTHLY_PRICE_ID,
     MFA_ENCRYPTION_KEY,

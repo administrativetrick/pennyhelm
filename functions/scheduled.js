@@ -727,7 +727,7 @@ module.exports = function({ admin, db, getPlaidClient, getEmailTransporter, secr
         {
             schedule: "0 16 * * *", // ~08:00–09:00 America/Los_Angeles
             timeZone: "UTC",
-            secrets: [secrets.SMTP_HOST, secrets.SMTP_PORT, secrets.SMTP_USER, secrets.SMTP_PASS, secrets.SMTP_FROM],
+            secrets: [secrets.SMTP_HOST, secrets.SMTP_PORT, secrets.SMTP_USER, secrets.SMTP_PASS, secrets.SMTP_FROM, secrets.RESEND_API_KEY],
         },
         async () => {
             const snap = await db.collection("users").where("subscriptionStatus", "==", "trial").get();

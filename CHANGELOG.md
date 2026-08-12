@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **All outbound email had silently stopped sending** (mobile temporary passwords, sharing invites, trial reminders, newsletter) after the SMTP provider retired basic authentication. Email now sends through the Resend API, with SMTP retained as a fallback.
+
 ### Added
 - **Trial reminders.** Trial users now get a nudge before access is cut off: the in-app "trial ending" banner appears from two weeks out (was one week), and a daily job emails a reminder at 7 days left, 2 days left, and on expiry (each at most once), linking straight to subscribe.
 - **Expand a budget to see the expenses behind it.** Clicking a budget on the Budgets page now drops down the individual expenses that make up its spend for the month you're viewing (newest first), so you can see exactly what landed in that category. Uses the same matching as the budget total, so the list and the number always agree.
