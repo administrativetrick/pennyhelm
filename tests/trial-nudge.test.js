@@ -6,8 +6,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const sched = require('../functions/scheduled.js');
-const { pickTrialMilestone, trialEmailContent } = sched;
+const { pickTrialMilestone, trialEmailContent } = require('../functions/trial-nudge-content.js');
 
 describe('pickTrialMilestone', () => {
     test('too early → no email', () => {
