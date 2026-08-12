@@ -15,7 +15,8 @@ import { renderRules } from './pages/rules.js';
 import { renderBudgets } from './pages/budgets.js';
 import { renderSavingsGoalsPage } from './pages/savings.js';
 import { renderSharedView } from './pages/shared-view.js';
-import { shouldShowOnboarding, startOnboarding } from './onboarding.js';
+import { shouldShowOnboarding, startOnboarding, markOnboardingComplete } from './onboarding.js';
+import { connectBank } from './plaid.js';
 import { openModal, closeModal } from './services/modal-manager.js';
 import { pingActiveUser } from './active-ping.js';
 import { primeSharedMode, initSharedMode, isSharedMode, SHARED_MODE_PAGES, maybeAutoEnterSharedEarly, consumeResumeOnboarding } from './services/shared-mode.js';
@@ -204,18 +205,39 @@ function createMobileNav() {
 function showWelcomeScreen() {
     return new Promise((resolve) => {
         const main = document.getElementById('main-content');
+        // Bank-first onboarding wherever Plaid is available (cloud always;
+        // selfhost only when the user configured their own API keys). Real
+        // data on day one is the single biggest activation lever we have.
+        const plaidReady = capabilities().plaid;
+
         main.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:center;min-height:80vh;">
                 <div style="max-width:500px;text-align:center;padding:40px;">
                     <div style="font-size:48px;margin-bottom:16px;">
                         <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/><path d="M6 16h4"/></svg>
                     </div>
-                    <h1 style="font-size:28px;font-weight:700;margin-bottom:8px;">Welcome to Personal Finances</h1>
+                    <h1 style="font-size:28px;font-weight:700;margin-bottom:8px;">Welcome to PennyHelm</h1>
                     <p style="color:var(--text-secondary);margin-bottom:32px;line-height:1.6;">
-                        Track your bills, accounts, debts, and taxes all in one place.
-                        How would you like to get started?
+                        ${plaidReady
+                            ? 'The fastest way to start: connect your bank and your accounts, balances, and debts import automatically.'
+                            : 'Track your bills, accounts, debts, and taxes all in one place. How would you like to get started?'}
                     </p>
                     <div style="display:flex;flex-direction:column;gap:12px;">
+                        ${plaidReady ? `
+                        <button class="btn btn-primary" id="welcome-bank" style="padding:14px 24px;font-size:15px;">
+                            Connect Your Bank
+                            <div style="font-size:12px;opacity:0.8;margin-top:4px;">Secure via Plaid &mdash; accounts &amp; balances import automatically</div>
+                        </button>
+                        <button class="btn btn-secondary" id="welcome-bill" style="padding:14px 24px;font-size:15px;">
+                            Add Your First Bill
+                            <div style="font-size:12px;opacity:0.8;margin-top:4px;">Start by hand with the bill you think about most</div>
+                        </button>
+                        <div id="welcome-bank-hint" style="font-size:12px;color:var(--text-muted);min-height:16px;"></div>
+                        <div style="display:flex;gap:16px;justify-content:center;margin-top:4px;">
+                            <button id="welcome-sample" style="background:none;border:none;color:var(--text-secondary);font-size:13px;cursor:pointer;text-decoration:underline;font-family:inherit;">Load sample data</button>
+                            <button id="welcome-empty" style="background:none;border:none;color:var(--text-secondary);font-size:13px;cursor:pointer;text-decoration:underline;font-family:inherit;">Start fresh</button>
+                        </div>
+                        ` : `
                         <button class="btn btn-primary" id="welcome-sample" style="padding:14px 24px;font-size:15px;">
                             Load Sample Data
                             <div style="font-size:12px;opacity:0.8;margin-top:4px;">Explore with example bills, accounts, and debts</div>
@@ -224,13 +246,40 @@ function showWelcomeScreen() {
                             Start Fresh
                             <div style="font-size:12px;opacity:0.8;margin-top:4px;">Set up everything yourself from scratch</div>
                         </button>
+                        `}
                     </div>
                     <p style="color:var(--text-muted);font-size:12px;margin-top:24px;">
-                        You can always clear sample data or import your own data later in Settings.
+                        You can always ${plaidReady ? 'connect a bank later, or ' : ''}clear sample data or import your own data later in Settings.
                     </p>
                 </div>
             </div>
         `;
+
+        const bankBtn = document.getElementById('welcome-bank');
+        if (bankBtn) {
+            bankBtn.addEventListener('click', () => {
+                const hint = document.getElementById('welcome-bank-hint');
+                if (hint) hint.textContent = 'Opening a secure connection to your bank…';
+                // connectBank opens Plaid Link; onComplete fires only after
+                // accounts actually imported. Closing Link just returns here,
+                // so the other options stay available.
+                connectBank(store, () => {
+                    store.completeSetup();
+                    // They start with real data — skip the generic tour.
+                    markOnboardingComplete();
+                    resolve({ choice: 'bank' });
+                });
+            });
+        }
+
+        const billBtn = document.getElementById('welcome-bill');
+        if (billBtn) {
+            billBtn.addEventListener('click', () => {
+                store.completeSetup();
+                markOnboardingComplete();
+                resolve({ choice: 'first-bill' });
+            });
+        }
 
         document.getElementById('welcome-sample').addEventListener('click', () => {
             seedSampleData();
@@ -266,10 +315,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 6. First-run welcome screen — skipped for invited accounts, which
     //    default straight into the finances shared with them. Their own
     //    setup runs the first time they press "My finances".
+    let welcomeChoice = null;
     if (!store.isSetupComplete()) {
         const autoShared = await maybeAutoEnterSharedEarly({ store, auth });
         if (!autoShared) {
-            await showWelcomeScreen();
+            welcomeChoice = await showWelcomeScreen();
         }
     }
 
@@ -278,6 +328,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     primeSharedMode();
 
     init();
+
+    // "Add Your First Bill" onboarding path: land on Bills with the add
+    // form already open, so the first session ends with real data in place.
+    if (welcomeChoice && welcomeChoice.choice === 'first-bill') {
+        navigate('bills');
+        setTimeout(() => document.getElementById('add-bill-btn')?.click(), 250);
+    }
 
     // Shared-mode chrome + share discovery (cloud only; async, non-blocking).
     initSharedMode({ store, auth });
