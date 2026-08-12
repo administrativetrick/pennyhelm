@@ -43,6 +43,29 @@ const MAX_VISITOR_LEN = 64;
 const MAX_PATH_LEN = 200;
 const MAX_REFERRER_LEN = 500;
 
+// Map an external referrer URL to a marketing channel, so a signup that carried
+// only a referrer (no UTM) is attributed to that channel instead of "direct".
+function channelFromReferrer(referrer) {
+    if (!referrer || typeof referrer !== "string") return null;
+    let host;
+    try { host = new URL(referrer).hostname.replace(/^www\./, "").toLowerCase(); } catch { return null; }
+    if (!host) return null;
+    if (host.includes("reddit")) return "reddit";
+    if (host.includes("news.ycombinator") || host === "ycombinator.com") return "hackernews";
+    if (host === "t.co" || host.includes("twitter") || host === "x.com" || host.endsWith(".x.com")) return "twitter";
+    if (host.includes("facebook") || host.includes("fb.com")) return "facebook";
+    if (host.includes("instagram")) return "instagram";
+    if (host.includes("youtube") || host === "youtu.be") return "youtube";
+    if (host.includes("linkedin") || host === "lnkd.in") return "linkedin";
+    if (host.includes("producthunt")) return "producthunt";
+    if (host.includes("alternativeto")) return "alternativeto";
+    if (host.includes("google.")) return "google";
+    if (host.includes("bing.")) return "bing";
+    if (host.includes("duckduckgo")) return "duckduckgo";
+    if (host.includes("github")) return "github";
+    return host; // fall back to the bare domain as the channel
+}
+
 module.exports = (shared) => {
     const { db } = shared;
 
@@ -188,7 +211,7 @@ module.exports = (shared) => {
 
             eventsSnap.forEach((doc) => {
                 const d = doc.data();
-                const src = d.utm?.source || "direct";
+                const src = d.utm?.source || channelFromReferrer(d.referrer) || "direct";
                 const camp = d.utm?.campaign || "(no campaign)";
                 const content = d.utm?.content || "(no creative)";
 
@@ -221,7 +244,7 @@ module.exports = (shared) => {
                     bucket(byContent, "(no creative)").signups++;
                     return;
                 }
-                bucket(bySource, acq.utm_source || "direct").signups++;
+                bucket(bySource, acq.utm_source || channelFromReferrer(acq.referrer) || "direct").signups++;
                 bucket(byCampaign, acq.utm_campaign || "(no campaign)").signups++;
                 bucket(byContent, acq.utm_content || "(no creative)").signups++;
             });

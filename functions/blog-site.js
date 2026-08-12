@@ -188,6 +188,12 @@ module.exports = ({ db }) => {
 <meta name="twitter:description" content="${desc}">
 <meta name="twitter:image" content="${img}">
 <script>(function(){var t=localStorage.getItem('pennyhelm-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
+<script>
+/* First-touch acquisition capture on blog landings — a reddit/HN/social reader
+   who arrives on a post keeps that referrer through to signup. Mirror of the
+   snippet in index.html and js/acquisition.js — keep the three in sync. */
+(function(){try{var key='pennyhelm-acquisition';var p=new URLSearchParams(window.location.search);var utms=['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];var hasAny=p.has('ref')||p.has('gclid')||p.has('fbclid');for(var i=0;i<utms.length&&!hasAny;i++)if(p.has(utms[i]))hasAny=true;var extRef='';if(document.referrer){try{var ru=new URL(document.referrer);if(ru.host!==window.location.host)extRef=document.referrer.slice(0,500);}catch(_){}}if(!hasAny&&!extRef)return;var existing={};try{existing=JSON.parse((localStorage.getItem(key)||sessionStorage.getItem(key))||'{}')||{};}catch(_){}if(!hasAny&&extRef&&(existing.utm_source||existing.ref||existing.referrer))return;utms.forEach(function(k){var v=p.get(k);if(v)existing[k]=String(v).slice(0,200);});var ref=p.get('ref');if(ref)existing.ref=String(ref).slice(0,50).toUpperCase();var g=p.get('gclid');if(g)existing.gclid=String(g).slice(0,200);var f=p.get('fbclid');if(f)existing.fbclid=String(f).slice(0,200);if(!existing.referrer&&extRef)existing.referrer=extRef;if(!existing.landingPath)existing.landingPath=window.location.pathname.slice(0,200);if(!existing.capturedAt)existing.capturedAt=new Date().toISOString();var json=JSON.stringify(existing);try{localStorage.setItem(key,json);}catch(_){try{sessionStorage.setItem(key,json);}catch(_){}}}catch(_){}})();
+</script>
 <link rel="stylesheet" href="/css/landing.css">
 <style>${BLOG_CSS}</style>
 ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
