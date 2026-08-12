@@ -83,7 +83,9 @@ const cloud = Object.freeze({
                 return false;
             }
 
-            if (status.status === 'trial' && status.trialDaysRemaining <= 7 && !status.isUnlimited) {
+            // Surface the trial reminder from two weeks out (was 7 days) so
+            // people have time to decide before access is cut off.
+            if (status.status === 'trial' && status.trialDaysRemaining <= 14 && !status.isUnlimited) {
                 showTrialBanner(status.trialDaysRemaining, () => showSubscriptionModal(auth));
             }
 
